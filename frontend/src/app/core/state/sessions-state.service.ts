@@ -5,7 +5,7 @@ import { SessionsApiService } from '../services/sessions-api.service';
 import { readKey, saveKey } from '../services/alfred-key';
 import { reconnectingSocket } from './reconnecting-socket';
 import {
-  BoardSessionRow, CommandKind, HelperCommand, HelperInfo, HelperRow, Holder, Me, MySettings, SessionsEvent,
+  BoardSessionRow, CommandKind, ConnectStart, HelperCommand, HelperInfo, HelperRow, Holder, Me, MySettings, SessionsEvent,
 } from '../models/sessions.models';
 
 /**
@@ -28,6 +28,8 @@ export class SessionsStateService {
   private readonly seenDone = new Set<string>();
 
   readonly paired = computed(() => !!this.me()?.user);
+  /** A "Connect this PC" file this browser downloaded and waits for (kept for this tab across a reload). */
+  readonly connecting = signal<ConnectStart | null>(readConnecting());
   readonly user = computed(() => this.me()?.user ?? null);
   readonly onlineHelpers = computed(() => this.helpers().filter((h) => h.online));
   /** The PC a command from this browser goes to: the helper it was paired with when online, else any online one. */
@@ -53,12 +55,15 @@ export class SessionsStateService {
     } catch {
       return; // no HttpClient here (a component test): nothing to read, nothing to follow
     }
+    // back from running the connect file: collect at once, in case the signal came while the socket was away
+    window.addEventListener('focus', () => this.collect());
     this.events$.subscribe({
       next: (e) => {
         if (e.what === 'holders') this.loadHolders();
         else if (e.what === 'sessions') this.loadSessions();
         else if (e.what === 'commands') this.loadCommands();
         else if (e.what === 'keys') { this.loadMe(); this.loadHelpers(); }
+        else if (e.what === 'connect') this.collect();
         else if (e.what === 'settings') this.loadSettings();
       },
       error: () => undefined,
@@ -66,6 +71,7 @@ export class SessionsStateService {
   }
 
   reloadAll(): void {
+    this.collect();
     this.loadMe();
     this.loadHolders();
     this.loadSessions();
@@ -167,10 +173,47 @@ export class SessionsStateService {
     );
   }
 
+  /**
+   * "Connect this PC": saves the file that installs the helper here and pairs this browser, and waits for it - the
+   * /ws/sessions signal (or coming back to the tab) collects the key, never a poll.
+   */
+  connect(): Observable<ConnectStart | null> {
+    const os = /Win/i.test(navigator.platform || navigator.userAgent) ? 'windows' : /Mac/i.test(navigator.platform || '') ? 'mac' : 'linux';
+    return this.api.connect(this.config.backendUrl, os, browserLabel()).pipe(
+      tap((c) => {
+        this.connecting.set(c);
+        keepConnecting(c);
+        downloadText(c.fileName, c.script);
+      }),
+      catchError(() => of(null)),
+    );
+  }
+
+  /** Downloads the same connect file again (it was not saved, or was deleted). */
+  downloadAgain(): void {
+    const c = this.connecting();
+    if (c) downloadText(c.fileName, c.script);
+  }
+
+  cancelConnect(): void {
+    this.connecting.set(null);
+    keepConnecting(null);
+  }
+
+  /** Takes this browser's key once its PC has run the connect file; nothing while it has not. */
+  collect(): void {
+    const c = this.connecting();
+    if (!c) return;
+    if (Date.parse(c.expiresAt) < Date.now()) { this.cancelConnect(); return; }
+    this.api.collect(c.connectId, c.collectSecret).subscribe({
+      next: (r) => { saveKey(r.key); this.cancelConnect(); this.loadMe(); },
+      error: () => undefined,
+    });
+  }
+
   pair(code: string): Observable<boolean> {
     return new Observable<boolean>((sub) => {
-      const label = `${navigator.userAgent.includes('Edg/') ? 'Edge' : navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Firefox') ? 'Firefox' : 'Browser'} on ${navigator.platform || 'this PC'}`;
-      this.api.pair(code.replace(/\s/g, ''), label).subscribe({
+      this.api.pair(code.replace(/\s/g, ''), browserLabel()).subscribe({
         next: (r) => { saveKey(r.key); this.loadMe(); sub.next(true); sub.complete(); },
         error: () => { sub.next(false); sub.complete(); },
       });
@@ -187,4 +230,39 @@ export class SessionsStateService {
   saveSettings(s: MySettings): Observable<MySettings | null> {
     return this.api.saveSettings(s).pipe(tap((v) => this.settings.set(v)), catchError(() => of(null)));
   }
+}
+
+const CONNECTING = 'alfred.connecting';
+
+function browserLabel(): string {
+  const ua = navigator.userAgent;
+  const name = ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : 'Browser';
+  return `${name} on ${navigator.platform || 'this PC'}`;
+}
+
+function readConnecting(): ConnectStart | null {
+  try {
+    const v = sessionStorage.getItem(CONNECTING);
+    return v ? (JSON.parse(v) as ConnectStart) : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepConnecting(c: ConnectStart | null): void {
+  try {
+    if (c) sessionStorage.setItem(CONNECTING, JSON.stringify(c));
+    else sessionStorage.removeItem(CONNECTING);
+  } catch { /* storage blocked: the wait lasts as long as the page */ }
+}
+
+function downloadText(fileName: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

@@ -88,7 +88,7 @@ export interface BoardSessionRow {
 }
 
 export type CommandKind = 'START' | 'RESUME' | 'OPEN_DESKTOP' | 'OPEN_TERMINAL' | 'STOP' | 'STOP_ALL' | 'PICK_FOLDER' | 'BRING_TRANSCRIPT'
-  | 'SEND_TRANSCRIPT' | 'SYNC' | 'CONTINUE_FROM_COPY' | 'ATTACH' | 'LISTEN' | 'STOP_LISTEN' | 'HANDOVER';
+  | 'SEND_TRANSCRIPT' | 'SYNC' | 'CONTINUE_FROM_COPY' | 'ATTACH' | 'LISTEN' | 'STOP_LISTEN' | 'HANDOVER' | 'RESTART_DESKTOP';
 export type CommandState = 'QUEUED' | 'TAKEN' | 'DONE' | 'FAILED' | 'CANCELLED';
 
 export interface HelperCommand {
@@ -144,7 +144,7 @@ export interface MySettings {
 
 export interface SessionsEvent {
   readonly type: 'sessions-changed';
-  readonly what: 'holders' | 'sessions' | 'commands' | 'keys' | 'settings';
+  readonly what: 'holders' | 'sessions' | 'commands' | 'keys' | 'settings' | 'connect';
   readonly boardId?: string;
 }
 
@@ -163,4 +163,16 @@ export interface PendingMessage {
   readonly machine: string;
   readonly text: string;
   readonly at: string;
+}
+
+/** POST /board/connect: the file to save (its text carries a one-time token) and how this browser collects its key. */
+export interface ConnectStart {
+  readonly connectId: string;
+  readonly collectSecret: string;
+  readonly expiresAt: string;
+  readonly fileName: string;
+  readonly script: string;
+  /** What to tell the user: "Double-click alfred-connect.cmd in your Downloads". */
+  readonly run: string;
+  readonly versions: { readonly helper: string; readonly skills: string; readonly node: boolean };
 }

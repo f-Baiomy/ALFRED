@@ -22,8 +22,11 @@ No test suite/linter for `proxy` beyond the Docker build itself.
 ## The helper (`node --test helper/test/alfred-helper.test.mjs`)
 
 specs/031's helper on the user's PC: server addresses, a project's folder per PC, the MCP server found by Alfred's address,
-the Desktop record's shape, transcripts and today's tokens, the per-board git worktree (a real `git` in a temp folder), and
-START / NOT_HERE through a fake Alfred. Name the file - `node --test helper/test/` fails on Windows. The board lock itself
+the Desktop record's shape, transcripts and today's tokens, the per-board git worktree (a real `git` in a temp folder),
+START / NOT_HERE / the first-START folder question through a fake Alfred (the picker is replaced - never a real dialog in a
+test), the skills install (marker rule, paths that try to leave the folder), the MCP server's name and key, and that the
+helper names versions like Alfred. `ConnectServiceTest` covers the connect file (only a plain origin reaches the script)
+and the skills as handed out; `KeysServiceTest` the one-time token and the browser's collect. Name the file - `node --test helper/test/` fails on Windows. The board lock itself
 is covered by `backend-sessions` (keys, holders, sessions, commenters' queue, away rule) and `BoardWriteTargetsTest`.
 
 ## Inbound E2E (`sh tests/e2e/run_inbound_e2e.sh [E1 ... E10]`)

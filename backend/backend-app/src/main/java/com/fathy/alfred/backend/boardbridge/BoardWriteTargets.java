@@ -27,7 +27,7 @@ final class BoardWriteTargets {
     }
 
     /** Paths the lock never looks at (prefixes after /board/). */
-    static final List<String> EXEMPT = List.of("helpers", "browsers", "me", "holders", "sessions", "helper-commands", "users", "audit",
+    static final List<String> EXEMPT = List.of("helpers", "browsers", "connect", "me", "holders", "sessions", "helper-commands", "users", "audit",
             "live-runner", "live-work", "agent-status", "storage", "import", "teams", "widgets", "chats/terminal/delivered",
             "skill-runs/claim", "access");
 

@@ -189,6 +189,9 @@ public class SqliteSessionsRepository implements SessionsStorePort {
             List<String> ids = jdbc.queryForList("SELECT key_id FROM helpers WHERE user = ? AND machine = ? AND key_id <> ? AND revoked_at IS NULL",
                     String.class, user, machine, exceptKeyId);
             for (String id : ids) {
+                // the new key takes over the PC: its browsers stay paired and its sessions stay on this PC
+                jdbc.update("UPDATE browser_keys SET helper_key_id = ? WHERE helper_key_id = ? AND revoked_at IS NULL", exceptKeyId, id);
+                jdbc.update("UPDATE board_sessions SET helper_key_id = ? WHERE helper_key_id = ?", exceptKeyId, id);
                 revokeIn(id, at);
             }
             return ids;

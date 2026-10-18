@@ -382,6 +382,9 @@ services:
       - FORWARD_PROXY_DEFAULT_PORT=8080
       - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
     volumes:
+      # "Connect this PC" (specs/031): the helper and the /alfred-* skills a PC downloads from Alfred, read-only.
+      - ./helper:/opt/alfred-connect/helper:ro
+      - ./skills:/opt/alfred-connect/skills:ro
       - ./backend/data:/appdata
       - logs-db:/logsdb
       - db-capture-db:/dbcapturedb

@@ -16,7 +16,27 @@ import java.util.Optional;
 public interface KeysUseCase {
 
     /** A helper on {@code machine} for {@code user}: a new key; the user's older helper on that machine is revoked. */
-    Issued registerHelper(String user, String machine, String claudeAccount, String ip);
+    default Issued registerHelper(String user, String machine, String claudeAccount, String ip) {
+        return registerHelper(user, machine, claudeAccount, ip, null);
+    }
+
+    /**
+     * {@link #registerHelper(String, String, String, String)} from a "Connect this PC" file: a live {@code connectToken}
+     * also pairs the browser that downloaded the file, which then collects its key ({@link #collect}).
+     */
+    Issued registerHelper(String user, String machine, String claudeAccount, String ip, String connectToken);
+
+    /**
+     * "Connect this PC" (one click, no code): a one-time token that goes into the file the browser downloads, and the
+     * id + secret only that browser holds to collect its key once the helper on the PC has registered with the token.
+     */
+    ConnectStart connectStart(String label);
+
+    record ConnectStart(String connectId, String collectSecret, String token, Instant expiresAt) {
+    }
+
+    /** The browser's key once its PC has connected - once; empty while it has not (or for a wrong secret). */
+    Optional<Issued> collect(String connectId, String collectSecret);
 
     /** The caller behind an {@code X-Alfred-Key} value, if the key is live. */
     Optional<Caller> authenticate(String rawKey);

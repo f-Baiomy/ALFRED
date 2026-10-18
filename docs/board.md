@@ -959,12 +959,14 @@ board's **▶ alfred-live** button, run on the user's own PC by their **Alfred h
 resumable in a terminal. The board's chat, its card comments and every ▶ run go to that session. Mock and plan:
 `specs/031-board-sessions/mock.html`, `plan.md`; the helper: docs/server.md "The helper".
 
-**Who is who.** Alfred has no logins. A user is the email their helper registered with (`alfred helper install --server
-<Alfred> --user <email>`): one key per PC, given once, kept by Alfred only as a SHA-256 (`backend-sessions`, `sessions.db`).
-A browser writes as that user once it is **paired**: `alfred helper pair` shows a six-digit code for two minutes, the user
-enters it in **👤 Me** (My settings), and the browser keeps its own key (localStorage) and sends it as `X-Alfred-Key` with
-every request (`alfredKeyInterceptor`, Alfred's origin only). Five wrong codes burn the open one; at most 30 wrong codes a
-minute in all. A reinstall on the same PC revokes the old key and its browsers.
+**Who is who.** Alfred has no logins. A user is the Claude account their PC is signed in with, registered by the helper
+on that PC: one key per PC, given once, kept by Alfred only as a SHA-256 (`backend-sessions`, `sessions.db`). The normal
+way in is **⬇ Connect this PC** (▶ alfred-live or 👤 Me): one downloaded file, run once, installs the helper, the skills
+and Alfred's MCP server and pairs that browser - docs/server.md "Connect this PC". The browser keeps its own key
+(localStorage) and sends it as `X-Alfred-Key` with every request (`alfredKeyInterceptor`, Alfred's origin only). Another
+browser on a connected PC may also pair by code: `alfred helper pair` shows six digits for two minutes, entered in 👤 Me;
+five wrong codes burn the open one, at most 30 wrong codes a minute in all. Connecting or installing again on the same PC
+replaces its key; its browsers and sessions move to the new one.
 
 **The board lock.** ▶ alfred-live (or a listen) takes a free board: its **holder** is that user. While held, every /board
 write on it - chat messages, card edits and moves, comments, brief, spec, ▶ runs, asks, and other users' Claude through

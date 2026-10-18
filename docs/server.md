@@ -398,6 +398,47 @@ Claude Code session there (docs/board.md "Board sessions"). It connects OUT to a
 maps each kind to its own fixed action - never a command line from the server. `helper/alfred-helper.mjs`, Node 18+, no
 dependencies; natively `alfred helper ...` runs it with the bundled Node (`app/helper/`).
 
+### Connect this PC (the normal way)
+
+Nobody types a command. On a PC that is not connected yet, ▶ alfred-live (or 👤 Me) offers **⬇ Connect this PC**:
+
+1. The browser asks Alfred for a connect file (`POST /board/connect` with the page's origin and the OS). The answer
+   carries the file's text - `alfred-connect.cmd` on Windows, `alfred-connect.sh` elsewhere - with a one-time token
+   (30 minutes, in memory only) and the id + secret this browser collects its key with. The token is never in a URL.
+2. The user runs the file once. It downloads `alfred-helper.mjs` (and, on Windows without Node 18+, `node.exe`) from
+   this Alfred into `%LOCALAPPDATA%lfred-helperpp` (`~/.config/alfred-helper/app`) and runs `alfred-helper.mjs
+   connect --server <origin> --token <t>`, which:
+   - finds Claude Code (on the PATH, else the copy Claude Desktop carries) and the account it is signed in with
+     (`~/.claude.json`) - that email is the user; nothing to type;
+   - registers the PC with the token (`POST /board/helpers/register`); the token also makes a key for the waiting
+     browser, which takes it on the `/ws/sessions` "connect" signal (or when its tab gets focus again) through
+     `POST /board/connect/collect` - no code, no poll;
+   - adds Alfred's MCP server to Claude Code (`claude mcp add --scope user --transport http alfred-lan-80
+     <origin>/mcp --header "X-Alfred-Key: …"`), or re-adds an existing HTTP entry that lacks the key; a local (stdio)
+     entry is left alone - the MCP server reads the key from the helper's config (`helperKey`);
+   - installs the `/alfred-*` skills from Alfred (`GET /board/connect/skills`) into `~/.claude/skills`, replacing only
+     Alfred-installed copies (the `.alfred-skill` marker, as `alfred_skill.py`);
+   - registers `alfred-helper://` and start-with-Windows (HKCU), and starts the helper in the background.
+3. The first ▶ for a project on that PC opens a folder picker there; the answer is kept in My settings.
+
+Running the file again (another browser, a broken install) replaces the PC's key and keeps its browsers and sessions
+(they move to the new key). **Everything stays current by itself**: every heartbeat answer carries `versions` (content
+hashes of the helper and the skills); the helper reinstalls the skills when theirs changed (only from the PC's default
+Alfred) and replaces its own file and restarts when it runs from the connect folder (never a source checkout's copy).
+
+What Alfred hands out: Docker mounts `./helper` and `./skills` read-only at `/opt/alfred-connect/` and bakes `node.exe`
+(build-versions.json's Node, checksummed) into the backend image; natively the supervisor points `ALFRED_CONNECT_HELPER`,
+`ALFRED_CONNECT_SKILLS` and `ALFRED_CONNECT_NODE` at `app/helper`, `app/skills` and the bundled Node (Windows only).
+
+What cannot be automatic: Claude Code must be installed and signed in; Claude Desktop asks once per folder to trust it and
+reads new sessions only when it starts (▶ menu ▸ **Restart Claude Desktop to show it**, `RESTART_DESKTOP`: stops only
+Desktop's own `Claude.exe`, never a claude CLI, and reopens it on the session).
+
+The identity is what the PC says (its Claude account); Alfred does not check it with Anthropic. Anyone who can reach
+Alfred can connect a PC as any email - keep Alfred on a network you trust, and revoke unknown users (Settings ▸ Users).
+
+### By hand
+
 ```bash
 alfred helper install --server http://192.168.1.80:3000 --user you@company.com [--machine NAME] [--mcp alfred-lan-80] [--autostart]
 alfred helper pair          # a six-digit code for two minutes: enter it in Alfred ▸ 👤 Me to pair this browser
@@ -416,8 +457,8 @@ alfred helper token set     # the Azure DevOps token, from stdin: kept on this P
   Azure token is kept; where each of its sessions is open (Desktop / terminal), tokens used today; toasts for new
   requests on the user's boards; over the daily budget it stops the user's runners on that PC (WAITING_BUDGET).
 - **Commands** (`POST /board/helper-commands/claim`, a 50 s long poll): START, RESUME, ATTACH, CONTINUE_FROM_COPY,
-  OPEN_DESKTOP, OPEN_TERMINAL, SYNC, LISTEN, STOP_LISTEN, STOP, STOP_ALL, HANDOVER, PICK_FOLDER (a folder picker on that
-  PC). Each result is reported back (`PUT /board/helper-commands/{id}`) and shown on the board.
+  OPEN_DESKTOP, OPEN_TERMINAL, RESTART_DESKTOP, SYNC, LISTEN, STOP_LISTEN, STOP, STOP_ALL, HANDOVER, PICK_FOLDER (a
+  folder picker on that PC; START opens one itself when the project has no folder there). Each result is reported back (`PUT /board/helper-commands/{id}`) and shown on the board.
 - It passes the user's key to what it starts (`ALFRED_KEY`, and `ALFRED_VIA` = the session id): the `/alfred-live` and
   `/alfred-listen` runners and the MCP server they start send it, so their writes count as the holder's.
 

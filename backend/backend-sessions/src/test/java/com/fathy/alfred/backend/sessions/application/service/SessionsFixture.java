@@ -18,6 +18,8 @@ final class SessionsFixture {
 
     final SessionsStorePort store;
     final List<String> events = new ArrayList<>();
+    /** Each paired browser's raw key, by key id. */
+    final java.util.Map<String, String> browserKeys = new java.util.HashMap<>();
     final MutableClock clock = new MutableClock(Instant.parse("2026-10-18T10:00:00Z"));
     final HoldersService holders;
     final KeysService keys;
@@ -62,6 +64,7 @@ final class SessionsFixture {
     Caller browser(Caller helper) {
         String code = keys.pairCode(helper).code();
         Issued i = keys.pairBrowser(code, "Chrome").orElseThrow();
+        browserKeys.put(i.keyId(), i.key());
         return keys.authenticate(i.key()).orElseThrow();
     }
 

@@ -32,7 +32,10 @@ public interface SessionsStorePort {
 
     void helperSeen(String keyId, Instant at, String ip, String info);
 
-    /** Revokes the user's other live helpers on that machine (a re-install replaces the old key); returns their ids. */
+    /**
+     * Revokes the user's other live helpers on that machine (a re-install or a new Connect replaces the old key); their
+     * browsers and board sessions move to {@code exceptKeyId}. Returns the revoked ids.
+     */
     List<String> revokeHelpersOn(String user, String machine, String exceptKeyId, Instant at);
 
     void addBrowser(BrowserKey key, String hash);

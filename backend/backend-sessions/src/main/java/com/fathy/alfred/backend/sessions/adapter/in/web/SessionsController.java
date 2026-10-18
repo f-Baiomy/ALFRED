@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessions.adapter.in.web;
 
+import com.fathy.alfred.backend.sessions.application.port.in.ConnectUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.HoldersUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.KeysUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.SessionsUseCase;
@@ -55,9 +56,11 @@ public class SessionsController {
     private final SessionsUseCase sessions;
     private final UserSettingsUseCase settings;
     private final ObjectProvider<AdminRequestCheck> adminCheck;
+    private final ObjectProvider<ConnectUseCase> connect;
 
     public SessionsController(KeysUseCase keys, HoldersUseCase holders, SessionsUseCase sessions, UserSettingsUseCase settings,
-                              ObjectProvider<AdminRequestCheck> adminCheck) {
+                              ObjectProvider<AdminRequestCheck> adminCheck, ObjectProvider<ConnectUseCase> connect) {
+        this.connect = connect;
         this.keys = keys;
         this.holders = holders;
         this.sessions = sessions;
@@ -71,7 +74,7 @@ public class SessionsController {
     public ResponseEntity<?> register(@Valid @RequestBody RegisterDto body, HttpServletRequest request) {
         try {
             return ResponseEntity.status(HttpStatus.CREATED).body(keys.registerHelper(body.user(), body.machine(), body.claudeAccount(),
-                    request.getRemoteAddr()));
+                    request.getRemoteAddr(), body.connectToken()));
         } catch (IllegalArgumentException e) {
             return refused(HttpStatus.BAD_REQUEST, "INVALID", e.getMessage());
         }
@@ -85,7 +88,12 @@ public class SessionsController {
         }
         try {
             String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(info == null ? Map.of() : info);
-            return ResponseEntity.ok(helperView(keys.heartbeat(c.get(), request.getRemoteAddr(), json), true));
+            Map<String, Object> out = helperView(keys.heartbeat(c.get(), request.getRemoteAddr(), json), true);
+            ConnectUseCase cu = connect.getIfAvailable();
+            if (cu != null) {
+                out.put("versions", cu.versions()); // the helper updates itself and the skills when these change
+            }
+            return ResponseEntity.ok(out);
         } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException e) {
             return refused(HttpStatus.BAD_REQUEST, "INVALID", e.getMessage());
         }
@@ -443,7 +451,7 @@ public class SessionsController {
     }
 
     private static ResponseEntity<?> unknown() {
-        return refused(HttpStatus.UNAUTHORIZED, "NOT_PAIRED", "Pair this browser with your Alfred helper first (My settings ▸ Pair)");
+        return refused(HttpStatus.UNAUTHORIZED, "NOT_PAIRED", "Connect this PC first (▶ alfred-live or 👤 Me ▸ Connect this PC)");
     }
 
     private static ResponseEntity<?> notAdmin() {
@@ -472,7 +480,8 @@ public class SessionsController {
         }
     }
 
-    public record RegisterDto(@Size(max = 200) String user, @Size(max = 200) String machine, @Size(max = 200) String claudeAccount) {
+    public record RegisterDto(@Size(max = 200) String user, @Size(max = 200) String machine, @Size(max = 200) String claudeAccount,
+                              @Size(max = 200) String connectToken) {
     }
 
     public record PairDto(@Size(max = 20) String code, @Size(max = 200) String label) {

@@ -7,6 +7,11 @@ helper commands, My settings, audit) with the lock in `boardbridge` (`BoardLockI
 Azure token per user (`TokenVault` + `TeamCallerPort`, `PUT /teamboards/me/token`); the MCP server, its relay and the
 live runner passing `X-Alfred-Key`; `helper/alfred-helper.mjs` (`alfred helper`); the frontend ▶ alfred-live button,
 the held banner, the chat's lock and commenters' queue, one-click start from a ▶ run, 👤 Me (My settings).
+**Connect this PC** (2026-10-18): nobody installs or updates anything by hand. One downloaded file (`POST /board/connect`,
+one-time token, never in a URL) fetches the helper and node.exe from Alfred, registers the PC as its Claude account,
+pairs the browser that downloaded it (collected on the /ws/sessions signal), installs the skills and the MCP server
+(with the user's key), and the helper keeps both current from the heartbeat's `versions`. The first ▶ for a project
+opens a folder picker on the PC; ▶ menu ▸ Restart Claude Desktop shows new sessions. docs/server.md "Connect this PC".
 Not built: moving a transcript between PCs (refused with "continue from Alfred's copy"); toasts for questions, drafts
 and listen findings (requests, starts, failures and the budget toast are built); a per-board budget (the budget is per
 user per day).

@@ -45,7 +45,17 @@ public class KeysService implements KeysUseCase {
     private record Pending(String helperKeyId, Instant expiresAt, int[] tries) {
     }
 
+    /** A "Connect this PC" file not yet run: its token, the browser that waits for it, and that browser's key once ready. */
+    private record Connect(String connectId, String collectHash, String label, Instant expiresAt, Issued[] ready) {
+    }
+
+    static final Duration CONNECT_LIFE = Duration.ofMinutes(30);
+    static final int MAX_OPEN_CONNECTS = 500;
+
     private final Map<String, Pending> codes = new ConcurrentHashMap<>();
+    /** By token (what the file carries) and by connect id (what the browser collects with). */
+    private final Map<String, Connect> connectsByToken = new ConcurrentHashMap<>();
+    private final Map<String, Connect> connectsById = new ConcurrentHashMap<>();
     private final Map<String, Instant> seen = new ConcurrentHashMap<>();
     private final List<Instant> wrong = new ArrayList<>();
 
@@ -62,18 +72,65 @@ public class KeysService implements KeysUseCase {
     }
 
     @Override
-    public Issued registerHelper(String user, String machine, String claudeAccount, String ip) {
+    public synchronized Issued registerHelper(String user, String machine, String claudeAccount, String ip, String connectToken) {
         String u = Keys.user(user);
         String m = clip(machine);
         if (u.isEmpty() || !u.contains("@") || m.isEmpty()) {
             throw new IllegalArgumentException("A helper registers with the user's email and the PC's name");
         }
-        Keys.New key = Keys.generate();
         Instant now = clock.instant();
+        Connect connect = null;
+        if (connectToken != null && !connectToken.isBlank()) {
+            dropExpiredConnects(now);
+            connect = connectsByToken.remove(connectToken.strip());
+            if (connect == null) {
+                throw new IllegalArgumentException("This connect file was used or has expired - download a new one from Alfred (Connect this PC)");
+            }
+        }
+        Keys.New key = Keys.generate();
         store.addHelper(new Helper(key.keyId(), clip(u), m, clip(claudeAccount), clip(ip), "{}", now, now, null), key.hash());
         store.revokeHelpersOn(u, m, key.keyId(), now);
+        if (connect != null) {
+            Keys.New browser = Keys.generate();
+            store.addBrowser(new BrowserKey(browser.keyId(), key.keyId(), u, clip(connect.label()), now, now, null), browser.hash());
+            connect.ready()[0] = new Issued(browser.keyId(), browser.key(), u, m);
+            notifications.changed("connect", null);
+        }
         notifications.changed("keys", null);
         return new Issued(key.keyId(), key.key(), u, m);
+    }
+
+    @Override
+    public synchronized ConnectStart connectStart(String label) {
+        Instant now = clock.instant();
+        dropExpiredConnects(now);
+        if (connectsById.size() >= MAX_OPEN_CONNECTS) {
+            throw new IllegalStateException("Too many open Connect files - try again in a few minutes");
+        }
+        String connectId = Keys.token().substring(0, 16);
+        String secret = Keys.token();
+        String token = Keys.token();
+        Connect c = new Connect(connectId, Keys.hash(secret), label, now.plus(CONNECT_LIFE), new Issued[1]);
+        connectsByToken.put(token, c);
+        connectsById.put(connectId, c);
+        return new ConnectStart(connectId, secret, token, c.expiresAt());
+    }
+
+    @Override
+    public synchronized Optional<Issued> collect(String connectId, String collectSecret) {
+        Instant now = clock.instant();
+        dropExpiredConnects(now);
+        Connect c = connectId == null ? null : connectsById.get(connectId);
+        if (c == null || !Keys.matches(collectSecret, c.collectHash()) || c.ready()[0] == null) {
+            return Optional.empty();
+        }
+        connectsById.remove(connectId);
+        return Optional.of(c.ready()[0]);
+    }
+
+    private void dropExpiredConnects(Instant now) {
+        connectsByToken.values().removeIf(c -> c.expiresAt().isBefore(now));
+        connectsById.values().removeIf(c -> c.expiresAt().isBefore(now));
     }
 
     @Override

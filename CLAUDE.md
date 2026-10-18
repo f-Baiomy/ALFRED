@@ -156,8 +156,12 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **One Claude session per board, one holder per board** (specs/031, docs/board.md "Board sessions", docs/server.md "The
   helper"): `backend-sessions` (leaf slice, `sessions.db`) knows who is who - a user is the email their **helper**
-  registered with (`alfred helper install`, one key per PC, kept only as a SHA-256), and each browser is paired with it by a
-  6-digit code (`X-Alfred-Key` on every request, `alfredKeyInterceptor`). A held board takes writes only from its holder:
+  registered with (its PC's Claude account; one key per PC, kept only as a SHA-256), and each browser is paired with it
+  (`X-Alfred-Key` on every request, `alfredKeyInterceptor`). **Nobody installs anything by hand**: ⬇ Connect this PC gives a
+  file with a one-time token (`ConnectController`, never in a URL); run once, it fetches the helper (and node.exe) FROM
+  ALFRED, registers, pairs the browser that downloaded it (collected on the /ws/sessions signal), installs the skills and
+  the MCP server, and the helper keeps itself and the skills current from the heartbeat's `versions` - docs/server.md
+  "Connect this PC". A change to `helper/` or `skills/` reaches every PC through that; Docker mounts both read-only. A held board takes writes only from its holder:
   `boardbridge/BoardLockInterceptor` maps every /board write to its board(s) (`BoardWriteTargets`: path, then body fields;
   session plumbing is never locked) and answers 409 HELD otherwise; a board nobody holds behaves as before. Commenters may
   comment; their chat messages wait in the holder's queue. The helper runs on the user's PC, connects OUT to Alfred (LAN or

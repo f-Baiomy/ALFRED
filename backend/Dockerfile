@@ -38,11 +38,20 @@ COPY . .
 # Tests run in CI/host verification; the runtime image only needs production classes.
 RUN mvn -B package -Dmaven.test.skip=true
 
+# node.exe for "Connect this PC" (specs/031): a Windows PC without Node 18+ gets it from Alfred, never from the internet.
+# The version and checksum are build-versions.json's (the native installer's Node).
+FROM eclipse-temurin:21-jre AS node-win
+ARG NODE_WIN_VERSION=22.23.3
+ARG NODE_WIN_SHA256=2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip && rm -rf /var/lib/apt/lists/*  && curl -fsSL "https://nodejs.org/dist/v${NODE_WIN_VERSION}/node-v${NODE_WIN_VERSION}-win-x64.zip" -o /tmp/node.zip  && echo "${NODE_WIN_SHA256}  /tmp/node.zip" | sha256sum -c -  && unzip -j /tmp/node.zip "node-v${NODE_WIN_VERSION}-win-x64/node.exe" -d /out && rm /tmp/node.zip
+
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
 COPY --from=build /app/backend-app/target/backend.jar app.jar
+# helper/ and skills/ are bind-mounted beside it by docker-compose.yml (current with every git pull, no rebuild).
+COPY --from=node-win /out/node.exe /opt/alfred-connect/node.exe
 
 EXPOSE 5000
 

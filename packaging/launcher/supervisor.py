@@ -188,6 +188,10 @@ def backend_spec(layout, settings, env_map, mcp_port):
         "LOGS_DB_FILE": os.path.join(layout.data, "logs.db"),
         "DB_CAPTURE_DB_FILE": os.path.join(layout.data, "db-capture.db"),
         "LOGS_WATCH_ROOT": "",
+        # "Connect this PC" (specs/031): what a PC downloads - the helper, the skills, and node.exe (Windows install only)
+        "ALFRED_CONNECT_HELPER": os.path.join(layout.app, "helper", "alfred-helper.mjs"),
+        "ALFRED_CONNECT_SKILLS": os.path.join(layout.app, "skills"),
+        "ALFRED_CONNECT_NODE": layout.node if WINDOWS else "",
         "RECENT_CALLS_MAX_LIMIT": "200",
         "INTERCEPTION_MAX_ANSWER_BYTES": "10485760",
         "ALFRED_RESEND_REVERSE_PROXY_HOST": "127.0.0.1",

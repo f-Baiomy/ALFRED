@@ -114,9 +114,10 @@ stops for the user, and one example command. Take it from the tables above and `
   `## Alfred checks` after your yes.
 - **"Held by …" / HELD** - another user holds the board (specs/031): read it, and ask for it from the 🔒 button on the
   board; their answer hands it over, releases it or keeps it.
-- **One session per board** - the board's ▶ alfred-live starts its own Claude session on your PC (your Alfred helper:
-  `alfred helper install`, then `alfred helper pair` and enter the code in 👤 Me), shows it in Claude Desktop (restart
-  Desktop once; trust the folder) and keeps answering the board from it.
+- **One session per board** - the board's ▶ alfred-live starts its own Claude session on your PC - the first time it
+  offers **⬇ Connect this PC**: run the downloaded file once and everything (helper, skills, MCP server) is set up and
+  kept current - shows it in Claude Desktop (▶ menu ▸ Restart Claude Desktop; trust the folder once) and keeps answering
+  the board from it.
 - **New session, another machine, another agent** - nothing is lost: Alfred keeps the task's whole state.
   `/alfred-resume AB#1234`; without the skills, the MCP prompt `resume` (`/mcp__<server>__resume <task>`).
 

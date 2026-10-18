@@ -2,7 +2,7 @@ import { Injectable, Injector, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
-  AuditLine, BoardSessionRow, CommandKind, Devices, HelperCommand, HelperRow, Holder, Me, MySettings, PendingMessage, UserLine,
+  AuditLine, BoardSessionRow, CommandKind, ConnectStart, Devices, HelperCommand, HelperRow, Holder, Me, MySettings, PendingMessage, UserLine,
 } from '../models/sessions.models';
 import { AppConfigService } from './app-config.service';
 
@@ -26,6 +26,15 @@ export class SessionsApiService {
 
   pair(code: string, label: string): Observable<{ keyId: string; key: string; user: string; machine: string }> {
     return this.http.post<{ keyId: string; key: string; user: string; machine: string }>(`${this.base}/browsers/pair`, { code, label });
+  }
+
+  /** A "Connect this PC" file for this browser: its text, and what this browser collects its key with once the PC ran it. */
+  connect(server: string, os: string, label: string): Observable<ConnectStart> {
+    return this.http.post<ConnectStart>(`${this.base}/connect`, { server, os, label });
+  }
+
+  collect(connectId: string, collectSecret: string): Observable<{ keyId: string; key: string; user: string; machine: string }> {
+    return this.http.post<{ keyId: string; key: string; user: string; machine: string }>(`${this.base}/connect/collect`, { connectId, collectSecret });
   }
 
   devices(): Observable<Devices> {

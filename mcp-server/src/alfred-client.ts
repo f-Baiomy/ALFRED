@@ -5,6 +5,9 @@
  * flood a backend that is also recording live traffic.
  */
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { isHtml, textAsMarkdown } from './frontend.ts';
 
 export type AlfredErrorKind = 'unreachable' | 'not_found' | 'invalid' | 'backend';
@@ -46,6 +49,25 @@ export function alfredUrl(): string {
   return (process.env['ALFRED_URL'] || 'http://localhost:3000').replace(/\/+$/, '');
 }
 
+/**
+ * This user's key for the Alfred at {@code baseUrl}, from the helper that "Connect this PC" installed (specs/031):
+ * alfred-helper/config.json under %APPDATA% (elsewhere ~/.config/alfred-helper). So a session the user opens themselves -
+ * Claude Desktop, a terminal - writes on the boards they hold without any setting. '' when this PC has no helper for it.
+ */
+export function helperKey(baseUrl: string, env: NodeJS.ProcessEnv = process.env): string {
+  try {
+    const dir = env['ALFRED_HELPER_HOME']
+      || (process.platform === 'win32' ? join(env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming'), 'alfred-helper')
+        : join(env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config'), 'alfred-helper'));
+    const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as { servers?: Record<string, { key?: string }> };
+    const want = baseUrl.replace(/\/+$/, '');
+    for (const [url, entry] of Object.entries(config.servers ?? {})) {
+      if (url.replace(/\/+$/, '') === want && entry.key) return entry.key;
+    }
+  } catch { /* no helper on this PC */ }
+  return '';
+}
+
 /** Path segment escaping - ids come from the conversation, never trusted to be URL-safe. */
 export function seg(value: string | number): string {
   return encodeURIComponent(String(value));
@@ -63,12 +85,13 @@ export class AlfredClient {
 
   /**
    * {@code identity}: the user's key and the session it writes through (specs/031 board lock) - sent as X-Alfred-Key and
-   * X-Alfred-Via with every request. Defaults to ALFRED_KEY / ALFRED_VIA, which the helper sets for the sessions it starts.
+   * X-Alfred-Via with every request. Defaults to ALFRED_KEY / ALFRED_VIA, which the helper sets for the sessions it starts, else the key of this PC's helper
+   * for that Alfred ({@link helperKey}).
    */
   private readonly identityHeaders: Readonly<Record<string, string>>;
 
   constructor(readonly baseUrl: string = alfredUrl(),
-    identity: { readonly key: string; readonly via: string } = { key: process.env['ALFRED_KEY'] ?? '', via: process.env['ALFRED_VIA'] ?? '' }) {
+    identity: { readonly key: string; readonly via: string } = { key: process.env['ALFRED_KEY'] || helperKey(baseUrl), via: process.env['ALFRED_VIA'] ?? '' }) {
     const h: Record<string, string> = {};
     if (identity.key) h['X-Alfred-Key'] = identity.key;
     if (identity.via) h['X-Alfred-Via'] = identity.via;

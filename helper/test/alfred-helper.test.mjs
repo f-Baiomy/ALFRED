@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  Helper, boardWorktree, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, slug, tokensToday, transcriptOf, writeDesktopRecord,
+  Helper, boardWorktree, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
+  slug, tokensToday, transcriptOf, writeDesktopRecord,
 } from '../alfred-helper.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'alfred-helper-'));
@@ -143,7 +144,22 @@ test('START: worktree, first turn, holder, runner, report - and nothing without 
   assert.equal(reports[0].body.state, 'STARTING');
   assert.equal(reports.at(-1).body.state, 'ANSWERING');
 
+  h.pickFolder = () => null; // the user closed the picker
   await assert.rejects(h.handle({ kind: 'START', boardId: 'b2', project: 'other', args: '{}' }), /NO_FOLDER/);
+});
+
+test('the first START of a project on a PC asks for its folder here and keeps it in My settings', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [] });
+  const h = new Helper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
+  h.turn = () => 'ok';
+  h.startRunner = () => null;
+  h.pickFolder = () => repo;
+
+  await h.handle({ kind: 'START', boardId: 'default:odeysys', project: 'odeysys', args: '{}' });
+
+  const saved = api.calls.find((c) => c.path === '/board/me/settings' && c.method === 'PUT');
+  assert.deepEqual(saved.body.projects, [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'DESKTOP', worktrees: true }]);
 });
 
 test('a command for a session that is not on this PC says NOT_HERE', async () => {
@@ -156,4 +172,57 @@ test('a command for a session that is not on this PC says NOT_HERE', async () =>
 test('moving a transcript between PCs is refused with the way that works', async () => {
   const h = new Helper({ server: 'http://a:3000', api: new FakeApi(), machine: 'PC' });
   await assert.rejects(h.handle({ kind: 'BRING_TRANSCRIPT', args: '{}' }), /Continue here from Alfred's copy/);
+});
+
+test("Alfred's skills replace Alfred-installed copies, never someone else's folder, and the retired one goes", () => {
+  const root = tmp();
+  mkdirSync(join(root, 'alfred-guide'));
+  writeFileSync(join(root, 'alfred-guide', 'SKILL.md'), 'mine');
+  mkdirSync(join(root, 'alfred-live'));
+  writeFileSync(join(root, 'alfred-live', '.alfred-skill'), 'source');
+  writeFileSync(join(root, 'alfred-live', 'old.md'), 'old');
+  mkdirSync(join(root, 'alfred-qa'));
+  writeFileSync(join(root, 'alfred-qa', '.alfred-skill'), '1.0.0');
+
+  const lines = installSkills({ version: 'abc', files: {
+    'alfred-live/SKILL.md': 'live', 'alfred-live/sub/x.mjs': 'x', 'alfred-guide/SKILL.md': 'theirs',
+    '../evil/SKILL.md': 'no', 'alfred-live/../../evil.md': 'no', 'alfred-x/C:': 'no',
+  } }, root);
+
+  assert.equal(readFileSync(join(root, 'alfred-live', 'sub', 'x.mjs'), 'utf8'), 'x');
+  assert.equal(existsSync(join(root, 'alfred-live', 'old.md')), false);
+  assert.equal(readFileSync(join(root, 'alfred-live', '.alfred-skill'), 'utf8').trim(), 'alfred-abc');
+  assert.equal(readFileSync(join(root, 'alfred-guide', 'SKILL.md'), 'utf8'), 'mine');
+  assert.equal(existsSync(join(root, 'alfred-qa')), false);
+  assert.equal(existsSync(join(root, '..', 'evil')), false);
+  assert.ok(lines.some((l) => l.startsWith('skipped /alfred-guide')));
+});
+
+test("a new Alfred MCP server is named after Alfred's address and sends this user's key", () => {
+  assert.equal(mcpDefaultName('localhost:3000'), 'alfred-local-3000');
+  assert.equal(mcpDefaultName('http://192.168.1.80:3000'), 'alfred-lan-80');
+  assert.equal(mcpDefaultName('http://192.168.1.80:3001'), 'alfred-lan-80-3001');
+  assert.equal(mcpDefaultName('https://alfred.example.com'), 'alfred-alfred-example-com');
+
+  const home = tmp();
+  writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: {
+    'alfred-lan-80': { type: 'http', url: 'http://192.168.1.80:3000/mcp' },
+    'alfred-local-3000': { type: 'http', url: 'http://other:1/mcp' },
+    stdio: { command: 'node', env: { ALFRED_URL: 'http://localhost:3001' } },
+  } }));
+  const ran = [];
+  const run = (a) => { ran.push(a.join(' ')); return { status: 0 }; };
+
+  assert.deepEqual(ensureMcp('http://192.168.1.80:3000', 'ak_k', 'claude', home, run), { name: 'alfred-lan-80', changed: true });
+  assert.deepEqual(ran, ['mcp remove alfred-lan-80 --scope user',
+    'mcp add --scope user --transport http alfred-lan-80 http://192.168.1.80:3000/mcp --header X-Alfred-Key: ak_k']);
+  ran.length = 0;
+  assert.deepEqual(ensureMcp('http://localhost:3000', 'ak_k', 'claude', home, run), { name: 'alfred-local-3000-2', changed: true });
+  ran.length = 0;
+  assert.deepEqual(ensureMcp('http://localhost:3001', 'ak_k', 'claude', home, run), { name: 'stdio', changed: false });
+  assert.deepEqual(ran, []);
+});
+
+test("the helper names versions the way Alfred does (the first 16 hex of SHA-256)", () => {
+  assert.equal(shortHash('abc'), 'ba7816bf8f01cfea');
 });

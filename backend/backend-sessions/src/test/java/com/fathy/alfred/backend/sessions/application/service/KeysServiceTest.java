@@ -42,7 +42,7 @@ class KeysServiceTest {
     }
 
     @Test
-    void reinstallingOnTheSamePcRevokesTheOldKeyAndItsBrowsers() {
+    void reinstallingOnTheSamePcRevokesTheOldKeyAndKeepsItsBrowsers() {
         Issued first = f.keys.registerHelper("me@x.ae", "WORK-PC", "", "");
         Caller browser = f.browser(f.keys.authenticate(first.key()).orElseThrow());
 
@@ -50,7 +50,8 @@ class KeysServiceTest {
 
         assertThat(f.keys.authenticate(first.key())).isEmpty();
         assertThat(f.keys.authenticate(second.key())).isPresent();
-        assertThat(f.store.browser(browser.keyId()).orElseThrow().revokedAt()).isNotNull();
+        assertThat(f.store.browser(browser.keyId()).orElseThrow().revokedAt()).isNull();
+        assertThat(f.keys.authenticate(f.browserKeys.get(browser.keyId())).orElseThrow().helperKeyId()).isEqualTo(second.keyId());
     }
 
     @Test
@@ -123,5 +124,31 @@ class KeysServiceTest {
         assertThat(Keys.parse("ak_XYZ.secret")).isEmpty();
         assertThat(Keys.parse("0123456789abcdef.secret")).isEmpty();
         assertThat(Keys.parse("ak_0123456789abcdef.")).isEmpty();
+    }
+
+    @Test
+    void aConnectFilePairsTheBrowserThatDownloadedItOnce() {
+        KeysService.ConnectStart start = f.keys.connectStart("Chrome on WORK-PC");
+        assertThat(f.keys.collect(start.connectId(), start.collectSecret())).isEmpty(); // the PC has not run it yet
+
+        Issued helper = f.keys.registerHelper("Me@X.ae", "WORK-PC", "me@x.ae", "10.0.0.1", start.token());
+
+        assertThat(f.events).contains("connect:null");
+        assertThat(f.keys.collect(start.connectId(), "wrong")).isEmpty();
+        Issued browser = f.keys.collect(start.connectId(), start.collectSecret()).orElseThrow();
+        assertThat(f.keys.authenticate(browser.key())).get().extracting(Caller::user, Caller::kind, Caller::helperKeyId)
+                .containsExactly("me@x.ae", Caller.Kind.BROWSER, helper.keyId());
+        assertThat(f.keys.collect(start.connectId(), start.collectSecret())).isEmpty(); // collected once
+        assertThatThrownBy(() -> f.keys.registerHelper("me@x.ae", "WORK-PC", "", "", start.token()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("used or has expired");
+    }
+
+    @Test
+    void aConnectFileExpiresAfterHalfAnHour() {
+        KeysService.ConnectStart start = f.keys.connectStart("Chrome");
+        f.clock.plusMinutes(KeysService.CONNECT_LIFE.toMinutes() + 1);
+
+        assertThatThrownBy(() -> f.keys.registerHelper("me@x.ae", "WORK-PC", "", "", start.token())).isInstanceOf(IllegalArgumentException.class);
+        assertThat(f.keys.collect(start.connectId(), start.collectSecret())).isEmpty();
     }
 }

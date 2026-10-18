@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { SessionsStateService } from '../../core/state/sessions-state.service';
 import { SessionsApiService } from '../../core/services/sessions-api.service';
 import { AppConfigService } from '../../core/services/app-config.service';
+import { ConnectPcComponent } from './connect-pc.component';
 import { AuditLine, BoardSessionRow, HelperCommand, MySettings, ProjectPlace } from '../../core/models/sessions.models';
 
 type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folder' | 'sessions' | 'audit' | 'listen';
@@ -17,7 +18,7 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
 @Component({
   selector: 'app-board-session-button',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe],
+  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe, ConnectPcComponent],
   styles: [`
     :host { position: relative; display: inline-flex; }
     .bsb { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -90,6 +91,7 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
         @if (session(); as s) {
           @if (mine()) {
             <button type="button" (click)="cmd('OPEN_DESKTOP')">🖥 Open in Claude Desktop</button>
+            <button type="button" (click)="restartDesktop()" title="Claude Desktop reads new sessions only when it starts">↻ Restart Claude Desktop to show it</button>
             <button type="button" (click)="cmd('OPEN_TERMINAL')">⌨ Open in terminal <small class="muted">claude --resume {{ s.cliSessionId.slice(0, 8) }}…</small></button>
             <button type="button" (click)="copy(s.cliSessionId)">⧉ Copy session id</button>
             <hr>
@@ -114,11 +116,11 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
     @switch (dialog()) {
       @case ('pair') {
         <div class="shade"><div class="dlg">
-          <h3>Pair this browser first</h3>
-          <div class="sub">Claude runs on your PC, through your Alfred helper. Pair this browser with it once - then ▶ starts the board's session there.</div>
-          <div class="sec">On your PC run <code>alfred helper pair</code> (or the helper's tray ▸ Pair) and enter the code in My settings.</div>
-          <div class="foot"><button type="button" class="action-btn" (click)="dialog.set(null)">Cancel</button>
-            <a class="action-btn" routerLink="/me" (click)="dialog.set(null)">Open My settings</a></div>
+          <h3>Connect this PC to use your Claude</h3>
+          <div class="sub">The board's session runs on this PC, with the Claude account you are signed in with here - not on {{ host }}.
+            Once per PC; then ▶ starts it at once.</div>
+          <app-connect-pc />
+          <div class="foot"><button type="button" class="action-btn" (click)="cancelStart()">Cancel</button></div>
         </div></div>
       }
       @case ('helper') {
@@ -132,7 +134,8 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
               <label class="opt"><input type="radio" name="h" [checked]="helperChoice() === h.keyId" (change)="helperChoice.set(h.keyId)"><span><b>Run it on {{ h.machine }}</b><small class="muted">online</small></span></label>
             }
           </div>
-          <div class="foot"><button type="button" class="action-btn" (click)="dialog.set(null)">Cancel</button>
+          <div class="sec"><b>Not set up on this PC, or it does not start?</b> Connect it again - nothing is lost.<app-connect-pc /></div>
+          <div class="foot"><button type="button" class="action-btn" (click)="cancelStart()">Cancel</button>
             <button type="button" class="action-btn primary" (click)="helperGo()">{{ helperChoice() === 'start' ? 'Start helper' : 'Start there' }}</button></div>
         </div></div>
       }
@@ -278,6 +281,8 @@ export class BoardSessionButtonComponent {
   folder = '';
   openIn: ProjectPlace['openIn'] = 'DESKTOP';
   private laterFor: string | null = null;
+  /** ▶ was pressed before this PC was connected; it continues once it is. */
+  private startWaiting = false;
 
   readonly host = window.location.host;
   readonly server = this.config.backendUrl;
@@ -334,6 +339,16 @@ export class BoardSessionButtonComponent {
         if (key && key !== this.laterFor && this.dialog() === null) this.dialog.set('request');
       });
     });
+    // ▶ waited for this PC to be connected (or its helper to come online): it goes on by itself
+    effect(() => {
+      const ready = this.paired() && !!this.target();
+      untracked(() => {
+        if (ready && this.startWaiting && (this.dialog() === 'pair' || this.dialog() === 'helper')) {
+          this.dialog.set(null);
+          this.start();
+        }
+      });
+    });
     const sub = this.state.finished$.subscribe((c) => {
       if (c.boardId !== this.boardId() && !(c.kind === 'PICK_FOLDER' && this.dialog() === 'folder')) return;
       this.onFinished(c);
@@ -359,16 +374,18 @@ export class BoardSessionButtonComponent {
 
   start(): void {
     this.menu.set(false);
-    if (!this.paired()) { this.dialog.set('pair'); return; }
-    if (!this.target()) { this.dialog.set('helper'); return; }
-    const place = this.placeHere();
-    if (!place) {
-      this.folder = '';
-      this.dialog.set('folder');
-      return;
-    }
+    if (!this.paired()) { this.startWaiting = true; this.dialog.set('pair'); return; }
+    if (!this.target()) { this.startWaiting = true; this.dialog.set('helper'); return; }
+    this.startWaiting = false;
+    // no folder for this project on that PC yet: the helper opens a folder picker there and keeps the answer
+    if (!this.placeHere()) this.notice.set(`Pick ${this.project()}'s repo folder in the window that opens on ${this.target()!.machine}`);
     this.state.send('START', { boardId: this.boardId(), project: this.project(), args: { title: this.title() ?? this.boardId(), boardRef: this.boardId() } })
       .subscribe((c) => { if (!c) this.notice.set('Could not send it to your PC'); });
+  }
+
+  cancelStart(): void {
+    this.startWaiting = false;
+    this.dialog.set(null);
   }
 
   private placeHere(): ProjectPlace | null {
@@ -376,7 +393,13 @@ export class BoardSessionButtonComponent {
     return (this.state.settings().projects ?? []).find((p) => p.project === this.project() && (!p.machine || p.machine.toLowerCase() === machine)) ?? null;
   }
 
-  cmd(kind: 'OPEN_DESKTOP' | 'OPEN_TERMINAL' | 'RESUME' | 'SYNC' | 'STOP'): void {
+  restartDesktop(): void {
+    this.menu.set(false);
+    if (!window.confirm('Restart Claude Desktop on your PC? Its open windows close and come back; a reply being written there stops.')) return;
+    this.cmd('RESTART_DESKTOP');
+  }
+
+  cmd(kind: 'OPEN_DESKTOP' | 'OPEN_TERMINAL' | 'RESUME' | 'SYNC' | 'STOP' | 'RESTART_DESKTOP'): void {
     this.menu.set(false);
     const s = this.session();
     if (!s) return;

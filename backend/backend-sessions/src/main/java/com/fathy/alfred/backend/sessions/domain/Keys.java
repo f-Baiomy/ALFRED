@@ -68,6 +68,13 @@ public final class Keys {
         return MessageDigest.isEqual(hash(secret).getBytes(StandardCharsets.US_ASCII), storedHash.getBytes(StandardCharsets.US_ASCII));
     }
 
+    /** A one-time random token (connect links): 32 bytes, URL-safe. */
+    public static String token() {
+        byte[] b = new byte[32];
+        RANDOM.nextBytes(b);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
     /** A six-digit pairing code. */
     public static String pairCode() {
         return String.format("%06d", RANDOM.nextInt(1_000_000));

@@ -5,7 +5,7 @@ import { provideRouter } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { BoardSessionButtonComponent } from './board-session-button.component';
 import { SessionsStateService } from '../../core/state/sessions-state.service';
-import { BoardSessionRow, HelperRow, Holder, Me } from '../../core/models/sessions.models';
+import { BoardSessionRow, HelperCommand, HelperRow, Holder, Me } from '../../core/models/sessions.models';
 
 const ME: Me = { user: 'me@x.ae', machine: 'WORK-PC', kind: 'BROWSER', keyId: 'b1', helperKeyId: 'h1', admin: false };
 const HELPER: HelperRow = { keyId: 'h1', user: 'me@x.ae', machine: 'WORK-PC', online: true, lastSeen: null, createdAt: '' };
@@ -45,12 +45,14 @@ describe('BoardSessionButtonComponent (specs/031)', () => {
     expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ boardId: 'b1', project: 'odeysys' }));
   });
 
-  it('asks for the folder first when the project has none on this PC', () => {
+  it('starts at once when the project has no folder on this PC yet - the PC asks for it there', () => {
+    const send = spyOn(state, 'send').and.returnValue(of({ id: 'c1' } as HelperCommand));
     state.settings.set({});
     const f = render();
     (f.nativeElement.querySelector('.main') as HTMLButtonElement).click();
     f.detectChanges();
-    expect(f.nativeElement.textContent).toContain('Where is odeysys');
+    expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ project: 'odeysys' }));
+    expect(f.nativeElement.textContent).toContain("Pick odeysys's repo folder in the window that opens on WORK-PC");
   });
 
   it('shows the attached session while it answers', () => {
@@ -72,11 +74,40 @@ describe('BoardSessionButtonComponent (specs/031)', () => {
     expect(f.nativeElement.querySelector('.main').textContent).toContain('Session on LAPTOP-2');
   });
 
-  it('asks an unpaired browser to pair first', () => {
+  it('asks a browser on a PC that is not connected to connect it, then goes on by itself', () => {
+    const send = spyOn(state, 'send').and.returnValue(of(null));
     state.me.set({ ...ME, user: null });
+    state.helpers.set([]);
     const f = render();
     (f.nativeElement.querySelector('.main') as HTMLButtonElement).click();
     f.detectChanges();
-    expect(f.nativeElement.textContent).toContain('Pair this browser first');
+    expect(f.nativeElement.textContent).toContain('Connect this PC to use your Claude');
+    expect(f.nativeElement.textContent).toContain('Connect this PC');
+    expect(send).not.toHaveBeenCalled();
+
+    // the connect file ran on this PC: the browser has its key and the helper is online
+    state.me.set(ME);
+    state.helpers.set([HELPER]);
+    f.detectChanges();
+    expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ boardId: 'b1' }));
+    expect(f.nativeElement.textContent).not.toContain('Connect this PC to use your Claude');
+  });
+
+  it('waits for the connect file it downloaded and collects its key on the signal', () => {
+    state.me.set({ ...ME, user: null });
+    state.connecting.set({ connectId: 'c1', collectSecret: 's', expiresAt: new Date(Date.now() + 60_000).toISOString(), fileName: 'alfred-connect.cmd',
+      script: '', run: 'Double-click alfred-connect.cmd in your Downloads', versions: { helper: '', skills: '', node: true } });
+    const f = render();
+    (f.nativeElement.querySelector('.main') as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(f.nativeElement.textContent).toContain('Double-click alfred-connect.cmd in your Downloads');
+
+    state.collect();
+    const http = TestBed.inject(HttpTestingController);
+    const req = http.expectOne((r) => r.url.endsWith('/board/connect/collect'));
+    expect(req.request.body).toEqual({ connectId: 'c1', collectSecret: 's' });
+    req.flush({ keyId: 'b9', key: 'ak_0123456789abcdef.x', user: 'me@x.ae', machine: 'WORK-PC' });
+    expect(state.connecting()).toBeNull();
+    state.cancelConnect();
   });
 });

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { createServer as createHttp, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { AlfredClient } from '../src/alfred-client.ts';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AlfredClient, helperKey } from '../src/alfred-client.ts';
 
 /** A one-route server that remembers the headers of each request. */
 async function recorder(): Promise<{ url: string; seen: IncomingHttpHeaders[]; close: () => Promise<void> }> {
@@ -40,4 +43,12 @@ test('a write on a board someone else holds says who holds it', async () => {
     await assert.rejects(new AlfredClient(r.url, { key: '', via: '' }).post('/board/held', { body: {} }),
       (e: Error & { code?: string }) => e.code === 'HELD' && /held by me@x\.ae/.test(e.message));
   } finally { await r.close(); }
+});
+
+test("a session the user opened themselves sends the key of this PC's helper for that Alfred", () => {
+  const home = mkdtempSync(join(tmpdir(), 'alfred-helper-'));
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ servers: { 'http://192.168.1.80:3000': { key: 'ak_lan' } } }));
+  assert.equal(helperKey('http://192.168.1.80:3000/', { ALFRED_HELPER_HOME: home }), 'ak_lan');
+  assert.equal(helperKey('http://localhost:3000', { ALFRED_HELPER_HOME: home }), '');
+  assert.equal(helperKey('http://localhost:3000', { ALFRED_HELPER_HOME: join(home, 'none') }), '');
 });

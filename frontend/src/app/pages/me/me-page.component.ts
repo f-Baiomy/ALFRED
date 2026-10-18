@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { SessionsStateService } from '../../core/state/sessions-state.service';
+import { ConnectPcComponent } from '../../components/board-session/connect-pc.component';
 import { SessionsApiService } from '../../core/services/sessions-api.service';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { BoardSessionRow, BrowserRow, HelperRow, MySettings, ProjectPlace, UserLine } from '../../core/models/sessions.models';
@@ -19,7 +20,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
 @Component({
   selector: 'app-me-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe],
+  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe, ConnectPcComponent],
   styles: [`
     .me { display: grid; grid-template-columns: 200px 1fr; gap: 1rem; padding: 1rem; max-width: 1200px; }
     .side { display: flex; flex-direction: column; gap: 2px; }
@@ -41,8 +42,6 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: .45rem .8rem; align-items: center; font-size: .88rem; }
     .kv > span:nth-child(odd) { color: var(--text-dim); }
     code { background: var(--card-inner); padding: 0 .3rem; border-radius: 4px; font-size: .8rem; word-break: break-all; }
-    .pair { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-    .pair input { width: 9rem; letter-spacing: .2em; font-size: 1.1rem; text-align: center; }
     .scroll { overflow-x: auto; }
     .row { display: flex; gap: .4rem; flex-wrap: wrap; }
     @media (max-width: 760px) { .me { grid-template-columns: 1fr; } .side { flex-direction: row; overflow-x: auto; } .kv { grid-template-columns: 1fr; } }
@@ -65,19 +64,10 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
 
         @if (!state.paired()) {
           <div class="card">
-            <h2>Pair this browser</h2>
-            <p class="muted">Alfred has no logins: your Alfred helper on your PC holds your key, and each browser you use is paired with it once.
-              Until then this browser can read boards but not write on a board someone holds, and has no settings.</p>
-            <ol class="muted">
-              <li>Install the helper once on your PC: <code>alfred helper install --server {{ server }} --user you&#64;company.com</code></li>
-              <li>Run <code>alfred helper pair</code> (or the helper's tray ▸ Pair) - it shows a six-digit code for two minutes.</li>
-              <li>Enter it here.</li>
-            </ol>
-            <div class="pair">
-              <input type="text" inputmode="numeric" maxlength="7" [(ngModel)]="code" placeholder="482 917" aria-label="Pairing code">
-              <button type="button" class="action-btn primary" [disabled]="code.replace(' ', '').length !== 6" (click)="pair()">Pair</button>
-              @if (pairFailed()) { <span class="tag bad">That code is wrong, used or expired</span> }
-            </div>
+            <h2>Connect this PC</h2>
+            <p class="muted">Alfred has no logins: you are the Claude account this PC is signed in with. Until this PC is connected this
+              browser can read boards but not write on a board someone holds, and has no settings.</p>
+            <app-connect-pc />
           </div>
         } @else {
           @switch (section()) {
@@ -251,7 +241,6 @@ export class MePageComponent {
   private readonly api = inject(SessionsApiService);
   private readonly db = inject(DbCaptureApiService);
 
-  readonly server = window.BACKEND_URL || window.location.origin;
   readonly section = signal<Section>('devices');
   readonly devices = signal<{ helpers: readonly HelperRow[]; browsers: readonly BrowserRow[] }>({ helpers: [], browsers: [] });
   readonly users = signal<readonly UserLine[]>([]);
@@ -259,9 +248,7 @@ export class MePageComponent {
   readonly dirty = signal(false);
   readonly saved = signal(false);
   readonly error = signal<string | null>(null);
-  readonly pairFailed = signal(false);
   readonly models = ['', 'sonnet', 'opus', 'haiku'];
-  code = '';
   modelChat = '';
   modelSetup = '';
   budget = 0;
@@ -343,11 +330,6 @@ export class MePageComponent {
   touch(): void {
     this.dirty.set(true);
     this.saved.set(false);
-  }
-
-  pair(): void {
-    this.pairFailed.set(false);
-    this.state.pair(this.code).subscribe((ok) => { if (ok) this.code = ''; else this.pairFailed.set(true); });
   }
 
   revoke(keyId: string): void {

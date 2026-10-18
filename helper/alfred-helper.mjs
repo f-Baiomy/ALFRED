@@ -6,6 +6,8 @@
 // and reports the sessions back. Alfred never reaches into the PC: it only queues; the helper maps each command kind to
 // its own fixed action - never a command line from the server. No dependencies: Node 18+ only.
 //
+//   node alfred-helper.mjs connect --server <url> --token <t>   what Alfred's "Connect this PC" file runs: all of the
+//                                       below at once - the browser paired, the skills and Alfred's MCP server installed
 //   node alfred-helper.mjs install --server <url> --user <email> [--machine NAME] [--mcp NAME] [--autostart]
 //   node alfred-helper.mjs pair    [--server url]        a six-digit code that pairs one browser with this helper
 //   node alfred-helper.mjs run     [--server url]        the helper itself, in the foreground
@@ -18,13 +20,13 @@
 // to by the helper. Board answers come from the /alfred-live runner, which answers in forks of the session; the helper
 // writes into the session itself only for its first turn and for a sync the user asks for while it is not open.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, platform } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
@@ -39,6 +41,15 @@ export function configDir(env = process.env) {
 }
 
 const configFile = () => join(configDir(), 'config.json');
+
+/** Where a "Connect this PC" file puts the helper (and Node): the helper updates itself only when it runs from here. */
+export function appDir(env = process.env) {
+  if (WINDOWS) return join(env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'alfred-helper', 'app');
+  return join(configDir(env), 'app');
+}
+
+/** The first 16 hex of the SHA-256 of a text - how Alfred names the helper's and the skills' versions. */
+export const shortHash = (text) => createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
 
 export function readConfig() {
   try {
@@ -135,6 +146,112 @@ export function mcpNameFor(serverUrl, home = homedir()) {
     }
   } catch { /* none */ }
   return null;
+}
+
+/**
+ * The claude command to run here: on the PATH, else the one Claude Desktop carries (a Desktop-only PC). Null without
+ * either - the connect file then says to install Claude Code.
+ */
+export function findClaude(env = process.env) {
+  const onPath = spawnSync(WINDOWS ? 'where' : 'which', ['claude'], { encoding: 'utf8' });
+  if (onPath.status === 0 && onPath.stdout.trim()) return 'claude';
+  const root = WINDOWS ? join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code') : null;
+  if (!root || !existsSync(root)) return null;
+  let best = null;
+  const walk = (dir, depth) => {
+    for (const n of readdirSync(dir)) {
+      const p = join(dir, n);
+      let st;
+      try { st = statSync(p); } catch { continue; }
+      if (st.isDirectory() && depth < 3) walk(p, depth + 1);
+      else if (/^claude\.exe$/i.test(n) && (!best || st.mtimeMs > best.t)) best = { p, t: st.mtimeMs };
+    }
+  };
+  walk(root, 0);
+  return best?.p ?? null;
+}
+
+/** The name a new Alfred MCP server gets: alfred-local-3000, alfred-lan-80, alfred-<host>. */
+export function mcpDefaultName(serverUrl) {
+  const u = new URL(normalizeServer(serverUrl));
+  const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) return `alfred-local-${port}`;
+  const ip = u.hostname.match(/^\d+\.\d+\.\d+\.(\d+)$/);
+  if (ip) return `alfred-lan-${ip[1]}${port === '3000' ? '' : `-${port}`}`;
+  return `alfred-${slug(u.hostname)}`;
+}
+
+/**
+ * Makes sure Claude Code has Alfred's MCP server, sending this user's key so their own sessions (Desktop, a terminal)
+ * may write on the boards they hold. An existing HTTP entry without the key is added again with it; a local (stdio) one
+ * is left as it is - the MCP server reads the key from this helper's config. Returns the server's name.
+ */
+export function ensureMcp(serverUrl, key, claude = 'claude', home = homedir(), run = (args) => {
+  const r = claudeInvocation(claude, args);
+  return spawnSync(r.command, r.args, { encoding: 'utf8', shell: r.shell, timeout: 60_000 });
+}) {
+  const url = `${normalizeServer(serverUrl)}/mcp`;
+  let servers = {};
+  try { servers = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')).mcpServers ?? {}; } catch { /* none yet */ }
+  const add = (name) => {
+    const r = run(['mcp', 'add', '--scope', 'user', '--transport', 'http', name, url, '--header', `X-Alfred-Key: ${key}`]);
+    if (r.status !== 0) throw new Error(`claude mcp add failed: ${(r.stderr || r.stdout || '').trim().slice(0, 300)}`);
+  };
+  const name = mcpNameFor(serverUrl, home);
+  if (name) {
+    const e = servers[name] ?? {};
+    const hasKey = Object.entries(e.headers ?? {}).some(([h, v]) => h.toLowerCase() === 'x-alfred-key' && v === key);
+    if (!e.url || hasKey) return { name, changed: false };
+    run(['mcp', 'remove', name, '--scope', 'user']);
+    add(name);
+    return { name, changed: true };
+  }
+  let fresh = mcpDefaultName(serverUrl);
+  for (let i = 2; servers[fresh]; i++) fresh = `${mcpDefaultName(serverUrl)}-${i}`;
+  add(fresh);
+  return { name: fresh, changed: true };
+}
+
+const SKILL_MARKER = '.alfred-skill';
+const RETIRED_SKILLS = ['alfred-qa'];
+
+/**
+ * Writes Alfred's /alfred-* skills ({version, files: {"alfred-live/SKILL.md": text}}) into ~/.claude/skills: an
+ * Alfred-installed copy (it has the marker) is replaced, a folder of that name someone else wrote is never touched -
+ * the same rule as alfred_skill.py. Returns one line per skill.
+ */
+export function installSkills(skills, root = join(homedir(), '.claude', 'skills')) {
+  const byName = new Map();
+  for (const [path, text] of Object.entries(skills?.files ?? {})) {
+    const [name, ...rest] = String(path).split('/');
+    if (!/^alfred-[a-z0-9-]+$/.test(name) || !rest.length || rest.some((p) => !p || p === '.' || p === '..' || /[\\:]/.test(p))) continue;
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push([rest, text]);
+  }
+  const lines = [];
+  for (const [name, files] of byName) {
+    const dest = join(root, name);
+    if (existsSync(dest) && !existsSync(join(dest, SKILL_MARKER))) {
+      lines.push(`skipped /${name}: a skill of that name exists and was not installed by Alfred`);
+      continue;
+    }
+    rmSync(dest, { recursive: true, force: true });
+    for (const [rel, text] of files) {
+      const f = join(dest, ...rel);
+      mkdirSync(dirname(f), { recursive: true });
+      writeFileSync(f, text);
+    }
+    writeFileSync(join(dest, SKILL_MARKER), `alfred-${skills.version}\n`);
+    lines.push(`installed /${name}`);
+  }
+  for (const old of RETIRED_SKILLS) {
+    const dest = join(root, old);
+    if (existsSync(join(dest, SKILL_MARKER))) {
+      rmSync(dest, { recursive: true, force: true });
+      lines.push(`removed the retired /${old}`);
+    }
+  }
+  return lines;
 }
 
 export function desktopSessionsRoot(env = process.env) {
@@ -242,8 +359,21 @@ function openUrl(url) {
   else spawn(MAC ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
 }
 
-function openTerminal(cwd, cliSessionId) {
-  const cmd = `claude --resume ${cliSessionId}`;
+/**
+ * Restarts Claude Desktop so it reads the sessions Alfred added (it reads them only when it starts), then opens one.
+ * Only Desktop's own window process is stopped - never a claude CLI (Desktop's bundled one included).
+ */
+async function restartDesktop(desktopId) {
+  if (!WINDOWS) throw new Error('Restarting Claude Desktop from Alfred works on Windows - quit and reopen it yourself');
+  spawnSync('powershell.exe', ['-NoProfile', '-Command',
+    "Get-Process -Name Claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -match '(\\\\app|AnthropicClaude)\\\\Claude\\.exe$' -and $_.Path -notmatch 'claude-code' } | Stop-Process -Force"],
+  { encoding: 'utf8', timeout: 30_000 });
+  await new Promise((r) => setTimeout(r, 3000));
+  openUrl(desktopId ? `claude://claude.ai/epitaxy/${desktopId}` : 'claude://');
+}
+
+function openTerminal(cwd, cliSessionId, claude = 'claude') {
+  const cmd = `${/\s/.test(claude) ? `"${claude}"` : claude} --resume ${cliSessionId}`;
   if (WINDOWS) {
     const wt = spawnSync('where', ['wt.exe'], { encoding: 'utf8' }).status === 0;
     if (wt) spawn('wt.exe', ['-d', cwd, 'cmd', '/k', cmd], { detached: true, stdio: 'ignore' }).unref();
@@ -370,6 +500,7 @@ export class Helper {
     this.skillsDir = skillsDir;
     this.claude = claude;
     this.sessions = new Map(); // cliSessionId → { boardId, project, cwd, title, runner: bool }
+    this.pickFolder = pickFolder; // a dialog on this PC; tests replace it
     this.stopped = false;
   }
 
@@ -386,6 +517,7 @@ export class Helper {
       platform: platform(), mcp: this.mcp, azureToken: !!readToken(this.server),
       sessions: [...this.sessions.entries()].map(([id, s]) => ({ cliSessionId: id, boardId: s.boardId })) };
     const me = await this.api.call('PUT', '/board/helpers/heartbeat', { body: info });
+    await this.keepCurrent(me?.versions).catch((e) => log(`could not update from Alfred: ${e.message}`));
     const settings = await this.settings();
     await this.requestsToToasts(me?.user, settings).catch(() => {});
     // the daily budget (My settings): over it, every session of this user on this PC stops answering until tomorrow or a raise
@@ -410,6 +542,34 @@ export class Helper {
         await this.report(id, { openIn: open ? (s.openIn === 'TERMINAL' ? 'TERMINAL' : 'DESKTOP') : 'NONE', tokensToday: tokens }).catch(() => {});
       }
     }
+  }
+
+  /**
+   * Alfred says what the helper and the skills are now (content hashes); when they changed, this PC takes them: the
+   * skills into ~/.claude/skills (only for the PC's default Alfred, so two Alfreds never fight over them), and the
+   * helper replaces its own file and restarts - only the copy a Connect file installed, never a source checkout's.
+   */
+  async keepCurrent(versions) {
+    if (!versions) return;
+    const config = readConfig();
+    const entry = config.servers?.[this.server];
+    if (versions.skills && entry && config.default === this.server && entry.skills !== versions.skills) {
+      const skills = await this.api.call('GET', '/board/connect/skills', { timeoutMs: 60_000 });
+      for (const line of installSkills(skills)) log(`skills: ${line}`);
+      entry.skills = skills.version;
+      writeConfig(config);
+    }
+    const self = fileURLToPath(import.meta.url);
+    if (!versions.helper || this.busy || !resolve(self).startsWith(resolve(appDir()))) return;
+    if (shortHash(readFileSync(self, 'utf8')) === versions.helper) return;
+    const res = await fetch(`${this.server}/board/connect/alfred-helper.mjs`, { signal: AbortSignal.timeout(60_000) });
+    const text = res.ok ? await res.text() : '';
+    if (shortHash(text) !== versions.helper) return; // changed again meanwhile: the next heartbeat takes it
+    writeFileSync(self, text);
+    log('helper updated from Alfred - restarting');
+    spawn(process.execPath, [self, 'run', '--server', this.server], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    this.stopped = true;
+    setTimeout(() => process.exit(0), 200);
   }
 
   /** A toast once per new request for a board this user holds (My settings ▸ Tell me ▸ board requests). */
@@ -500,7 +660,7 @@ export class Helper {
       }
       case 'OPEN_TERMINAL': {
         const s = await this.known(c, args);
-        openTerminal(s.cwd, s.cliSessionId);
+        openTerminal(s.cwd, s.cliSessionId, this.claude);
         this.track(s).openIn = 'TERMINAL';
         return `Opened a terminal: claude --resume ${s.cliSessionId}`;
       }
@@ -518,6 +678,11 @@ export class Helper {
           await this.report(id, { state: 'STOPPED' }).catch(() => {});
         }
         return `Stopped ${ids.length} session(s) on ${this.machine}. Sessions are kept; boards stay yours.`;
+      }
+      case 'RESTART_DESKTOP': {
+        const s = c.sessionId || args.cliSessionId ? await this.known(c, args).catch(() => null) : null;
+        await restartDesktop(s ? `local_${s.cliSessionId}` : null);
+        return 'Claude Desktop restarted - every session Alfred added is in its sidebar now.';
       }
       case 'PICK_FOLDER': {
         const folder = pickFolder();
@@ -605,13 +770,23 @@ export class Helper {
     return s;
   }
 
+  /** The first ▶ for a project on this PC: the folder picker opens here, and the answer is kept in My settings. */
+  async askFolder(project, settings) {
+    notify('Alfred', `Pick the repo folder for ${project} on ${this.machine}`);
+    const folder = this.pickFolder();
+    if (!folder) throw new Error(`NO_FOLDER: no repo folder for ${project} on ${this.machine} - pick one, or set it in 👤 Me`);
+    const projects = [...(settings?.projects ?? []), { project, machine: this.machine, folder, openIn: 'DESKTOP', worktrees: true }];
+    await this.api.call('PUT', '/board/me/settings', { body: { ...(settings ?? {}), projects } });
+    return { folder, openIn: 'DESKTOP', worktrees: true };
+  }
+
   async start(c, args) {
     const settings = await this.settings();
     const max = Number(settings?.maxSessions ?? 4);
     if ([...this.sessions.values()].filter((s) => s.runner).length >= max) throw new Error(`${max} sessions already run on ${this.machine} (My settings ▸ Max at once)`);
-    const where = args.folder ? { folder: args.folder, openIn: args.openIn ?? 'DESKTOP', worktrees: args.worktrees !== false }
+    let where = args.folder ? { folder: args.folder, openIn: args.openIn ?? 'DESKTOP', worktrees: args.worktrees !== false }
       : projectFolder(settings, c.project, this.machine);
-    if (!where?.folder) throw new Error(`NO_FOLDER: no repo folder for ${c.project} on ${this.machine} - set it in My settings`);
+    if (!where?.folder) where = await this.askFolder(c.project, settings);
     if (!existsSync(where.folder)) throw new Error(`NO_FOLDER: ${where.folder} does not exist on ${this.machine}`);
     const title = args.title || c.boardId;
     const isProject = String(c.boardId ?? '').startsWith('default:');
@@ -694,6 +869,7 @@ export class Helper {
         }
         for (const c of commands ?? []) {
           log(`▶ ${c.kind} ${c.boardId ?? ''}`);
+          this.busy = true;
           try {
             const result = await this.handle(c);
             await this.api.call('PUT', `/board/helper-commands/${c.id}`, { body: { state: 'DONE', result: String(result ?? '') } });
@@ -702,6 +878,8 @@ export class Helper {
             log(`✗ ${c.kind}: ${e.message}`);
             notify('Alfred', `${c.kind.toLowerCase().replace(/_/g, ' ')} failed: ${e.message}`);
             await this.api.call('PUT', `/board/helper-commands/${c.id}`, { body: { state: 'FAILED', result: e.message } }).catch(() => {});
+          } finally {
+            this.busy = false;
           }
         }
       }
@@ -755,13 +933,73 @@ function registerWindows(autostart) {
   reg(['add', 'HKCU\\Software\\Classes\\alfred-helper', '/ve', '/d', 'URL:Alfred helper', '/f']);
   reg(['add', 'HKCU\\Software\\Classes\\alfred-helper', '/v', 'URL Protocol', '/d', '', '/f']);
   reg(['add', 'HKCU\\Software\\Classes\\alfred-helper\\shell\\open\\command', '/ve', '/d', `"${node}" "${script}" url "%1"`, '/f']);
-  if (autostart) reg(['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AlfredHelper', '/d', `"${node}" "${script}" start`, '/f']);
+  if (autostart) reg(['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AlfredHelper', '/d', `"${node}" "${script}" start --all`, '/f']);
+}
+
+/**
+ * What a "Connect this PC" file runs, once: who this is (the Claude account the PC is signed in with), a key for this PC
+ * (the token also pairs the browser that downloaded the file), Alfred's MCP server and the skills, the alfred-helper://
+ * link and start-with-Windows, then the helper itself in the background. Running it again replaces the key and keeps
+ * the PC's browsers and sessions.
+ */
+async function connect(config, args) {
+  const server = normalizeServer(args.server);
+  if (!server || !args.token) throw new Error('This is run by the file Alfred gives you (Connect this PC) - download a new one');
+  const claude = findClaude();
+  if (!claude) throw new Error('Claude Code is not on this PC. Install it (https://claude.com/claude-code), sign in, then run this file again.');
+  const user = args.user || claudeAccount();
+  if (!user) throw new Error('Claude Code on this PC is not signed in. Run claude (or open Claude Desktop), sign in, then run this file again.');
+  const machine = args.machine || hostname();
+  console.log(`  you        ${user} (the Claude account signed in here)`);
+  console.log(`  this PC    ${machine}`);
+  const issued = await new AlfredApi(server, null).call('POST', '/board/helpers/register',
+    { body: { user, machine, claudeAccount: claudeAccount(), connectToken: args.token } });
+  config.servers = config.servers ?? {};
+  const old = config.servers[server] ?? {};
+  config.servers[server] = { ...old, keyId: issued.keyId, key: issued.key, user: issued.user, machine: issued.machine, claude };
+  config.default = config.default && config.servers[config.default] ? config.default : server;
+  writeConfig(config);
+  console.log('  browser    paired - go back to Alfred');
+
+  try {
+    const mcp = ensureMcp(server, issued.key, claude);
+    config.servers[server].mcp = mcp.name;
+    console.log(`  MCP        ${mcp.name}${mcp.changed ? ' (added to Claude Code)' : ''}`);
+  } catch (e) {
+    console.log(`  MCP        not added: ${e.message}`);
+  }
+  try {
+    const api = new AlfredApi(server, issued.key);
+    const skills = await api.call('GET', '/board/connect/skills', { timeoutMs: 60_000 });
+    const lines = installSkills(skills);
+    if (config.default === server) config.servers[server].skills = skills.version;
+    console.log(`  skills     ${lines.filter((l) => l.startsWith('installed')).length} /alfred-* skills in ${join(homedir(), '.claude', 'skills')}`);
+    for (const l of lines.filter((x) => x.startsWith('skipped'))) console.log(`             ${l}`);
+  } catch (e) {
+    console.log(`  skills     not installed: ${e.message}`);
+  }
+  writeConfig(config);
+  // ALFRED_HELPER_NO_REGISTER: an end-to-end test on a developer's PC leaves its registry alone
+  if (WINDOWS && !process.env.ALFRED_HELPER_NO_REGISTER) registerWindows(true);
+
+  const pid = runningPid(server);
+  if (pid) {
+    try { process.kill(pid); } catch { /* gone */ }
+    try { unlinkSync(pidFile(server)); } catch { /* gone */ }
+  }
+  const started = startDetached(server);
+  console.log(`  helper     running (pid ${started}), starts with Windows, updates itself from Alfred`);
 }
 
 async function main(argv) {
   const args = parseArgs(argv);
   const cmd = args._[0] ?? 'status';
   const config = readConfig();
+
+  if (cmd === 'connect') {
+    await connect(config, args);
+    return;
+  }
 
   if (cmd === 'install') {
     const server = normalizeServer(args.server);
@@ -792,7 +1030,7 @@ async function main(argv) {
     }
     case 'run': {
       writeFileSync(pidFile(entry.url), String(process.pid));
-      const helper = new Helper({ server: entry.url, api, machine: entry.machine, mcp: entry.mcp ?? mcpNameFor(entry.url),
+      const helper = new Helper({ server: entry.url, api, machine: entry.machine, mcp: entry.mcp ?? mcpNameFor(entry.url), claude: entry.claude ?? 'claude',
         skillsDir: args.skills ?? join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills') });
       const token = readToken(entry.url);
       if (token) await api.call('PUT', '/teamboards/me/token', { body: { token } }).catch((e) => log(`Azure token not handed over: ${e.message}`));
@@ -803,6 +1041,10 @@ async function main(argv) {
       return;
     }
     case 'start': {
+      if (args.all === 'true') { // start with Windows: one helper per connected Alfred
+        for (const server of Object.keys(config.servers ?? {})) console.log(`Helper running (pid ${startDetached(server)}) for ${server}.`);
+        return;
+      }
       const pid = startDetached(entry.url);
       console.log(`Helper running (pid ${pid}) for ${entry.url}. Log: ${join(configDir(), 'helper.log')}`);
       return;
@@ -854,7 +1096,7 @@ async function main(argv) {
       return;
     }
     default:
-      throw new Error(`Unknown command ${cmd} - install, pair, run, start, stop, status, url, token, uninstall`);
+      throw new Error(`Unknown command ${cmd} - connect, install, pair, run, start, stop, status, url, token, uninstall`);
   }
 }
 
