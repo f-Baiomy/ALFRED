@@ -293,6 +293,23 @@ export function alfredUrlOf(entry) {
  * ALFRED_KEY (the user's key) and ALFRED_VIA (the session id), so the runner's writes on a board the user holds go
  * through. Unset: no headers, as before.
  */
+/**
+ * This PC's helper key for that Alfred, as the MCP server reads it (mcp-server/src/alfred-client.ts helperKey): a
+ * session the helper did not start itself - the Desktop chat Claude on opens - has no ALFRED_KEY, and without a key
+ * every write on the board this user holds was refused HELD (2026-10-18). '' when there is no helper.
+ */
+export function helperKey(baseUrl, env = process.env) {
+  try {
+    const dir = env.ALFRED_HELPER_HOME
+      || (process.platform === 'win32' ? join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'alfred-helper')
+        : join(env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'alfred-helper'));
+    const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'));
+    const want = String(baseUrl).replace(/\/+$/, '');
+    for (const [u, e] of Object.entries(config.servers ?? {})) if (u.replace(/\/+$/, '') === want && e?.key) return e.key;
+  } catch { /* no helper on this PC */ }
+  return '';
+}
+
 export function identityHeaders(env = process.env) {
   return { ...(env.ALFRED_KEY ? { 'X-Alfred-Key': env.ALFRED_KEY } : {}), ...(env.ALFRED_VIA ? { 'X-Alfred-Via': env.ALFRED_VIA } : {}) };
 }
@@ -1536,6 +1553,8 @@ export async function main(argv) {
   if (!args.server) throw new Error('--server <the Alfred MCP server name> is needed (claude mcp list shows them)');
   const entry = serverEntry(args.server, cwd, args.config); // --config: another Claude Code config (tests)
   const url = args.url ?? alfredUrlOf(entry);
+  // the key the runner, its MCP server and its runs write with; the helper sets it for its own sessions only
+  if (!process.env.ALFRED_KEY) { const k = helperKey(url); if (k) process.env.ALFRED_KEY = k; }
   const project = args.project;
   // the terminal session that answers a cycle: the chat that ran /alfred-live (read from Claude Code's environment)
   const sessionChat = args.cycle ? (args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null) : null;

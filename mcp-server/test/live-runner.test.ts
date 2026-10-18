@@ -438,3 +438,13 @@ test('the live lane finds where a card\'s code is: this folder, a folder beside 
   assert.match(live.repoHint(['common-odeysys/src/A.java'], missing), /NOT on this machine.*never say the code does not exist/);
   assert.equal(live.findRepo([], front), null);
 });
+
+test('a runner without ALFRED_KEY writes with this PC\'s helper key for that Alfred (a Desktop chat has none)', () => {
+  const home = mkdtempSync(join(tmpdir(), 'helper-'));
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ servers: { 'http://localhost:3000': { key: 'k-local' }, 'http://lan:3000/': { key: 'k-lan' } } }));
+  const env = { ALFRED_HELPER_HOME: home };
+  assert.equal(live.helperKey('http://localhost:3000/', env), 'k-local');
+  assert.equal(live.helperKey('http://lan:3000', env), 'k-lan');
+  assert.equal(live.helperKey('http://other:3000', env), '');
+  assert.equal(live.helperKey('http://localhost:3000', { ALFRED_HELPER_HOME: join(home, 'none') }), '');
+});
