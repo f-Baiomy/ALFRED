@@ -19,14 +19,22 @@
 // One writer per session (spike S2): a session that runs interactively in Claude Desktop or a terminal is never written
 // to by the helper. Board answers come from the /alfred-live runner, which answers in forks of the session; the helper
 // writes into the session itself only for its first turn and for a sync the user asks for while it is not open.
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import * as childProcess from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, platform } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.4.0';
+
+// The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
+// reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
+// picker, a terminal - asks for a window ({ windowsHide: false }).
+const hidden = (o) => ({ windowsHide: true, ...(o ?? {}) });
+const spawn = (cmd, args, o) => childProcess.spawn(cmd, args, hidden(o));
+const spawnSync = (cmd, args, o) => childProcess.spawnSync(cmd, args, hidden(o));
+const execFileSync = (cmd, args, o) => childProcess.execFileSync(cmd, args, hidden(o));
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
@@ -399,8 +407,8 @@ function openTerminal(cwd, cliSessionId, claude = 'claude') {
   const cmd = `${/\s/.test(claude) ? `"${claude}"` : claude} --resume ${cliSessionId}`;
   if (WINDOWS) {
     const wt = spawnSync('where', ['wt.exe'], { encoding: 'utf8' }).status === 0;
-    if (wt) spawn('wt.exe', ['-d', cwd, 'cmd', '/k', cmd], { detached: true, stdio: 'ignore' }).unref();
-    else spawn('cmd.exe', ['/c', 'start', 'cmd', '/k', `cd /d "${cwd}" && ${cmd}`], { detached: true, stdio: 'ignore' }).unref();
+    if (wt) spawn('wt.exe', ['-d', cwd, 'cmd', '/k', cmd], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+    else spawn('cmd.exe', ['/c', 'start', 'cmd', '/k', `cd /d "${cwd}" && ${cmd}`], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
   } else if (MAC) {
     spawn('osascript', ['-e', `tell application "Terminal" to do script "cd '${cwd}' && ${cmd}"`], { detached: true, stdio: 'ignore' }).unref();
   } else {
@@ -412,7 +420,7 @@ function pickFolder() {
   if (WINDOWS) {
     const r = spawnSync('powershell.exe', ['-NoProfile', '-STA', '-Command',
       'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; '
-      + '$d.Description = "Repo folder for Alfred board sessions"; if ($d.ShowDialog() -eq "OK") { $d.SelectedPath }'], { encoding: 'utf8', timeout: 600_000 });
+      + '$d.Description = "Repo folder for Alfred board sessions"; if ($d.ShowDialog() -eq "OK") { $d.SelectedPath }'], { encoding: 'utf8', timeout: 600_000, windowsHide: false });
     return r.stdout.trim() || null;
   }
   const r = MAC
@@ -543,7 +551,7 @@ export class Helper {
 
   async heartbeat() {
     const info = { version: VERSION, claudeAccount: claudeAccount(), desktop: !!desktopAccountDir(), node: process.version,
-      platform: platform(), mcp: this.mcp, azureToken: !!readToken(this.server),
+      platform: platform(), mcp: this.mcp, azureToken: existsSync(tokenFile(this.server)), // not decrypted: no PowerShell per heartbeat
       sessions: [...this.sessions.entries()].map(([id, s]) => ({ cliSessionId: id, boardId: s.boardId })) };
     const me = await this.api.call('PUT', '/board/helpers/heartbeat', { body: info });
     // the token first: Alfred hands it over once, and an update below restarts this process

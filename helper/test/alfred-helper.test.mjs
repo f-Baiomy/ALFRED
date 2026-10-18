@@ -277,3 +277,12 @@ test('a token entered in Alfred for this PC is kept here, and forgetting it remo
     if (before === undefined) delete process.env.ALFRED_HELPER_HOME; else process.env.ALFRED_HELPER_HOME = before;
   }
 });
+
+test('every tool the helper starts goes through the hidden wrappers - no console window flashes on Windows', () => {
+  const src = readFileSync(new URL('../alfred-helper.mjs', import.meta.url), 'utf8');
+  const direct = src.split('\n').filter((l) => /childProcess\.\w+\(/.test(l));
+  assert.equal(direct.length, 3, direct.join('\n')); // spawn, spawnSync, execFileSync wrappers only
+  assert.doesNotMatch(src, /import {[^}]*} from 'node:child_process'/);
+  const shown = src.split('\n').filter((l) => l.includes(', windowsHide: false'));
+  assert.equal(shown.length, 3, shown.join('\n')); // the folder picker and the two ways to open a terminal
+});
