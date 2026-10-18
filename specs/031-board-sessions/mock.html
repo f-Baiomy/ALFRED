@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Sessions Mock</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5d6677; --line: #dde1e8;
+    --accent: #3b5bdb; --accent-ink: #ffffff; --ok: #2b8a3e; --warn: #c77700; --bad: #c92a2a;
+    --chip: #eef1f6; --shade: rgba(20, 24, 33, .45);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2d333f;
+      --accent: #6f8cff; --accent-ink: #0d1020; --ok: #51cf66; --warn: #ffb341; --bad: #ff6b6b;
+      --chip: #262b35; --shade: rgba(0, 0, 0, .6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2d333f;
+    --accent: #6f8cff; --accent-ink: #0d1020; --ok: #51cf66; --warn: #ffb341; --bad: #ff6b6b;
+    --chip: #262b35; --shade: rgba(0, 0, 0, .6);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header.top { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header.top h1 { margin: 0; font-size: 17px; }
+  header.top p { margin: 4px 0 0; color: var(--muted); }
+  nav.steps { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; }
+  nav.steps button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 16px;
+    padding: 5px 12px; cursor: pointer; font: inherit; }
+  nav.steps button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  main { padding: 0 16px 40px; max-width: 1100px; }
+  .note { color: var(--muted); margin: 6px 0 14px; max-width: 760px; }
+  .app { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .bar .title { font-weight: 600; }
+  .bar .stage { color: var(--muted); }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 6px 11px;
+    font: inherit; cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.danger { color: var(--bad); }
+  .btn.small { padding: 3px 8px; font-size: 12.5px; }
+  .live { display: inline-flex; align-items: center; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .live .main { border: 0; border-radius: 0; }
+  .live .caret { border: 0; border-left: 1px solid var(--line); border-radius: 0; padding: 6px 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: 1px; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.off { background: var(--muted); }
+  .menu { position: absolute; right: 14px; top: 46px; width: 330px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); z-index: 5; }
+  .menu .head { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .menu .head small { color: var(--muted); display: block; }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); padding: 8px 12px;
+    font: inherit; cursor: pointer; }
+  .menu button:hover { background: var(--chip); }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+  .body { display: grid; grid-template-columns: 1fr 340px; min-height: 360px; }
+  .cols { padding: 12px 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-content: start; }
+  .col { background: var(--chip); border-radius: 8px; padding: 8px; min-height: 120px; }
+  .col h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 13px; }
+  .chat { border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .chat .ch { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .chat .ch small { color: var(--muted); display: block; }
+  .msgs { padding: 10px 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .msg { padding: 7px 9px; border-radius: 8px; max-width: 92%; }
+  .msg.u { background: var(--accent); color: var(--accent-ink); align-self: flex-end; }
+  .msg.c { background: var(--chip); }
+  .msg.sys { background: none; color: var(--muted); font-size: 12.5px; text-align: center; align-self: center; }
+  .composer { border-top: 1px solid var(--line); padding: 8px 12px; color: var(--muted); }
+  .rel { position: relative; }
+  .shade { position: absolute; inset: 0; background: var(--shade); display: flex; align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+  .dlg { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 560px; max-width: 100%; box-shadow: 0 16px 40px rgba(0,0,0,.3); }
+  .dlg h3 { margin: 0; padding: 14px 16px 4px; font-size: 16px; }
+  .dlg .sub { padding: 0 16px 10px; color: var(--muted); }
+  .dlg .sec { padding: 10px 16px; border-top: 1px solid var(--line); }
+  .dlg .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .kv { display: grid; grid-template-columns: 120px 1fr; gap: 3px 10px; font-size: 13px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .opt { display: flex; gap: 10px; padding: 8px 0; align-items: flex-start; }
+  .opt input[type=radio] { margin-top: 4px; }
+  .opt b { display: block; }
+  .opt small { color: var(--muted); }
+  input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .tag { display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 8px; font-size: 12px; margin-right: 4px; }
+  .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); } .tag.bad { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  .desk { display: grid; grid-template-columns: 220px 1fr; min-height: 300px; }
+  .desk aside { border-right: 1px solid var(--line); padding: 10px; background: var(--chip); }
+  .desk aside .s { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; font-size: 13px; }
+  .desk aside .s.on { background: var(--panel); border: 1px solid var(--line); }
+  .desk aside .grp { color: var(--muted); font-size: 11.5px; text-transform: uppercase; margin: 10px 0 4px; }
+  .term { background: #0f1115; color: #d6dbe4; font: 12.5px/1.5 Consolas, monospace; padding: 12px; border-radius: 8px; white-space: pre-wrap; overflow-x: auto; }
+  .sync { padding: 10px 14px; background: var(--chip); border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    .body { grid-template-columns: 1fr; }
+    .chat { border-left: 0; border-top: 1px solid var(--line); }
+    .cols { grid-template-columns: 1fr; }
+    .desk { grid-template-columns: 1fr; }
+    .menu { left: 14px; right: 14px; width: auto; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Alfred - one Claude session per board</h1>
+  <p>Mock for specs/031. Click the steps to walk the flow. Nothing here is wired.</p>
+</header>
+<nav class="steps" id="steps"></nav>
+<main id="view"></main>
+
+<script>
+const BOARD = 'AB#61813 Seat map NDC';
+const SID = '4e7c1a02-91b3-4d6e-a0f2-7c55e1d0b9a3';
+const SHORT = SID.slice(0, 8);
+
+const boardFrame = (liveBtn, chatHead, msgs, extra = '', sync = '') => `
+<div class="app rel">
+  <div class="bar">
+    <span class="title">${BOARD}</span><span class="stage">· Verify</span>
+    <span class="spacer"></span>
+    ${liveBtn}
+  </div>
+  ${sync}
+  <div class="body">
+    <div class="cols">
+      <div class="col"><h4>To do</h4><div class="card">#12 Seat price null on INT</div><div class="card">#15 Missing exit row flag</div></div>
+      <div class="col"><h4>In progress</h4><div class="card">#9 Duplicate SELECT per segment</div></div>
+      <div class="col"><h4>Fixed</h4><div class="card">#4 Wrong currency</div></div>
+    </div>
+    <div class="chat">
+      <div class="ch">${chatHead}</div>
+      <div class="msgs">${msgs}</div>
+      <div class="composer">Message Claude about this board…</div>
+    </div>
+  </div>
+  ${extra}
+</div>`;
+
+const btnNone = `<span class="live"><button class="btn primary main">▶ alfred-live</button></span>`;
+const btnLive = (open = false) => `<span class="live"><button class="btn main"><span class="dot ok"></span>Live · session ${SHORT}</button><button class="btn caret">▾</button></span>
+${open ? `<div class="menu">
+  <div class="head"><b>Session ${SHORT}</b><small>this PC (WORK-PC) · f.biomy@… · started 2 h ago · 41 msgs</small></div>
+  <button>🖥 Open in Claude Desktop</button>
+  <button>⌨ Open in terminal <small style="color:var(--muted)">claude --resume ${SHORT}…</small></button>
+  <button>⧉ Copy session id</button>
+  <hr>
+  <button>👂 Listen to a cycle… <small style="color:var(--muted)">(background lane)</small></button>
+  <button>▶ Run a skill ▸ <small style="color:var(--muted)">setup · verify · triage · fix · review · report</small></button>
+  <hr>
+  <button>＋ New session for this board</button>
+  <button>⇄ Switch session… <small style="color:var(--muted)">(3 on this board)</small></button>
+  <hr>
+  <button class="danger">■ Stop answering (keep session)</button>
+</div>` : ''}`;
+const btnOff = `<span class="live"><button class="btn main"><span class="dot off"></span>Session ${SHORT} · idle</button><button class="btn caret">▾</button></span>`;
+const btnMissing = `<span class="live"><button class="btn main"><span class="dot bad"></span>Session not on this PC</button><button class="btn caret">▾</button></span>`;
+
+const msgsBase = `
+  <div class="msg u">Why does #12 fail only on INT?</div>
+  <div class="msg c">The INT supplier returns <code>price: null</code> for paid seats; we map null to 0. Call @c-8812 shows it.</div>`;
+
+const STEPS = [
+  { key: 'start', label: '1 · Board, no session', note: 'Board has no session yet. One button: ▶ alfred-live. The chat shows nobody answers yet.',
+    html: () => boardFrame(btnNone, `<b>Board chat</b><small><span class="dot off"></span>Nobody answers - press ▶ alfred-live</small>`,
+      `<div class="msg sys">No Claude session holds this board.</div>`) },
+
+  { key: 'starting', label: '2 · Starting', note: 'Click starts a session through your PC\'s Alfred agent: new Claude Code session in the repo folder, first prompt /alfred-live <board>. Then Alfred registers it with Claude Desktop so it shows in the sidebar.',
+    html: () => boardFrame(`<span class="live"><button class="btn main"><span class="dot warn"></span>Starting…</button></span>`,
+      `<b>Board chat</b><small><span class="dot warn"></span>Starting session on WORK-PC…</small>`,
+      `<div class="msg sys">✓ Session created ${SHORT}<br>✓ /alfred-live ${BOARD} running<br>… adding to Claude Desktop</div>`) },
+
+  { key: 'live', label: '3 · Live (menu open)', note: 'Button is now attached to that session. ▾ opens it in Claude Desktop or a terminal - same session, same history. Board chat answers come from it.',
+    html: () => boardFrame(btnLive(true), `<b>Board chat</b><small><span class="dot ok"></span>Answered by session ${SHORT} on WORK-PC</small>`, msgsBase) },
+
+  { key: 'desktop', label: '4 · Same session in Desktop + terminal', note: 'Claude Desktop sidebar gets an "Alfred" group with one row per board session. The terminal resumes the same transcript. Only one place types at a time: when you type in Desktop or the terminal, the board answers wait for that turn to end.',
+    html: () => `
+<div class="app">
+  <div class="desk">
+    <aside>
+      <div class="grp">Alfred · odeysys</div>
+      <div class="s on">🟢 ${BOARD}</div>
+      <div class="s">🟢 Project chat · odeysys</div>
+      <div class="s">⚪ AB#61790 Baggage rules</div>
+      <div class="grp">Other</div>
+      <div class="s">Task workflow handoff specs</div>
+    </aside>
+    <div style="padding:12px">
+      <div class="msg sys" style="text-align:left">/alfred-live ${BOARD}</div>
+      <div class="msg c" style="margin:8px 0">Listening to the board chat. ✉ board chat #41 - "Why does #12 fail only on INT?"</div>
+      <div class="msg c">Answered #41 on the board. Next: waiting.</div>
+      <div class="msg u" style="margin:8px 0 8px auto;width:fit-content">also check #15 while you are here</div>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:14px">Terminal, same session:</p>
+<div class="term">PS C:\\work\\odeys-claude\\odeysys&gt; claude --resume ${SID}
+  ⎿ resumed "${BOARD}" · 43 messages
+  &gt; also check #15 while you are here
+  ● Reading card #15 …</div>` },
+
+  { key: 'closed', label: '5 · Closed, opened later', note: 'You closed Desktop and the terminal. Session is idle, not gone. Button still points to it. Click ▶ = resume that same session (claude --resume) - no new session, no lost history.',
+    html: () => boardFrame(btnOff, `<b>Board chat</b><small><span class="dot off"></span>Session ${SHORT} idle - messages wait, ▶ resumes it</small>`,
+      msgsBase + `<div class="msg u">#15 too please</div><div class="msg sys">⏳ waiting for session ${SHORT}</div>`) },
+
+  { key: 'missing', label: '6 · Other PC / account', note: 'Alfred knows the board\'s session lives on WORK-PC under another account. This PC has no transcript for it. Popup offers ways back.',
+    html: () => boardFrame(btnMissing, `<b>Board chat</b><small><span class="dot bad"></span>Session ${SHORT} is on WORK-PC</small>`, msgsBase, `
+<div class="shade"><div class="dlg">
+  <h3>Session not found on this PC</h3>
+  <div class="sub">This board's session isn't here. It was last used on another machine or account.</div>
+  <div class="sec kv">
+    <span>Session</span><span><code>${SID}</code></span>
+    <span>Machine</span><span>WORK-PC (this is LAPTOP-2)</span>
+    <span>Account</span><span>f.biomy@tildetech.ae · Claude org "Tilde"</span>
+    <span>Last active</span><span>today 18:02 · 43 messages</span>
+  </div>
+  <div class="sec">
+    <label class="opt"><input type="radio" name="r" checked><span><b>Continue here from Alfred's copy</b><small>New session on this PC, seeded from the board chat, its summary, decisions and the brief. Becomes this board's session.</small></span></label>
+    <label class="opt"><input type="radio" name="r"><span><b>Pick another session of this board</b><small>3 known: ${SHORT} (WORK-PC), 9a1f03bb (LAPTOP-2, 3 days ago), c52e77d0 (LAPTOP-2, archived)</small></span></label>
+    <label class="opt"><input type="radio" name="r"><span><b>Enter a session id</b><small>Any Claude Code session on this PC - id, or paste a claude --resume line.</small>
+      <input type="text" placeholder="e.g. 4e7c1a02-91b3-… or claude --resume 4e7c…"></span></label>
+    <label class="opt"><input type="radio" name="r"><span><b>Bring the transcript from WORK-PC</b><small>Only when WORK-PC's Alfred agent is online: copies the full transcript here, then resumes it - exact same history.</small></span></label>
+  </div>
+  <div class="foot"><button class="btn">Cancel</button><button class="btn primary">Continue</button></div>
+</div></div>`) },
+
+  { key: 'sync', label: '7 · Back on first PC: sync', note: 'You worked on LAPTOP-2, now you are back on WORK-PC. Its session missed 9 exchanges. Banner offers Sync: Alfred feeds the missed chat into this session, then it takes the board back.',
+    html: () => boardFrame(btnOff, `<b>Board chat</b><small><span class="dot warn"></span>Held by 9a1f03bb on LAPTOP-2 until 18:40</small>`, msgsBase + `<div class="msg sys">↪ handed over to 9a1f03bb on LAPTOP-2 · 18:05</div><div class="msg u">fixed #12, verify please</div><div class="msg c">Verified - INT now returns the price. Proposed Verified.</div>`, '',
+      `<div class="sync"><span class="dot warn"></span><span>Session ${SHORT} on this PC is 9 messages behind the board chat.</span><span class="spacer"></span><button class="btn">Show what changed</button><button class="btn primary">Sync and take over</button></div>`) },
+
+  { key: 'list', label: '8 · All sessions', note: 'One list per project (Board tab ▸ Sessions). Many sessions at once, each tied to a board or the project chat. All actions are buttons.',
+    html: () => `
+<div class="app"><div class="bar"><span class="title">Sessions · odeysys</span><span class="spacer"></span><span class="tag">Running 2 / max 4</span><button class="btn primary">＋ New session…</button></div>
+<div class="scroll"><table>
+<tr><th>Holds</th><th>Session</th><th>Where</th><th>State</th><th>Behind</th><th></th></tr>
+<tr><td>${BOARD}</td><td><code>${SHORT}</code></td><td>WORK-PC · this PC</td><td><span class="tag ok">● answering</span></td><td>-</td>
+  <td><button class="btn small">Desktop</button> <button class="btn small">Terminal</button> <button class="btn small">Stop</button></td></tr>
+<tr><td>Project chat</td><td><code>b07d2e19</code></td><td>WORK-PC · this PC</td><td><span class="tag ok">● answering</span></td><td>-</td>
+  <td><button class="btn small">Desktop</button> <button class="btn small">Terminal</button> <button class="btn small">Stop</button></td></tr>
+<tr><td>AB#61790 Baggage rules</td><td><code>5d2c90aa</code></td><td>WORK-PC · this PC</td><td><span class="tag">○ idle</span></td><td>2 msgs</td>
+  <td><button class="btn small">Resume</button> <button class="btn small">Sync</button></td></tr>
+<tr><td>AB#61813 (older)</td><td><code>9a1f03bb</code></td><td>LAPTOP-2</td><td><span class="tag warn">other PC</span></td><td>-</td>
+  <td><button class="btn small">Bring here</button> <button class="btn small">Make board's session</button></td></tr>
+<tr><td>AB#61700 Old fares</td><td><code>c52e77d0</code></td><td>LAPTOP-2</td><td><span class="tag bad">transcript gone</span></td><td>-</td>
+  <td><button class="btn small">Continue from Alfred's copy</button> <button class="btn small">Forget</button></td></tr>
+</table></div></div>` },
+
+  { key: 'needs', label: '9 · Needs Claude, no session', note: 'Any button that needs Claude (▶ /alfred-verify on a card, ✦ Ask, a card comment, a chat message, Define) on a board with no session opens this. Nothing runs until you pick.',
+    html: () => boardFrame(btnNone, `<b>Board chat</b><small><span class="dot off"></span>Nobody answers</small>`, `<div class="msg sys">No Claude session holds this board.</div>`, `
+<div class="shade"><div class="dlg">
+  <h3>This needs Claude</h3>
+  <div class="sub"><code>/alfred-verify 4</code> on ${BOARD}. No session holds this board yet.</div>
+  <div class="sec">
+    <label class="opt"><input type="radio" name="n" checked><span><b>Start a session for this board and run it</b><small>On WORK-PC (this PC). First turn: <code>/alfred-live</code>, then <code>/alfred-verify 4</code>. Shows in Claude Desktop.</small></span></label>
+    <label class="opt"><input type="radio" name="n"><span><b>Send to the project session</b><small>b07d2e19 answers it once (busy: 1 waiting). The board still has no session after.</small></span></label>
+    <label class="opt"><input type="radio" name="n"><span><b>Keep it waiting</b><small>Runs when a session takes this board.</small></span></label>
+  </div>
+  <div class="sec kv"><span>Running</span><span>2 of max 4 sessions on WORK-PC</span></div>
+  <div class="foot"><button class="btn">Cancel</button><button class="btn primary">Start and run</button></div>
+</div></div>`) },
+
+  { key: 'setup', label: '10 · Start from Azure = /alfred-setup', note: 'Team tab ▸ Start on a work item. Alfred creates the board and its session together. First turns: /alfred-live, then /alfred-setup AB#61813. The draft shows on the board (Save all) and in Desktop, where you can talk it through.',
+    html: () => `
+<div class="app rel"><div class="bar"><span class="title">Team · Azure DevOps</span><span class="spacer"></span></div>
+<div class="scroll"><table>
+<tr><th>Item</th><th>Title</th><th>State</th><th></th></tr>
+<tr><td>AB#61813</td><td>Seat map NDC for INT</td><td>Active</td><td><button class="btn small primary">▶ Start</button></td></tr>
+<tr><td>AB#61790</td><td>Baggage rules on transfer</td><td>New</td><td><button class="btn small">Open board</button></td></tr>
+</table></div>
+<div class="shade"><div class="dlg">
+  <h3>Start AB#61813</h3>
+  <div class="sub">Makes the board and a Claude session that defines it.</div>
+  <div class="sec kv">
+    <span>Board</span><span>AB#61813 Seat map NDC (new)</span>
+    <span>Session</span><span>new, on WORK-PC, in <code>C:\\work\\odeys-claude\\odeysys</code></span>
+    <span>Runs</span><span><code>/alfred-live</code> then <code>/alfred-setup AB#61813</code></span>
+    <span>You approve</span><span>the draft (Save all) on the board - nothing saved before</span>
+  </div>
+  <div class="sec"><label class="opt"><input type="checkbox" checked><span><b>Open it in Claude Desktop</b><small>Watch the draft being made, answer its questions there or on the board.</small></span></label>
+  <label class="opt"><input type="checkbox"><span><b>Then listen to the first cycle</b><small>Starts /alfred-listen when you start recording.</small></span></label></div>
+  <div class="foot"><button class="btn">Cancel</button><button class="btn primary">Start</button></div>
+</div></div></div>` },
+
+  { key: 'listen', label: '11 · Listen lane', note: '/alfred-listen is a background lane of the board session, on the same PC. It judges batches in short copies (forks) of the session, so it never types into your conversation. Findings land on the board and as one line each in the session.',
+    html: () => boardFrame(`<span class="live"><button class="btn main"><span class="dot ok"></span>Live · ${SHORT} · 👂 listening</button><button class="btn caret">▾</button></span>`,
+      `<b>Board chat</b><small><span class="dot ok"></span>${SHORT} · 👂 cycle "Run 3" · 42 calls, 3 batches, 1 flagged</small>`,
+      msgsBase + `<div class="msg sys">👂 batch 3 · 14 calls · 1 finding → #16 Seat price null again</div>`, '',
+      `<div class="sync"><span class="dot ok"></span><span>👂 Listening to cycle <b>Run 3</b> on WORK-PC · judging batch 4 (8 calls)</span><span class="spacer"></span><button class="btn">Pause</button><button class="btn danger">Stop listening</button></div>`) },
+
+  { key: 'routing', label: '12 · Who answers what', note: 'One rule for every Claude job. Shown under Sessions ▸ Routing. A job goes to the session that holds its board; nothing on a board goes to the project session.',
+    html: () => `
+<div class="app"><div class="bar"><span class="title">Routing · odeysys</span></div>
+<div class="scroll"><table>
+<tr><th>Job</th><th>Started by</th><th>Goes to</th><th>How</th></tr>
+<tr><td>Board chat message</td><td>chat composer</td><td>board session</td><td>turn in the session</td></tr>
+<tr><td>Project chat message</td><td>global chat</td><td>project session</td><td>turn in the session</td></tr>
+<tr><td>Card comment that needs a look</td><td>card thread</td><td>board session</td><td>turn; small ones answered in seconds</td></tr>
+<tr><td>✦ Ask / snippet alfred.ask()</td><td>text menu, snippet</td><td>board session (project session off-board)</td><td><code>/alfred-ask &lt;id&gt;</code> turn</td></tr>
+<tr><td>Define · Start · Re-define</td><td>Team ▸ Start, stage strip</td><td>board session (made if none)</td><td><code>/alfred-setup</code> turn</td></tr>
+<tr><td>▶ verify · fix · sync · triage · review · spec · report · resume</td><td>card / Task tab buttons</td><td>board session</td><td>queued run, one at a time, ⚡ first</td></tr>
+<tr><td>Listen to a cycle</td><td>▾ Listen, Start recording</td><td>board session's PC</td><td>background lane, forks only</td></tr>
+<tr><td>Chat compact (summary)</td><td>⇊, every 100 msgs</td><td>that chat's session</td><td>queued run</td></tr>
+<tr><td>Team Incoming sort, cross-board asks</td><td>Team tab</td><td>project session</td><td>queued run</td></tr>
+<tr><td>Requirement verdicts, re-test checks</td><td>every captured call</td><td>no Claude</td><td>code in backend</td></tr>
+</table></div></div>` },
+
+  { key: 'lan', label: '13 · Alfred on the LAN', note: 'Alfred runs on 192.168.1.80; Claude runs on your PC. A small Alfred helper on your PC connects OUT to 192.168.1.80, takes the jobs meant for this PC and runs claude here, in your repo folder, with your account. The server never runs Claude and never reaches into your PC.',
+    html: () => `
+<div class="app rel"><div class="bar"><span class="title">http://192.168.1.80:3000 · Sessions ▸ This PC</span><span class="spacer"></span><span class="tag ok">● helper online</span></div>
+<div class="sec" style="padding:12px 14px">
+  <div class="kv">
+    <span>This PC</span><span>WORK-PC (picked in this browser; the helper says the same)</span>
+    <span>Helper</span><span>alfred helper 1.8 · connected to 192.168.1.80:3000 · last beat 3 s ago</span>
+    <span>Claude</span><span>Claude Code 2.x · f.biomy@tildetech.ae · org "Tilde" · Desktop found</span>
+    <span>MCP</span><span><code>alfred-lan-80</code> → http://192.168.1.80:3000 ✓</span>
+    <span>Edit access</span><span>✓ 192.168.1.23 may edit boards on this Alfred</span>
+  </div>
+</div>
+<div class="scroll"><table>
+<tr><th>Project</th><th>Repo folder on this PC</th><th></th></tr>
+<tr><td>odeysys</td><td><code>C:\\work\\odeys-claude\\odeysys</code></td><td><button class="btn small">Change</button></td></tr>
+<tr><td>alfred</td><td><span class="tag warn">not set - sessions can't start</span></td><td><button class="btn small primary">Pick folder</button></td></tr>
+</table></div>
+<div class="scroll"><table>
+<tr><th>Other PCs on this Alfred</th><th>User</th><th>Sessions</th><th></th></tr>
+<tr><td>LAPTOP-2</td><td>f.biomy (you)</td><td>1 idle</td><td><button class="btn small">Bring here</button></td></tr>
+<tr><td>DEV-AHMED</td><td>ahmed@…</td><td>2 answering</td><td><span class="tag">view only</span></td></tr>
+</table></div>
+<div class="shade" style="position:relative;inset:auto;margin-top:8px;padding:16px"><div class="dlg">
+  <h3>Alfred helper is not running on this PC</h3>
+  <div class="sub">▶ alfred-live needs it - Claude runs on your PC, not on 192.168.1.80.</div>
+  <div class="sec">
+    <label class="opt"><input type="radio" name="h" checked><span><b>Start it now</b><small>Opens <code>alfred-helper://connect?server=192.168.1.80:3000</code>; the helper starts and takes the job. Installed once with <code>alfred helper install</code>.</small></span></label>
+    <label class="opt"><input type="radio" name="h"><span><b>Run it on another PC of mine</b><small>LAPTOP-2 is online.</small></span></label>
+    <label class="opt"><input type="radio" name="h"><span><b>Keep it waiting</b><small>Runs when a helper takes this board.</small></span></label>
+  </div>
+  <div class="foot"><button class="btn">Cancel</button><button class="btn primary">Start helper</button></div>
+</div></div>
+</div>` },
+
+  { key: 'locked', label: '14 · Someone else opens your board', note: 'Ahmed opens the board from his PC. It is held by you: he can read everything, but the chat, comments, card edits, moves, brief, spec, ▶ runs and his own Claude (MCP) are all refused by the backend. He can only ask for it.',
+    html: () => boardFrame(`<span class="live"><button class="btn main">🔒 Held by f.biomy · WORK-PC</button><button class="btn caret">▾</button></span>`,
+      `<b>Board chat</b><small>🔒 Only f.biomy can write here</small>`, msgsBase, '',
+      `<div class="sync">🔒 <span>This board is held by <b>f.biomy</b> (session ${SHORT} on WORK-PC, active 2 min ago). You can read it. Writing waits until they release it.</span><span class="spacer"></span><button class="btn primary">Ask for the board</button></div>`)
+      .replace('Message Claude about this board…', '🔒 read only') },
+
+  { key: 'request', label: '15 · You get the request', note: 'You see Ahmed\'s request on the board and as one line in your session. You decide. Nothing moves until you click.',
+    html: () => boardFrame(btnLive(false), `<b>Board chat</b><small><span class="dot ok"></span>Answered by session ${SHORT}</small>`,
+      msgsBase + `<div class="msg sys">✋ ahmed@… (DEV-AHMED) asks for this board · 19:41</div>`, `
+<div class="shade"><div class="dlg">
+  <h3>ahmed@… asks for ${BOARD}</h3>
+  <div class="sub">"I'll take the INT re-test tonight."</div>
+  <div class="sec">
+    <label class="opt"><input type="radio" name="q" checked><span><b>Hand it over</b><small>Your session stops answering and goes idle (kept, resumable). Ahmed's next ▶ alfred-live takes the board. Waiting messages go to his session.</small></span></label>
+    <label class="opt"><input type="radio" name="q"><span><b>Release, anyone may take it</b><small>Board is free until someone presses ▶ alfred-live or listens.</small></span></label>
+    <label class="opt"><input type="radio" name="q"><span><b>Keep it</b><small>Ahmed sees "f.biomy kept the board".</small></span></label>
+  </div>
+  <div class="foot"><button class="btn">Later</button><button class="btn primary">Confirm</button></div>
+</div></div>`) },
+
+  { key: 'pair', label: '16 · Who is "you"', note: 'Alfred has no logins today; access is by IP. The lock needs a real "you": your helper holds a key, and each of your browsers is paired to it once with a code. Same PC, other Windows user, other browser: not you until paired.',
+    html: () => `
+<div class="app rel"><div class="bar"><span class="title">Pair this browser</span></div>
+<div class="shade" style="position:relative;inset:auto;padding:16px"><div class="dlg">
+  <h3>Is this you?</h3>
+  <div class="sub">To write on boards you hold, pair this browser with your Alfred helper.</div>
+  <div class="sec">Run on your PC, or click the helper's tray icon ▸ Pair:
+    <div class="term" style="margin-top:8px">&gt; alfred helper pair
+  code: 482 917  (valid 2 min)</div>
+    <input type="text" placeholder="Enter the 6-digit code">
+  </div>
+  <div class="sec kv"><span>Holder</span><span>f.biomy@tildetech.ae · helper on WORK-PC</span><span>Paired</span><span>Chrome on WORK-PC, Edge on LAPTOP-2</span></div>
+  <div class="foot"><button class="btn">View only</button><button class="btn primary">Pair</button></div>
+</div></div>
+<div class="sync" style="border-top:1px solid var(--line)">⚠ <span>Lost the PC? The Alfred admin (the server's own machine) can <b>Force release</b> a board. It is logged on the board.</span></div>
+</div>` },
+
+  { key: 'settings', label: '17 · Board session settings', note: 'Per board, ▾ ▸ Session settings. Worktree (1), tool limits per job (2), budget (3), model per job (5), away rule (6), commenters (7). Defaults come from the project.',
+    html: () => `
+<div class="app"><div class="bar"><span class="title">${BOARD} · Session settings</span><span class="spacer"></span><button class="btn primary">Save</button></div>
+<div style="padding:12px 14px" class="kv">
+  <span>Worktree</span><span><code>C:\\work\\odeys-claude\\odeysys\\.alfred-worktrees\\AB61813</code> · branch <code>task/AB61813-seat-map</code> <button class="btn small">Change</button><br><small style="color:var(--muted)">Each board session works in its own folder, so two boards fixing code never touch the same files. Project session: main folder.</small></span>
+  <span>Daily budget</span><span><input type="text" value="400k tokens" style="width:140px;margin:0"> · today 182k used <small style="color:var(--muted)">- at the limit jobs wait, chat says why</small></span>
+  <span>Away rule</span><span>Offline over <input type="text" value="8 h" style="width:60px;margin:0"> → <select><option>accept the next request</option><option>release the board</option><option>do nothing</option></select></span>
+  <span>Commenters</span><span><span class="tag">ahmed@… (DEV-AHMED)</span> <button class="btn small">＋ Add</button> <small style="color:var(--muted)">may chat and comment; you approve each before Claude answers</small></span>
+</div>
+<div class="scroll"><table>
+<tr><th>Job</th><th>Model</th><th>Tools</th></tr>
+<tr><td>Chat answer, ✦ ask, small comment</td><td>Sonnet</td><td><span class="tag ok">read only</span> Alfred MCP, Read, Grep</td></tr>
+<tr><td>/alfred-listen (judge batches)</td><td>Sonnet</td><td><span class="tag ok">read only</span></td></tr>
+<tr><td>/alfred-setup, /alfred-triage, /alfred-review</td><td>Opus</td><td><span class="tag ok">read only</span> + board writes</td></tr>
+<tr><td>/alfred-verify</td><td>Opus</td><td><span class="tag warn">read + run tests</span></td></tr>
+<tr><td>/alfred-fix</td><td>Opus</td><td><span class="tag bad">edit files + run tests</span> in the worktree only</td></tr>
+<tr><td>You typing in Desktop / terminal</td><td>your pick</td><td>your permission mode</td></tr>
+</table></div></div>` },
+
+  { key: 'budget', label: '18 · Budget and limits', note: 'Tokens per session per day in the Sessions list (3). Button shows why a session waits: budget reached, usage limit, or a model error, with when it retries.',
+    html: () => `
+<div class="app"><div class="bar"><span class="title">Sessions · odeysys</span><span class="spacer"></span><span class="tag">today 611k tokens</span><button class="btn danger">■ Stop all on this PC</button></div>
+<div class="scroll"><table>
+<tr><th>Holds</th><th>Session</th><th>State</th><th>Today</th><th>Budget</th></tr>
+<tr><td>${BOARD}</td><td><code>${SHORT}</code></td><td><span class="tag ok">● answering</span></td><td>182k</td><td><progress max="400" value="182"></progress> 400k</td></tr>
+<tr><td>Project chat</td><td><code>b07d2e19</code></td><td><span class="tag warn">⏸ budget reached · 3 waiting</span></td><td>200k</td><td><progress max="200" value="200"></progress> 200k <button class="btn small">+100k today</button></td></tr>
+<tr><td>AB#61790 Baggage rules</td><td><code>5d2c90aa</code></td><td><span class="tag bad">⏸ usage limit until 21:00 · retries then</span></td><td>229k</td><td>-</td></tr>
+</table></div>
+<div class="bar" style="border-top:1px solid var(--line);border-bottom:0">
+  <span class="live"><button class="btn main"><span class="dot warn"></span>⏸ Budget reached · 3 waiting</button></span>
+  <span class="live"><button class="btn main"><span class="dot bad"></span>⏸ Usage limit until 21:00</button></span>
+</div></div>` },
+
+  { key: 'handover', label: '19 · Handover note', note: 'On Hand over or Release, your session writes a handover note to the board (4). The next holder\'s first turn is /alfred-resume, which reads it - they start warm without your transcript.',
+    html: () => boardFrame(`<span class="live"><button class="btn main"><span class="dot warn"></span>Handing over…</button></span>`,
+      `<b>Board chat</b><small>Handing over to ahmed@…</small>`,
+      msgsBase + `<div class="msg c"><b>📝 Handover note</b><br>Stage: Verify. #4 Verified by you. #12 Fixed on <code>task/AB61813-seat-map</code>, not re-tested on INT yet. #15 To do, cause unknown (exit row flag missing in supplier reply?). Next: re-test #12 with an INT seat map call, then triage #16.<br><small>✓ recorded NEXT in the brief · Undo</small></div>
+      <div class="msg sys">↪ board released to ahmed@… · his ▶ alfred-live will start with /alfred-resume</div>`) },
+
+  { key: 'commenters', label: '20 · Commenter messages wait for you', note: 'A commenter (7) writes in the chat or on a card. Claude does not answer until you approve it. Card edits stay yours only.',
+    html: () => boardFrame(btnLive(false), `<b>Board chat</b><small><span class="dot ok"></span>${SHORT} · 1 message waits for your OK</small>`,
+      msgsBase + `<div class="msg u" style="opacity:.75">ahmed: can you also check the business class seats?</div>
+      <div class="msg sys">⏳ from ahmed@… - waits for you <button class="btn small primary">Let Claude answer</button> <button class="btn small">Answer myself</button> <button class="btn small danger">Decline</button></div>`) },
+
+  { key: 'notify', label: '21 · Toasts, Stop all, audit', note: 'Helper shows Windows toasts when Claude needs you (8). Stop all halts every session and listen lane on this PC (9). Every board write records holder, PC and session (10).',
+    html: () => `
+<div class="app" style="padding:14px;display:grid;gap:14px">
+  <div style="max-width:360px;margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 6px 18px rgba(0,0,0,.15)">
+    <b>Alfred · ${BOARD}</b><br>Draft ready - 6 cards, 9 Acceptance items. Save all?<br>
+    <div style="margin-top:6px;display:flex;gap:6px"><button class="btn small primary">Open board</button><button class="btn small">Open in Desktop</button></div>
+  </div>
+  <div class="dlg" style="width:auto">
+    <h3>Stop everything on WORK-PC?</h3>
+    <div class="sub">2 sessions answering, 1 listen lane, 4 jobs waiting. Sessions are kept (idle, resumable); waiting jobs stay waiting; boards stay held by you.</div>
+    <div class="foot"><button class="btn">Cancel</button><button class="btn primary">Stop all</button></div>
+  </div>
+  <div class="scroll"><table>
+    <tr><th>When</th><th>What</th><th>By</th><th>PC · session</th></tr>
+    <tr><td>19:44</td><td>#12 moved In progress → Fixed</td><td>Claude (as f.biomy)</td><td>WORK-PC · ${SHORT}</td></tr>
+    <tr><td>19:40</td><td>Comment on #15</td><td>f.biomy</td><td>WORK-PC · Chrome</td></tr>
+    <tr><td>19:31</td><td>Board taken</td><td>f.biomy</td><td>WORK-PC · ${SHORT}</td></tr>
+    <tr><td>yesterday</td><td>Force release</td><td>admin</td><td>192.168.1.80 (server)</td></tr>
+  </table></div>
+</div>` },
+
+  { key: 'me', label: '22 · My settings', note: 'Avatar ▸ My settings. Yours only: tied to you (your helper key + paired browsers), not to a browser. Any of your paired browsers on any PC shows the same page. Nobody else - not other users, not the server admin - can open or list it.',
+    html: () => `
+<div class="app">
+  <div class="bar"><span class="title">👤 My settings</span><span class="stage">· f.biomy@tildetech.ae</span><span class="spacer"></span><span class="tag">🔒 only you see this</span><button class="btn primary">Save</button></div>
+  <div class="body" style="grid-template-columns:190px 1fr">
+    <div class="col" style="border-radius:0;min-height:auto">
+      <div class="card">Profile and devices</div>
+      <div class="card" style="border-color:var(--accent)"><b>Projects and folders</b></div>
+      <div class="card">Claude sessions</div>
+      <div class="card">Azure DevOps</div>
+      <div class="card">Boards I hold</div>
+      <div class="card">Notifications</div>
+    </div>
+    <div style="padding:12px 14px;display:grid;gap:14px">
+
+      <div><b>Projects and folders</b> <small style="color:var(--muted)">- per PC, because paths differ per PC</small>
+      <div class="scroll"><table>
+        <tr><th>Project</th><th>PC</th><th>Repo folder</th><th>Board worktrees</th><th>Open sessions in</th></tr>
+        <tr><td>odeysys</td><td>WORK-PC</td><td><code>C:\\work\\odeys-claude\\odeysys</code></td><td><code>…\\odeysys\\.alfred-worktrees</code></td><td><select><option>Claude Desktop</option><option>Terminal</option><option>Both</option><option>Background only</option></select></td></tr>
+        <tr><td>odeysys</td><td>LAPTOP-2</td><td><code>D:\\src\\odeysys</code></td><td><code>D:\\src\\wt</code></td><td><select><option>Terminal</option><option>Claude Desktop</option></select></td></tr>
+        <tr><td>alfred</td><td>WORK-PC</td><td><span class="tag warn">not set</span> <button class="btn small">Pick folder</button></td><td>-</td><td>-</td></tr>
+      </table></div>
+      <small style="color:var(--muted)">Pick folder opens a folder picker on that PC through its helper. Desktop shows a new session after it restarts - Alfred asks before restarting it.</small></div>
+
+      <div><b>Claude sessions</b>
+      <div class="kv" style="margin-top:6px">
+        <span>Models</span><span>chat <select><option>Sonnet</option></select> · setup / triage / fix <select><option>Opus</option></select></span>
+        <span>Daily budget</span><span><input type="text" value="1.5M tokens" style="width:120px;margin:0"> across all my sessions · per board in board settings</span>
+        <span>Max at once</span><span><input type="text" value="4" style="width:50px;margin:0"> sessions on each PC</span>
+        <span>Away rule</span><span>offline over 8 h → <select><option>accept the next request</option><option>release</option><option>do nothing</option></select></span>
+      </div></div>
+
+      <div><b>Azure DevOps</b>
+      <div class="kv" style="margin-top:6px">
+        <span>Organization</span><span>https://dev.azure.com/tildetech</span>
+        <span>Token (PAT)</span><span><input type="text" value="••••••••••••••••••••" style="width:220px;margin:0"> <button class="btn small">Replace</button> <button class="btn small danger">Remove</button></span>
+        <span>Kept</span><span>on WORK-PC only, encrypted for your Windows user. Never on the Alfred server's disk. Alfred holds it in memory while your helper is online, for <b>your</b> searches and writes only.</span>
+        <span>Status</span><span><span class="tag ok">✓ works</span> Work Items Read &amp; Write · expires 2027-01-14 (89 days)</span>
+      </div></div>
+
+    </div>
+  </div>
+</div>` },
+
+  { key: 'others', label: '23 · Each user sees only theirs', note: 'Ahmed opens My settings: his own folders, his own token, his boards. Your page does not exist for him - no list of users, no URL to guess. The admin can only revoke a user\'s helper (which frees their boards), never read their settings.',
+    html: () => `
+<div class="app">
+  <div class="bar"><span class="title">👤 My settings</span><span class="stage">· ahmed@…</span><span class="spacer"></span><span class="tag">🔒 only you see this</span></div>
+  <div style="padding:12px 14px" class="kv">
+    <span>Projects</span><span>odeysys on DEV-AHMED · <code>C:\\dev\\odeysys</code> · Terminal</span>
+    <span>Azure token</span><span><span class="tag warn">not set</span> - Team tab searches ask for it</span>
+    <span>Boards I hold</span><span>AB#61790 Baggage rules</span>
+  </div>
+  <div class="sync" style="border-top:1px solid var(--line)">Server admin (Settings ▸ Users): <span class="tag">f.biomy · 2 PCs · last seen 1 min</span><span class="tag">ahmed · 1 PC</span> <button class="btn small danger">Revoke helper</button> <small style="color:var(--muted)">- no settings, no tokens shown</small></div>
+</div>` },
+];
+
+const stepsEl = document.getElementById('steps');
+const view = document.getElementById('view');
+let current = 0;
+try { current = Math.max(0, STEPS.findIndex(s => s.key === localStorage.getItem('mockStep'))); } catch (e) { current = 0; }
+
+function render() {
+  stepsEl.innerHTML = STEPS.map((s, i) => `<button class="${i === current ? 'on' : ''}" data-i="${i}">${s.label}</button>`).join('');
+  const s = STEPS[current];
+  view.innerHTML = `<p class="note">${s.note}</p>${s.html()}`;
+  try { localStorage.setItem('mockStep', s.key); } catch (e) {}
+}
+stepsEl.addEventListener('click', e => {
+  const b = e.target.closest('button[data-i]');
+  if (!b) return;
+  current = Number(b.dataset.i);
+  render();
+});
+render();
+</script>
+</body>
+</html>
