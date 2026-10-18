@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board header redesign - mock</title>
+<style>
+  /* Alfred's Slate theme tokens (frontend/src/styles.scss [data-theme='slate']) */
+  :root {
+    --bg: #141416; --card: rgba(255,255,255,.035); --card-elevated: rgba(255,255,255,.05); --card-inner: rgba(0,0,0,.3);
+    --bg-2: rgba(255,255,255,.02); --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+    --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8; --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --popover-solid: #1e1e21;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 60px; }
+  h1.doc { font-size: 20px; margin: 4px 0 2px; }
+  .doc-sub { color: var(--text-dim); margin: 0 0 18px; }
+  .sec { margin: 26px 0 8px; display: flex; align-items: baseline; gap: 10px; }
+  .sec h2 { font-size: 15px; margin: 0; }
+  .sec span { color: var(--text-dim); font-size: 13px; }
+  .frame { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg); }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .notes ol { columns: 2; column-gap: 28px; }
+  .notes { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--card); font-size: 13px; }
+  .notes h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+  .notes ol { margin: 0; padding-left: 18px; } .notes li { margin-bottom: 6px; } .notes b { color: var(--text); }
+
+  /* app chrome */
+  .nav { display: flex; align-items: center; gap: 22px; padding: 10px 18px; border-bottom: 1px solid var(--border); font-size: 15px; color: var(--text-dim); }
+  .nav .logo { font-family: Montserrat, 'Segoe UI', sans-serif; font-weight: 800; color: var(--purple-light); letter-spacing: .5px; }
+  .nav .on { color: var(--purple-light); border-bottom: 2px solid var(--purple); padding-bottom: 6px; margin-bottom: -11px; }
+  .new { font-size: 10px; background: var(--purple); color: #fff; border-radius: 999px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
+  .page { padding: 14px 18px 18px; }
+
+  /* shared controls (as .action-btn) */
+  .btn { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border); color: var(--purple-light);
+    font: 600 12px 'Segoe UI', sans-serif; padding: 5px 10px; border-radius: 6px; white-space: nowrap; cursor: pointer; }
+  .btn:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--purple) 22%, transparent); }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.lg { font-size: 13px; padding: 7px 14px; }
+  .sel { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--bg-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .sel .car { color: var(--text-faint); font-size: 10px; }
+  .muted { color: var(--text-dim); } .faint { color: var(--text-faint); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-faint); }
+  .dot.g { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
+  .dot.a { background: var(--amber); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--text-dim); }
+  .num { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--amber); color: #111; font-size: 11px; font-weight: 700; margin-right: 4px; }
+
+  /* ---------- BEFORE (today) ---------- */
+  .b-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+  .b-chip { border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; white-space: nowrap; font-size: 12.5px; }
+  .b-chip::before { content: '●'; color: var(--amber); font-size: 9px; margin-right: 6px; vertical-align: 2px; }
+  .b-step span { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); font-size: 12px; }
+  .b-step .now { background: var(--amber); color: #111; border-color: var(--amber); font-weight: 700; }
+  .b-step .done { color: var(--green); }
+  .b-banner { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 7px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+  .b-banner code, code { background: var(--card-inner); padding: 1px 6px; border-radius: 4px; font: 12px ui-monospace, Consolas, monospace; }
+  .b-task { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--card); margin-bottom: 8px; }
+  .b-task h3 { margin: 0 0 6px; font-size: 18px; max-width: 520px; }
+  .b-live { border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px 12px; font-size: 12.5px; color: var(--text-faint); margin-bottom: 6px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--purple) 18%, transparent), color-mix(in srgb, var(--cyan) 8%, transparent)); }
+  .hl { outline: 2px solid var(--red); outline-offset: 2px; border-radius: 8px; }
+  .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); padding: 0 4px; margin: 10px 0 0; font-size: 15px; color: var(--text-dim); }
+  .tabs span { padding: 8px 0; } .tabs .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .tabs .n { font-size: 11px; background: var(--card-elevated); border-radius: 999px; padding: 0 7px; margin-left: 5px; }
+
+  /* ---------- AFTER ---------- */
+  .h-row { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+  .h-title { font-size: 18px; font-weight: 600; margin: 0; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .h-id { font: 600 12px ui-monospace, Consolas, monospace; color: var(--purple-light); background: color-mix(in srgb, var(--purple) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 6px; padding: 2px 7px; }
+  .spacer { flex: 1; }
+  .claude { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+  .claude.start { background: var(--purple); color: #fff; }
+  .claude.on { background: color-mix(in srgb, var(--green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); color: var(--green); }
+  .split { display: inline-flex; } .split .claude { border-radius: 8px 0 0 8px; } .split .more { border-radius: 0 8px 8px 0; padding: 7px 9px; border-left: 1px solid rgba(255,255,255,.25); }
+  .claude.start + .more { background: var(--purple); color: #fff; }
+  .claude.on + .more { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-left: 0; }
+  .facts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 6px 0 12px; }
+  .facts b { color: var(--text); font-weight: 600; }
+  .stages { display: flex; align-items: center; gap: 0; margin: 4px 0 12px; }
+  .stg { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-faint); padding: 0 4px; }
+  .stg i { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border-strong); font-style: normal; font-size: 11px; }
+  .stg.done { color: var(--text-dim); } .stg.done i { background: color-mix(in srgb, var(--green) 18%, transparent); border-color: color-mix(in srgb, var(--green) 50%, transparent); color: var(--green); }
+  .stg.now { color: var(--text); font-weight: 600; } .stg.now i { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .line { flex: 1; height: 1px; background: var(--border); min-width: 14px; max-width: 60px; }
+  .line.done { background: color-mix(in srgb, var(--green) 45%, transparent); }
+  .next { border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 10%, transparent), transparent 60%);
+    border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 40px minmax(0,1fr) auto; gap: 14px; align-items: center; }
+  .next .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--purple) 20%, transparent); font-size: 18px; }
+  .next .k { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--purple-light); font-weight: 700; }
+  .next .t { font-size: 16px; font-weight: 600; margin: 1px 0 3px; }
+  .next .d { color: var(--text-dim); font-size: 13px; }
+  .next .acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .next .acts .row { display: flex; gap: 6px; }
+  .sub { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-dim); margin-top: 10px; flex-wrap: wrap; }
+  .rec { display: inline-flex; align-items: center; gap: 6px; color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+  .rec.on { background: color-mix(in srgb, var(--red) 15%, transparent); }
+  .ladder { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  .ladder span { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); }
+  .ladder .done { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .ladder .now { color: #111; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+  .live { display: flex; align-items: center; gap: 10px; border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); background: color-mix(in srgb, var(--green) 6%, transparent);
+    border-radius: 10px; padding: 7px 12px; font-size: 12.5px; margin-top: 10px; }
+  .live b { font-weight: 600; }
+  .menu { position: absolute; z-index: 3; min-width: 230px; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
+  .menu .mi { padding: 7px 10px; border-radius: 6px; font-size: 13px; display: flex; flex-direction: column; }
+  .menu .mi small { color: var(--text-dim); font-size: 11.5px; }
+  .menu .mi:hover { background: color-mix(in srgb, var(--purple) 14%, transparent); }
+  .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
+  .menu .danger { color: var(--red); }
+  .rel { position: relative; display: inline-block; }
+  .callout { position: absolute; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--amber); color: #111; font-size: 11px; font-weight: 800; z-index: 4; }
+  .state-tag { display: inline-block; font-size: 11px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; margin-left: 8px; }
+
+  /* ---------- Claude button + panel ---------- */
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+  .stcard { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--card); display: flex; flex-direction: column; gap: 8px; }
+  .stcard .w { font-size: 12.5px; color: var(--text-dim); }
+  .stcard .w b { color: var(--text); }
+  .claude.wait { background: color-mix(in srgb, var(--amber) 12%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); }
+  .claude.paused { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border-strong); color: var(--purple-light); }
+  .claude.bad { background: color-mix(in srgb, var(--red) 12%, transparent); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+  .claude.held { background: var(--bg-2); border: 1px solid var(--border-strong); color: var(--text-dim); }
+  .claude.paused + .more { background: color-mix(in srgb, var(--purple) 12%, transparent); color: var(--purple-light); border: 1px solid var(--border-strong); border-left: 0; }
+  .claude.bad + .more { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-left: 0; }
+  .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; display: inline-block; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+  .panel { background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.45); overflow: hidden; }
+  .panel .ph { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
+  .panel .ph .t { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .panel .ph .d { color: var(--text-dim); font-size: 12.5px; margin-top: 3px; }
+  .meter { height: 5px; background: var(--card-inner); border-radius: 999px; overflow: hidden; margin-top: 9px; }
+  .meter i { display: block; height: 100%; background: var(--purple); }
+  .panel .grp { padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
+  .panel .gl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-faint); font-weight: 700; padding: 2px 8px 4px; }
+  .panel .it { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: 8px; font-size: 13px; }
+  .panel .it:hover { background: color-mix(in srgb, var(--purple) 12%, transparent); }
+  .panel .it .ico { text-align: center; color: var(--purple-light); }
+  .panel .it small { display: block; color: var(--text-dim); font-size: 11.5px; }
+  .panel .it .k { color: var(--text-faint); font-size: 12px; }
+  .panel .pf { display: flex; gap: 14px; flex-wrap: wrap; padding: 9px 16px 11px; font-size: 12px; color: var(--text-dim); }
+  .panel .cta { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .hint { font-size: 12px; color: var(--text-dim); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 6px 8px 4px; }
+  .badge { font-size: 11px; background: var(--amber); color: #111; border-radius: 999px; padding: 0 7px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="doc">Board header - before and after</h1>
+  <p class="doc-sub">Slate theme, real tokens and control styles. One header, one stage line, one next step. Everything else moves into menus or the tabs.</p>
+
+  <!-- ===================================== BEFORE ===================================== -->
+  <div class="sec"><h2>Before</h2><span>today, Define stage, no session - red outline = repeated, idle or not for this stage</span></div>
+  <div class="frame">
+    <div class="nav"><span class="logo">● ALFRED</span><span>Live Calls</span><span>Session Cycles</span><span class="on">Board<span class="new">new</span></span><span>Team<span class="new">new</span></span><span>Profiles</span><span>Settings</span><span>Me</span></div>
+    <div class="page">
+      <div class="b-row"><b style="font-size:20px">Board</b>
+        <span class="sel">▦ #59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" <span class="muted">odeysys</span> <span class="car">▼</span></span>
+        <span class="sel">odeysys <span class="car">▼</span></span><span class="btn">💬 Chat</span><span class="sel"><span class="dot"></span> Session 32c74989 · idle <span class="car">▼</span></span></div>
+      <div class="b-row"><span class="muted">Cycles:</span>
+        <span class="b-chip hl">#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" ✕</span>
+        <span class="b-chip hl">#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" · rec 2026-10-18 ✕</span>
+        <span class="muted">Boards: none</span></div>
+      <div class="b-row"><span class="btn ghost">+ relate cycle or board</span><span class="btn ghost" style="color:var(--purple-light)">● Record</span><span class="spacer"></span>
+        <span class="hl" style="display:flex;gap:6px"><span class="btn">Open</span><span class="btn ghost">Done</span><span class="btn ghost">Archive</span><span class="btn danger" style="color:var(--red)">Delete…</span></span></div>
+      <div class="b-row b-step"><span class="done">✓ 1 Board</span><span class="now">2 Define</span><span>3 Triage</span><span>4 Code</span><span>5 Verify</span><span>6 Test</span><span>7 Close</span>
+        <span class="muted hl">Next: /alfred-setup AB#59851 - Claude reads the task (and its work item) and drafts the brief, spec, test steps and cards</span>
+        <span class="btn">⧉ Copy</span><span class="btn">↻ Refresh from Azure</span></div>
+      <div class="b-banner hl"><b>Not defined yet:</b> no brief, spec or cards. Run it in your terminal: <code>/alfred-setup AB#59851</code><span class="btn">⧉ Copy</span> or <span class="btn">Ask Claude in chat</span></div>
+      <div class="b-task">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <h3>#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"</h3><span class="spacer"></span>
+          <div class="hl" style="text-align:right;font-size:12.5px">▶ Next: <b>Write the requirements</b><br><code>▶ /alfred-spec "#59851_Q4-INTE-CORE-015 Baggage Bundle Choice D…</code></div><span class="btn">Run ▾</span>
+        </div>
+        <div class="b-row" style="margin:6px 0 0"><code style="color:var(--purple-light)">★ ◆ 59851 · Thread · Ready for UAT</code><span class="btn">⇩ Fetch attachments</span></div>
+        <div class="b-row b-step" style="margin:8px 0 0"><span class="hl" style="display:flex;gap:4px"><span class="now">Coded</span><span>Verifying</span><span>Fixed</span><span>Re-tested</span><span>Done</span></span>
+          <span>Does the code match the task? <b class="muted">No requirements yet</b> - add the ticket or a spec with an Acceptance list - /alfred-spec drafts one</span></div>
+      </div>
+      <div class="tabs"><span class="on">Cards</span><span>Calls<span class="n">2 cycles</span></span><span>Task</span><span>Cycles<span class="n">2</span></span><span>Related items</span><span>Activity<span class="n">3</span></span></div>
+      <div style="margin-top:10px"><div class="b-live hl">○ No chat handles this cycle - ▶ shows how to start one</div><div class="b-live hl">✦ Claude stopped · checked 0 calls · 0 cards added · last check 04:09 PM</div></div>
+    </div>
+  </div>
+
+  <!-- ===================================== AFTER 1 ===================================== -->
+  <div class="sec"><h2>After - Define stage, no Claude session</h2><span>what you saw today, redesigned</span></div>
+  <div class="grid2">
+    <div class="frame">
+      <div class="nav"><span class="logo">● ALFRED</span><span>Live Calls</span><span>Session Cycles</span><span class="on">Board<span class="new">new</span></span><span>Team<span class="new">new</span></span><span>Profiles</span><span>Settings</span><span>Me</span></div>
+      <div class="page">
+        <div class="h-row" style="position:relative">
+          <span class="callout" style="left:-12px;top:-8px">1</span>
+          <span class="sel" title="#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification &quot;Air Arabia&quot;">▦ Boards <span class="car">▼</span></span>
+          <span class="h-id">AB#59851</span>
+          <h2 class="h-title">Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"</h2>
+          <span class="sel">odeysys <span class="car">▼</span></span>
+          <span class="rel"><span class="sel"><span class="dot g" style="box-shadow:none"></span> Open <span class="car">▼</span></span><span class="callout" style="right:-8px;top:-10px">2</span></span>
+          <span class="btn lg">💬 Chat</span>
+          <span class="rel"><span class="split"><span class="claude start">▶ Start Claude</span><span class="claude more">▾</span></span><span class="callout" style="right:-8px;top:-10px">3</span></span>
+        </div>
+        <div class="facts"><span>Work item <b>Thread</b> · <b>Ready for UAT</b></span><span>·</span><span>project <b>odeysys</b></span><span>·</span><span>2 recordings</span><span class="spacer"></span><span class="btn ghost">Azure ▾</span></div>
+
+        <div class="stages" style="position:relative"><span class="callout" style="left:-12px;top:-4px">4</span>
+          <span class="stg done"><i>✓</i>Board</span><span class="line done"></span>
+          <span class="stg now"><i>2</i>Define</span><span class="line"></span>
+          <span class="stg"><i>3</i>Triage</span><span class="line"></span>
+          <span class="stg"><i>4</i>Code</span><span class="line"></span>
+          <span class="stg"><i>5</i>Verify</span><span class="line"></span>
+          <span class="stg"><i>6</i>Test</span><span class="line"></span>
+          <span class="stg"><i>7</i>Close</span>
+        </div>
+
+        <div class="next" style="position:relative"><span class="callout" style="left:-10px;top:-10px">5</span>
+          <div class="ic">✎</div>
+          <div><div class="k">Next step</div><div class="t">Define the task</div>
+            <div class="d">Claude reads AB#59851 and its child items from Azure, then drafts the brief, the requirements, the test steps and the cards. Nothing is saved until you press <b style="color:var(--text)">Save all</b>.</div></div>
+          <div class="acts"><span class="btn primary lg">▶ Start Claude and define it</span>
+            <div class="row"><span class="btn" title="/alfred-setup AB#59851">⧉ Copy for terminal</span><span class="btn ghost">Other steps ▾</span></div></div>
+        </div>
+
+        <div class="sub" style="position:relative"><span class="callout" style="left:-12px;top:-2px">6</span>
+          <span class="rec">● Record</span><span>Record the calls while you test this task.</span><span class="spacer"></span><span class="faint">Recordings and related boards are on the Cycles tab.</span></div>
+
+        <div class="tabs"><span class="on">Cards</span><span>Calls<span class="n">2</span></span><span>Task</span><span>Cycles<span class="n">2</span></span><span>Related items</span><span>Activity<span class="n">3</span></span></div>
+        <div style="padding:18px 4px 6px;color:var(--text-faint);font-size:13px">… cards …<span class="state-tag">7 - no idle status rows</span></div>
+      </div>
+    </div>
+    <div class="notes"><h3>What changed</h3><ol>
+      <li><b>One header row.</b> Short id and the plain title. The full name shows on hover and in the board list. The long name no longer repeats.</li>
+      <li><b>Open ▾</b> holds Done, Archive and Delete. Four buttons become one.</li>
+      <li><b>One Claude button.</b> It replaces "Session 32c74989 · idle" and "No chat handles this cycle". ▾ has Open in Desktop, Open in a terminal, Sessions and Stop.</li>
+      <li><b>One stage line</b> from <code>BoardStage.of</code>. The Coded…Done ladder appears from Code on.</li>
+      <li><b>One next step</b>, in plain words, with one main button. It replaces the stage strip's Next, the "Not defined yet" banner and the task card's second Next, which came from another rule.</li>
+      <li><b>Record</b> stays one click away. Cycle chips and "relate cycle or board" move to the Cycles tab.</li>
+      <li>Status rows show only while something runs.</li>
+    </ol></div>
+  </div>
+
+  <!-- ===================================== AFTER 2 ===================================== -->
+  <div class="sec"><h2>After - Claude answering, Verify stage</h2><span>the same header later in the task</span></div>
+  <div class="grid2">
+    <div class="frame">
+      <div class="page">
+        <div class="h-row">
+          <span class="sel">▦ Boards <span class="car">▼</span></span><span class="h-id">AB#59851</span>
+          <h2 class="h-title">Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"</h2><span class="sel">odeysys <span class="car">▼</span></span>
+          <span class="sel"><span class="dot g" style="box-shadow:none"></span> Open <span class="car">▼</span></span><span class="btn lg">💬 Chat</span>
+          <span class="split"><span class="claude on"><span class="dot g"></span> Claude answering</span><span class="claude more">▾</span></span>
+        </div>
+        <div class="facts"><span>Work item <b>Thread</b> · <b>Active</b></span><span>·</span><span>4 cards · <b style="color:var(--amber)">2 Fixed waiting</b></span><span class="spacer"></span><span class="btn ghost">Azure ▾</span></div>
+        <div class="stages">
+          <span class="stg done"><i>✓</i>Board</span><span class="line done"></span><span class="stg done"><i>✓</i>Define</span><span class="line done"></span>
+          <span class="stg done"><i>✓</i>Triage</span><span class="line done"></span><span class="stg done"><i>✓</i>Code</span><span class="line done"></span>
+          <span class="stg now"><i>5</i>Verify</span><span class="line"></span><span class="stg"><i>6</i>Test</span><span class="line"></span><span class="stg"><i>7</i>Close</span>
+          <span class="spacer"></span>
+          <span class="ladder" title="Does the code match the task?"><span class="done">✓ Coded</span><span class="now">Verifying</span><span>Fixed</span><span>Re-tested</span><span>Done</span></span>
+        </div>
+        <div class="next">
+          <div class="ic">✓</div>
+          <div><div class="k">Next step</div><div class="t">Check the 2 fixed cards</div>
+            <div class="d">Claude checks #72 and #73 in the code and in the calls since each fix, then proposes Verified or says what still fails.</div></div>
+          <div class="acts"><span class="btn primary lg">▶ Verify with Claude</span><div class="row"><span class="btn">⧉ Copy for terminal</span><span class="btn ghost">Other steps ▾</span></div></div>
+        </div>
+        <div class="live"><span class="dot g"></span><b>Claude</b> on LAPTOP-34BNETR7 · verifying #72 · 1 waiting <span class="spacer"></span><span class="btn ghost">Open in Desktop</span><span class="btn danger" style="color:var(--red)">Stop</span></div>
+        <div class="sub"><span class="rec on">● Recording · 12 calls</span><span>Stop when you finish testing.</span></div>
+      </div>
+    </div>
+    <div class="notes"><h3>States</h3><ol>
+      <li><b>Claude button</b>: ▶ Start Claude, ● Claude answering, ◌ Starting…, or ⚠ Didn't start (the reason shows on hover, and the button tries again).</li>
+      <li>The <b>Next card</b> follows the stage: Define, Triage the Inbox, Fix the To do cards, Verify, Test (record), Close.</li>
+      <li>A <b>live row</b> shows only while Claude works. It says what Claude is doing and has a Stop button.</li>
+      <li>The <b>Ladder</b> appears from Code on.</li>
+    </ol></div>
+  </div>
+
+
+  <!-- ===================================== CLAUDE BUTTON ===================================== -->
+  <div class="sec"><h2>The Claude button - one button that always says what Claude is doing</h2><span>replaces "&#9654; alfred-live", "Session 32c74989 &middot; idle" and "Live &middot; session 2723f394"</span></div>
+  <div class="states">
+    <div class="stcard"><span class="split"><span class="claude start">&#9654; Start Claude</span><span class="claude more">&#9662;</span></span>
+      <div class="w"><b>No session for this board yet.</b> One click starts Claude on your PC, in this project's folder. The first time, it asks which folder (panel 3).</div></div>
+    <div class="stcard"><span class="split"><span class="claude paused">&#9654; Resume Claude</span><span class="claude more">&#9662;</span></span>
+      <div class="w"><b>A session exists but is paused.</b> Resume continues it with everything it already knows: the task, earlier answers, and the chat since then. &#9662; also offers a fresh start.</div></div>
+    <div class="stcard"><span class="split"><span class="claude wait"><span class="spin"></span> Starting Claude&hellip;</span></span>
+      <div class="w"><b>Working on it.</b> The step shows on hover (making the worktree, reading the task). If starting fails, the button says why instead of staying stuck.</div></div>
+    <div class="stcard"><span class="split"><span class="claude on"><span class="dot g"></span> Claude on</span><span class="claude more">&#9662;</span></span>
+      <div class="w"><b>Answering this board.</b> Chat messages, comments and &#9654; runs go to it. Click to open the panel (panel 1).</div></div>
+    <div class="stcard"><span class="split"><span class="claude bad">&#9888; Claude didn't start</span><span class="claude more">&#9662;</span></span>
+      <div class="w"><b>The reason in one line</b> - "Claude Code is not signed in on this PC" - with <b>Try again</b>.</div></div>
+    <div class="stcard"><span class="split"><span class="claude held">&#128274; Ahmed's Claude</span></span>
+      <div class="w"><b>Someone else holds this board.</b> You can read it; click to ask them to hand it over.</div></div>
+  </div>
+
+  <!-- ===================================== CLAUDE PANEL ===================================== -->
+  <div class="sec"><h2>The Claude panel</h2><span>opens from the button - grouped by what you want to do; every item says what it does</span></div>
+  <div class="panels">
+    <div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:6px">1 - While Claude answers (the menu in your screenshot)</div>
+      <div class="panel">
+        <div class="ph"><div class="t"><span class="dot g"></span> Claude is answering this board</div>
+          <div class="d">On <b style="color:var(--text)">LAPTOP-34BNETR7</b> as f.biomy@tildetech.ae &middot; since 14:02</div>
+          <div class="meter"><i style="width:42%"></i></div><div class="d" style="font-size:11.5px">208k of your 500k tokens today</div></div>
+        <div class="grp"><div class="gl">See the conversation</div>
+          <div class="it"><span class="ico">&#128421;</span><span>Open in Claude Desktop<small>talk to it there; the board waits while it is open</small></span><span class="k"></span></div>
+          <div class="it"><span class="ico">&#9000;</span><span>Open in a terminal<small>claude --resume 2723f394</small></span><span class="k"></span></div>
+          <div class="hint">Not in Desktop's list? Desktop reads new sessions only when it starts. <span style="color:var(--purple-light)">Restart Desktop</span></div>
+        </div>
+        <div class="grp"><div class="gl">While you test</div>
+          <div class="it"><span class="ico">&#128066;</span><span>Watch a recording<small>Claude checks every new call while you test and adds cards - on the side, not in this conversation</small></span><span class="k">&rsaquo;</span></div>
+        </div>
+        <div class="grp"><div class="gl">This session</div>
+          <div class="it"><span class="ico">&#9208;</span><span>Pause Claude<small>stops answering; Resume later and it remembers everything</small></span><span class="k"></span></div>
+          <div class="it"><span class="ico">&#65291;</span><span>Start fresh<small>a new session that knows the task, not this conversation</small></span><span class="k"></span></div>
+          <div class="it"><span class="ico">&#8644;</span><span>Earlier sessions<small>2 on this board - pick one to continue</small></span><span class="k">&rsaquo;</span></div>
+        </div>
+        <div class="pf"><span>&#8617; Hand the board back</span><span>&#9776; Who did what</span><span>&#10697; Copy session id</span><span style="margin-left:auto">&#9881; My settings</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:6px">2 - Paused: Resume</div>
+      <div class="panel">
+        <div class="ph"><div class="t"><span class="dot"></span> Claude is paused</div>
+          <div class="d">Last answered <b style="color:var(--text)">2 h ago</b> on LAPTOP-34BNETR7 &middot; <span class="badge">3</span> new chat messages since</div></div>
+        <div class="cta"><span class="btn primary lg" style="flex:1;text-align:center">&#9654; Resume and catch up on 3 messages</span></div>
+        <div class="grp"><div class="gl">Or</div>
+          <div class="it"><span class="ico">&#65291;</span><span>Start fresh<small>a new session; it reads the task again from Alfred</small></span><span class="k"></span></div>
+          <div class="it"><span class="ico">&#128421;</span><span>Read it in Claude Desktop<small>see what it did, without resuming it here</small></span><span class="k"></span></div>
+          <div class="it"><span class="ico">&#8644;</span><span>Earlier sessions<small>2 on this board</small></span><span class="k">&rsaquo;</span></div>
+        </div>
+        <div class="pf"><span>&#8617; Hand the board back</span><span>&#9776; Who did what</span><span style="margin-left:auto">&#9881; My settings</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:6px">3 - Start: first time on this PC</div>
+      <div class="panel">
+        <div class="ph"><div class="t">&#9654; Start Claude for this board</div>
+          <div class="d">Claude runs on <b style="color:var(--text)">your PC</b> with your Claude account and reads your copy of <b style="color:var(--text)">odeysys</b>. Alfred only passes the messages.</div></div>
+        <div class="grp" style="padding:12px 16px">
+          <div class="gl" style="padding:0 0 6px">Where is odeysys's code on LAPTOP-34BNETR7?</div>
+          <div style="display:flex;gap:8px"><span class="sel" style="flex:1">C:\work\odeys-claude</span><span class="btn">Browse&hellip;</span></div>
+          <div class="muted" style="font-size:11.5px;margin-top:6px">Asked once and kept in My settings. Each board gets its own worktree there, so boards never mix their changes.</div>
+          <div class="gl" style="padding:12px 0 6px">Show the conversation in</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill" style="border-color:var(--purple);color:var(--purple-light)">&#9679; Claude Desktop</span><span class="pill">Terminal</span><span class="pill">Both</span><span class="pill">Nowhere - board only</span></div>
+        </div>
+        <div class="cta" style="border:0"><span class="btn primary lg">&#9654; Start Claude</span><span class="btn ghost lg">Cancel</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes" style="margin-top:14px"><h3>Words changed (old &rarr; new)</h3><ol>
+    <li>&#9654; alfred-live / Live &middot; session 2723f394 &rarr; <b>&#9654; Start Claude / &#9679; Claude on</b></li>
+    <li>Answer the board again &rarr; <b>&#9654; Resume Claude</b></li>
+    <li>Stop answering (keep session) &rarr; <b>Pause Claude</b></li>
+    <li>New session for this board &rarr; <b>Start fresh</b></li>
+    <li>Switch session&hellip; &rarr; <b>Earlier sessions</b></li>
+    <li>Sync with the board chat &rarr; <b>automatic on Resume</b> ("catch up on 3 messages")</li>
+    <li>Listen to a cycle (background lane) &rarr; <b>Watch a recording</b></li>
+    <li>Release the board &rarr; <b>Hand the board back</b>; Board audit &rarr; <b>Who did what</b></li>
+    <li>Restart Claude Desktop &rarr; a hint under Open in Desktop</li>
+    <li>The session id moves to a footer link, and to the Earlier sessions list</li>
+  </ol></div>
+
+  <!-- ===================================== MENUS ===================================== -->
+  <div class="sec"><h2>After - the menus</h2><span>what moved out of the header</span></div>
+  <div class="frame"><div class="page" style="display:flex;gap:28px;flex-wrap:wrap;min-height:330px;position:relative">
+    <div class="rel"><span class="sel"><span class="dot g" style="box-shadow:none"></span> Open <span class="car">▼</span></span>
+      <div class="menu" style="top:40px;left:0">
+        <div class="mi">✓ Mark done<small>the task is finished; it stays on the board list</small></div>
+        <div class="mi">⌂ Archive<small>out of the board list; reopen any time</small></div>
+        <div class="sep"></div><div class="mi danger">✕ Delete board…<small>cards and chat go; recordings that other boards mention stay</small></div>
+      </div></div>
+    <div class="rel" style="margin-left:250px"><span class="btn ghost">Azure ▾</span>
+      <div class="menu" style="top:36px;right:0">
+        <div class="mi">↻ Refresh from Azure<small>new or changed child items, comments and state</small></div>
+        <div class="mi">⇩ Fetch attachments</div><div class="mi">↗ Open AB#59851 in Azure</div>
+      </div></div>
+    <div class="rel" style="margin-left:auto"><span class="btn ghost">Other steps ▾</span>
+      <div class="menu" style="top:36px;right:0;min-width:280px">
+        <div class="mi">Define or re-define<small>/alfred-setup - brief, requirements, cards</small></div>
+        <div class="mi">Write or change the spec<small>/alfred-spec</small></div>
+        <div class="mi">Triage the Inbox<small>/alfred-triage</small></div>
+        <div class="mi">Listen while you test<small>/alfred-listen</small></div>
+        <div class="mi">Report<small>/alfred-report</small></div>
+        <div class="sep"></div><div class="mi">Continue on another machine<small>copies /alfred-resume AB#59851</small></div>
+      </div></div>
+  </div></div>
+</div>
+</body>
+</html>

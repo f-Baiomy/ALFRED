@@ -4,8 +4,27 @@
     {
       "name": "frontend-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "start"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "start"
+      ],
       "port": 4200
+    },
+    {
+      "name": "specs-mocks",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4310",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "specs"
+      ],
+      "port": 4310
     }
   ]
 }

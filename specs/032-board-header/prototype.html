@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board header - clickable prototype</title>
+<style>
+  :root {
+    --bg: #141416; --card: rgba(255,255,255,.035); --card-elevated: rgba(255,255,255,.05); --card-inner: rgba(0,0,0,.3);
+    --bg-2: rgba(255,255,255,.02); --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+    --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8; --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --popover-solid: #1e1e21;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 100vh; }
+  .app { min-width: 0; border-right: 1px solid var(--border); }
+  .guide { padding: 18px 18px 40px; position: sticky; top: 0; height: 100vh; overflow: auto; background: rgba(255,255,255,.015); }
+
+  /* nav */
+  .nav { display: flex; align-items: center; gap: 22px; padding: 10px 18px; border-bottom: 1px solid var(--border); font-size: 15px; color: var(--text-dim); }
+  .nav .logo { font-family: Montserrat, 'Segoe UI', sans-serif; font-weight: 800; color: var(--purple-light); letter-spacing: .5px; }
+  .nav .on { color: var(--purple-light); border-bottom: 2px solid var(--purple); padding-bottom: 6px; margin-bottom: -11px; }
+  .new { font-size: 10px; background: var(--purple); color: #fff; border-radius: 999px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
+  .page { padding: 16px 20px 30px; }
+
+  /* controls */
+  .btn { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border); color: var(--purple-light);
+    font-weight: 600; font-size: 12px; padding: 5px 10px; border-radius: 6px; white-space: nowrap; }
+  .btn:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--purple) 22%, transparent); }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.primary:hover { background: color-mix(in srgb, var(--purple) 85%, #fff); }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.lg { font-size: 13px; padding: 7px 14px; }
+  .btn.danger { background: color-mix(in srgb, var(--red) 14%, transparent); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+  .sel { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--bg-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .sel:hover { border-color: var(--border-strong); }
+  .car { color: var(--text-faint); font-size: 10px; }
+  .muted { color: var(--text-dim); } .faint { color: var(--text-faint); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-faint); flex: none; }
+  .dot.g { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--text-dim); background: transparent; }
+  .pill.on { border-color: var(--purple); color: var(--purple-light); background: color-mix(in srgb, var(--purple) 12%, transparent); }
+  code { background: var(--card-inner); padding: 1px 6px; border-radius: 4px; font: 12px ui-monospace, Consolas, monospace; }
+
+  /* header */
+  .h-row { display: flex; align-items: center; gap: 10px; }
+  .h-id { font: 600 12px ui-monospace, Consolas, monospace; color: var(--purple-light); background: color-mix(in srgb, var(--purple) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 6px; padding: 2px 7px; }
+  .h-title { font-size: 18px; font-weight: 600; margin: 0; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rel { position: relative; display: inline-block; }
+  .facts { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 8px 0 14px; }
+  .facts b { color: var(--text); font-weight: 600; }
+  .spacer { flex: 1; }
+
+  /* Claude button */
+  .split { display: inline-flex; }
+  .cb { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 8px 0 0 8px; font-weight: 600; font-size: 13px; border: 1px solid transparent; }
+  .cm { padding: 7px 9px; border-radius: 0 8px 8px 0; border: 1px solid transparent; border-left: 1px solid rgba(255,255,255,.2); font-size: 12px; }
+  .solo { border-radius: 8px; }
+  .k-start { background: var(--purple); color: #fff; }
+  .k-on { background: color-mix(in srgb, var(--green) 12%, transparent); border-color: color-mix(in srgb, var(--green) 40%, transparent); color: var(--green); }
+  .k-paused { background: color-mix(in srgb, var(--purple) 12%, transparent); border-color: var(--border-strong); color: var(--purple-light); }
+  .k-wait { background: color-mix(in srgb, var(--amber) 12%, transparent); border-color: color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); }
+  .k-bad { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+  .spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; display: inline-block; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* stages */
+  .stages { display: flex; align-items: center; margin: 4px 0 14px; flex-wrap: wrap; row-gap: 8px; }
+  .stg { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-faint); padding: 2px 4px; background: none; border: 0; border-radius: 6px; }
+  .stg:hover { background: var(--card); }
+  .stg i { display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; border: 1px solid var(--border-strong); font-style: normal; font-size: 11px; }
+  .stg.done { color: var(--text-dim); } .stg.done i { background: color-mix(in srgb, var(--green) 18%, transparent); border-color: color-mix(in srgb, var(--green) 50%, transparent); color: var(--green); }
+  .stg.now { color: var(--text); font-weight: 600; } .stg.now i { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .line { flex: 1; height: 1px; background: var(--border); min-width: 12px; max-width: 54px; }
+  .line.done { background: color-mix(in srgb, var(--green) 45%, transparent); }
+  .ladder { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-left: 16px; }
+  .ladder span { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); }
+  .ladder .done { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .ladder .now { color: #111; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+
+  /* next card */
+  .next { border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 10%, transparent), transparent 60%);
+    border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; gap: 14px; align-items: center; transition: box-shadow .3s; }
+  .next .ic { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--purple) 20%, transparent); font-size: 19px; }
+  .next .k { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--purple-light); font-weight: 700; }
+  .next .t { font-size: 16px; font-weight: 600; margin: 1px 0 3px; }
+  .next .d { color: var(--text-dim); font-size: 13px; }
+  .next .acts { display: flex; flex-direction: column; gap: 6px; }
+  .next .acts .row { display: flex; gap: 6px; }
+  .sub { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-dim); margin-top: 12px; flex-wrap: wrap; }
+  .rec { display: inline-flex; align-items: center; gap: 6px; color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: 999px; padding: 3px 11px; font-size: 12px; font-weight: 600; background: transparent; }
+  .rec.on { background: color-mix(in srgb, var(--red) 15%, transparent); }
+  .live { display: flex; align-items: center; gap: 10px; border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); background: color-mix(in srgb, var(--green) 6%, transparent);
+    border-radius: 10px; padding: 7px 12px; font-size: 12.5px; margin-top: 12px; }
+  .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); padding: 0 4px; margin: 16px 0 0; font-size: 15px; color: var(--text-dim); }
+  .tabs span { padding: 8px 0; } .tabs .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .tabs .n { font-size: 11px; background: var(--card-elevated); border-radius: 999px; padding: 0 7px; margin-left: 5px; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+  .col { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px; min-height: 120px; font-size: 12px; }
+  .col h4 { margin: 0 0 6px; font-size: 12px; color: var(--text-dim); font-weight: 600; }
+  .crd { background: var(--card-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
+
+  /* menus and panel */
+  .menu, .panel { position: absolute; z-index: 20; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .menu { min-width: 250px; padding: 6px; top: calc(100% + 6px); }
+  .menu .mi { display: flex; flex-direction: column; width: 100%; text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px; background: none; border: 0; }
+  .menu .mi small { color: var(--text-dim); font-size: 11.5px; }
+  .menu .mi:hover { background: color-mix(in srgb, var(--purple) 14%, transparent); }
+  .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
+  .danger-t { color: var(--red); }
+  .panel { width: 380px; right: 0; top: calc(100% + 8px); overflow: auto; max-height: calc(100vh - 150px); }
+  .quick { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--popover-solid); z-index: 1; }
+  .quick .btn { flex: 1; text-align: center; }
+  .panel .ph { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
+  .panel .ph .t { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .panel .ph .d { color: var(--text-dim); font-size: 12.5px; margin-top: 3px; }
+  .meter { height: 5px; background: var(--card-inner); border-radius: 999px; overflow: hidden; margin-top: 9px; }
+  .meter i { display: block; height: 100%; background: var(--purple); }
+  .grp { padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
+  .gl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-faint); font-weight: 700; padding: 2px 8px 4px; }
+  .it { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: 8px; font-size: 13px; width: 100%; text-align: left; background: none; border: 0; }
+  .it:hover { background: color-mix(in srgb, var(--purple) 12%, transparent); }
+  .it .ico { text-align: center; color: var(--purple-light); }
+  .it small { display: block; color: var(--text-dim); font-size: 11.5px; }
+  .it .kk { color: var(--text-faint); }
+  .pf { display: flex; gap: 14px; flex-wrap: wrap; padding: 9px 16px 11px; font-size: 12px; color: var(--text-dim); }
+  .pf button { background: none; border: 0; color: var(--text-dim); padding: 0; } .pf button:hover { color: var(--purple-light); }
+  .cta { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .hint { font-size: 12px; color: var(--text-dim); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 6px 8px 4px; }
+  .shade { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
+  .dlg { width: min(460px, calc(100vw - 32px)); background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: 0 20px 50px rgba(0,0,0,.6); }
+  .dlg .dh { padding: 16px 18px 6px; } .dlg .dh h3 { margin: 0 0 4px; font-size: 16px; } .dlg .dh p { margin: 0; color: var(--text-dim); font-size: 13px; }
+  .dlg ul { margin: 10px 18px 4px; padding-left: 18px; font-size: 13px; color: var(--text-dim); } .dlg ul li { margin-bottom: 4px; } .dlg ul b { color: var(--text); }
+  .dlg .chk { display: flex; gap: 8px; align-items: flex-start; margin: 10px 18px 0; font-size: 13px; }
+  .dlg .chk small { display: block; color: var(--text-dim); font-size: 11.5px; }
+  .dlg .df { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px 16px; }
+  .banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin: 0 0 12px; }
+  .banner.bad { border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 9%, transparent); }
+  .banner.ok { border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); background: color-mix(in srgb, var(--green) 7%, transparent); }
+  .banner.wait { border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+  .sim { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 14px 0 0; }
+  details.impl { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--card); }
+  details.impl summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-dim); font-weight: 700; }
+  details.impl ol { padding-left: 18px; margin: 8px 0 2px; font-size: 12.5px; color: var(--text-dim); } details.impl li { margin-bottom: 7px; } details.impl b { color: var(--text); }
+  .badge { font-size: 11px; background: var(--amber); color: #111; border-radius: 999px; padding: 0 7px; font-weight: 700; }
+  .fld { display: flex; gap: 8px; }
+  .fld input { flex: 1; background: var(--bg-2); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); padding: 6px 10px; font: 13px 'Segoe UI', sans-serif; }
+
+  /* guide */
+  .guide h1 { font-size: 16px; margin: 0 0 4px; }
+  .guide .lead { color: var(--text-dim); font-size: 13px; margin: 0 0 14px; }
+  .tour { border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent); background: color-mix(in srgb, var(--purple) 8%, transparent); border-radius: 12px; padding: 12px 14px; }
+  .tour .n { font-size: 11px; color: var(--purple-light); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+  .tour h2 { font-size: 15px; margin: 4px 0 6px; }
+  .tour p { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); } .tour p b { color: var(--text); }
+  .tour .nav2 { display: flex; gap: 6px; margin-top: 10px; }
+  .log { margin-top: 16px; }
+  .log h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .6px; }
+  .log div { font-size: 12.5px; padding: 6px 8px; border-left: 2px solid var(--purple); background: var(--card); margin-bottom: 5px; border-radius: 0 6px 6px 0; }
+  .log div.old { opacity: .55; border-left-color: var(--border-strong); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+  .seg button { background: none; border: 0; padding: 6px 14px; font-size: 12.5px; color: var(--text-dim); }
+  .seg button.on { background: var(--purple); color: #fff; }
+  .focus { animation: glow 1.6s ease-out 2; border-radius: 10px; }
+  @keyframes glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
+  /* before (today) */
+  .b-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+  .b-chip { border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; white-space: nowrap; font-size: 12.5px; }
+  .b-step span { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); font-size: 12px; }
+  .b-step .now { background: var(--amber); color: #111; border-color: var(--amber); font-weight: 700; }
+  .b-banner { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 7px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+  .b-task { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--card); margin-bottom: 8px; }
+  .b-live { border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px 12px; font-size: 12.5px; color: var(--text-faint); margin-bottom: 6px; }
+  .hl { outline: 2px solid var(--red); outline-offset: 2px; border-radius: 8px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 1150px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .guide { position: static; height: auto; border-top: 1px solid var(--border); }
+    .h-row { flex-wrap: wrap; } .h-title { flex-basis: 100%; order: 3; white-space: normal; }
+    .nav { overflow: hidden; white-space: nowrap; }
+    .next { grid-template-columns: 42px minmax(0,1fr); } .next .acts { grid-column: 1 / -1; }
+    .cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .panel { width: min(380px, calc(100vw - 24px)); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="app">
+    <div class="nav"><span class="logo">● ALFRED</span><span>Live Calls</span><span>Session Cycles</span><span class="on">Board<span class="new">new</span></span><span>Team<span class="new">new</span></span><span>Profiles</span><span>Settings</span><span>Me</span></div>
+
+    <!-- ======================= TODAY ======================= -->
+    <div class="page" id="today" hidden>
+      <div class="b-row"><b style="font-size:20px">Board</b>
+        <span class="sel">▦ #59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" <span class="muted">odeysys</span> <span class="car">▼</span></span>
+        <span class="sel">odeysys <span class="car">▼</span></span><span class="btn">💬 Chat</span><span class="sel"><span class="dot g" style="box-shadow:none"></span> Live · session 2723f394 <span class="car">▼</span></span></div>
+      <div class="b-row"><span class="muted">Cycles:</span>
+        <span class="b-chip hl">● #59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" ✕</span>
+        <span class="b-chip hl">● #59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia" · rec 2026-10-18 ✕</span>
+        <span class="muted">Boards: none</span></div>
+      <div class="b-row"><span class="btn ghost">+ relate cycle or board</span><span class="btn ghost">● Record</span><span class="spacer"></span>
+        <span class="hl" style="display:flex;gap:6px"><span class="btn">Open</span><span class="btn ghost">Done</span><span class="btn ghost">Archive</span><span class="btn danger">Delete…</span></span></div>
+      <div class="b-row b-step"><span>✓ 1 Board</span><span class="now">2 Define</span><span>3 Triage</span><span>4 Code</span><span>5 Verify</span><span>6 Test</span><span>7 Close</span>
+        <span class="muted hl">Next: /alfred-setup AB#59851 - Claude reads the task (and its work item) and drafts…</span><span class="btn">⧉ Copy</span><span class="btn">↻ Refresh from Azure</span></div>
+      <div class="b-banner hl"><b>Not defined yet:</b> no brief, spec or cards. Run it in your terminal: <code>/alfred-setup AB#59851</code><span class="btn">⧉ Copy</span> or <span class="btn">Ask Claude in chat</span></div>
+      <div class="b-task"><div class="b-row" style="align-items:flex-start"><b style="font-size:17px;max-width:480px">#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"</b><span class="spacer"></span>
+        <span class="hl" style="font-size:12.5px">▶ Next: <b>Write the requirements</b> <code>/alfred-spec "#59851_Q4…</code></span><span class="btn">Run ▾</span></div>
+        <div class="b-row"><code style="color:var(--purple-light)">★ ◆ 59851 · Thread · Ready for UAT</code><span class="btn">⇩ Fetch attachments</span></div>
+        <div class="b-row b-step"><span class="hl" style="display:flex;gap:4px"><span class="now">Coded</span><span>Verifying</span><span>Fixed</span><span>Re-tested</span><span>Done</span></span><span class="muted">Does the code match the task? No requirements yet…</span></div></div>
+      <div class="tabs"><span class="on">Cards</span><span>Calls<span class="n">2 cycles</span></span><span>Task</span><span>Cycles<span class="n">2</span></span><span>Related items</span><span>Activity<span class="n">3</span></span></div>
+      <div style="margin-top:10px"><div class="b-live hl">● Answering you: /alfred-listen's live lane · LAPTOP-34BNETR7 · stop it with /alfred-live stop</div>
+        <div class="b-live hl">○ No chat handles this cycle - ▶ shows how to start one</div><div class="b-live hl">✦ Claude stopped · checked 0 calls · 0 cards added</div></div>
+    </div>
+
+    <!-- ======================= NEW ======================= -->
+    <div class="page" id="new">
+      <div class="h-row">
+        <span class="rel"><button class="sel" data-menu="boards">▦ Boards <span class="car">▼</span></button>
+          <div class="menu" id="m-boards" hidden style="left:0">
+            <button class="mi">AB#59851 · Baggage Bundle Choice Display…<small>odeysys · Define · you</small></button>
+            <button class="mi">AB#61813 · Seat map refresh<small>odeysys · Verify · you</small></button>
+            <div class="sep"></div><button class="mi">＋ New board<small>from a work item or empty</small></button></div></span>
+        <span class="h-id" id="hid" title='#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"'>AB#59851</span>
+        <h2 class="h-title" title='#59851_Q4-INTE-CORE-015 Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"'>Baggage Bundle Choice Display &amp; Ancillary Clarification "Air Arabia"</h2>
+        <span class="sel">odeysys <span class="car">▼</span></span>
+        <span class="rel"><button class="sel" data-menu="state" id="stateBtn"><span class="dot g" style="box-shadow:none" id="stateDot"></span> <span id="stateTxt">Open</span> <span class="car">▼</span></button>
+          <div class="menu" id="m-state" hidden style="right:0">
+            <button class="mi" data-act="done">✓ Mark done<small>the task is finished; it stays in the board list</small></button>
+            <button class="mi" data-act="archive">⌂ Archive<small>out of the board list; reopen any time</small></button>
+            <button class="mi" data-act="open" id="reopen" hidden>↺ Reopen</button>
+            <div class="sep"></div><button class="mi danger-t" data-act="delete">✕ Delete board…<small>cards and chat go; recordings other boards mention stay</small></button></div></span>
+        <button class="btn lg" data-act="chat">💬 Chat</button>
+        <span class="rel" id="claudeWrap"><span class="split" id="claudeBtn"></span>
+          <div class="panel" id="panel" hidden></div></span>
+      </div>
+      <div class="facts"><span>Work item <b>Thread</b> · <b id="wiState">Ready for UAT</b></span><span>·</span><span id="factCards">no cards yet</span><span class="spacer"></span>
+        <span class="rel"><button class="btn ghost" data-menu="azure">Azure ▾</button>
+          <div class="menu" id="m-azure" hidden style="right:0">
+            <button class="mi" data-act="refresh">↻ Refresh from Azure<small>new or changed child items, comments and state</small></button>
+            <button class="mi" data-act="attach">⇩ Fetch attachments</button><button class="mi" data-act="openaz">↗ Open AB#59851 in Azure</button></div></span></div>
+
+      <div id="bannerSlot"></div>
+      <div class="stages" id="stages"></div>
+      <div class="next" id="next"></div>
+      <div id="liveRow"></div>
+      <div class="sub" id="recRow"></div>
+
+      <div class="tabs"><span class="on">Cards</span><span>Calls<span class="n" id="nCalls">2</span></span><span>Task</span><span>Cycles<span class="n">2</span></span><span>Related items</span><span>Activity<span class="n">3</span></span></div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </div>
+
+  <div id="dialogSlot"></div>
+  <!-- ======================= GUIDE ======================= -->
+  <aside class="guide">
+    <div class="seg"><button id="vNew" class="on">New design</button><button id="vToday">Today</button></div>
+    <h1>How the new board works</h1>
+    <p class="lead">Click anything in the board, or walk the tour. Each change is written below, so you can see what happened.</p>
+    <div class="tour" id="tour"></div>
+    <label class="sim"><input type="checkbox" id="simOffline"> Simulate: my PC is offline (to see the error states)</label>
+    <div class="log"><h3>What just happened</h3><div id="log"></div></div>
+    <details class="impl" open><summary>For later - why Stop / Release did nothing today</summary><ol>
+      <li><b>Release fails silently.</b> <code>BoardSessionButtonComponent.releaseBoard()</code> subscribes with <code>error: () =&gt; undefined</code>: a 404/409 shows nothing. Show the server's message in a red banner (as here).</li>
+      <li><b>No sign the click landed.</b> <code>cmd('STOP')</code> closes the menu at once and only sets a short notice when sending fails. Show <b>Pausing…</b> on the button until the helper reports, then <b>Paused</b> (as here).</li>
+      <li><b>Pause needs the helper.</b> STOP is a helper command: with the PC offline it waits QUEUED and nothing changes. Say so ("waiting for your PC"), and offer Hand back, which needs only Alfred.</li>
+      <li><b>The menu closes on <code>(mouseleave)</code></b>: moving the pointer slightly off the menu on the way to Stop or Release closes it before the click. Close on outside click and Escape instead (as here).</li>
+      <li><b>Hand back should stop Claude too</b>: today release only frees the holder; also send STOP to the session (with the optional handover note), then release - one action, as here.</li>
+      <li>Words: Stop answering (keep session) → <b>Pause Claude</b>; Release the board → <b>Hand the board back</b>.</li>
+    </ol></details>
+  </aside>
+</div>
+
+<script>
+const STAGES = ['Board', 'Define', 'Triage', 'Code', 'Verify', 'Test', 'Close'];
+const NEXT = {
+  1: { ic: '✎', t: 'Define the task', d: 'Claude reads AB#59851 and its child items from Azure, then drafts the brief, the requirements, the test steps and the cards. Nothing is saved until you press Save all.', go: 'define it', cmd: '/alfred-setup AB#59851' },
+  2: { ic: '⇅', t: 'Sort the 4 new cards', d: 'Claude goes through the Inbox with you, one card at a time: what it found, why, and what it suggests. You decide: To do, Fine, or Not in this flow.', go: 'triage with me', cmd: '/alfred-triage AB#59851' },
+  3: { ic: '⚒', t: 'Fix the 2 To do cards', d: 'Claude posts a plan for #72 and #73 and waits for your Go, then makes the smallest fix, runs the tests and records the fix on the card.', go: 'fix them', cmd: '/alfred-fix AB#59851' },
+  4: { ic: '✓', t: 'Check the 2 fixed cards', d: 'Claude checks #72 and #73 in the code and in the calls since each fix, then proposes Verified or says what still fails.', go: 'verify', cmd: '/alfred-verify AB#59851' },
+  5: { ic: '●', t: 'Test it in the app', d: 'Press Record and use the app as a user would. Claude watches every call while you test and adds a card for anything wrong.', go: 'watch while I test', cmd: '/alfred-listen AB#59851', rec: true },
+  6: { ic: '⚑', t: 'Close the task', d: 'Every card is Verified. Claude writes the summary and prepares the update for AB#59851 in Azure. Nothing is sent until you approve it.', go: 'write the close-out', cmd: '/alfred-report AB#59851' },
+};
+const CARDS = {
+  1: [[], [], [], []],
+  2: [['#72 Bundle price missing', '#73 Wrong ancillary code', '#74 Slow seat map', '#75 Old label'], [], [], []],
+  3: [[], ['#72 Bundle price missing', '#73 Wrong ancillary code'], [], ['#74 Fine', '#75 Not in this flow']],
+  4: [[], [], ['#72 Bundle price missing', '#73 Wrong ancillary code'], ['#74 Fine', '#75 Not in this flow']],
+  5: [[], [], [], ['#72 Verified', '#73 Verified', '#74 Fine', '#75 Not in this flow']],
+  6: [[], [], [], ['#72 Verified', '#73 Verified', '#74 Fine', '#75 Not in this flow']],
+};
+const S = { pcOnline: true, banner: null, dialog: null, note: true, stage: 1, claude: 'none', recording: false, open: null, folder: 'C:\\work\\odeys-claude', firstStart: true, unread: 0, sessions: 1, boardState: 'Open', listen: false };
+const $ = (id) => document.getElementById(id);
+const logs = [];
+function log(t) { logs.unshift(t); $('log').innerHTML = logs.slice(0, 8).map((x, i) => `<div class="${i ? 'old' : ''}">${x}</div>`).join(''); }
+function flash(el) { el.classList.remove('focus'); void el.offsetWidth; el.classList.add('focus'); }
+
+function claudeButton() {
+  const c = S.claude;
+  if (c === 'none') return `<button class="cb k-start" data-act="start">▶ Start Claude</button><button class="cm k-start" data-act="panel">▾</button>`;
+  if (c === 'paused') return `<button class="cb k-paused" data-act="resume">▶ Resume Claude</button><button class="cm k-paused" data-act="panel">▾</button>`;
+  if (c === 'starting') return `<button class="cb solo k-wait" title="Making the worktree, reading the task…"><span class="spin"></span> Starting Claude…</button>`;
+  if (c === 'resuming') return `<button class="cb solo k-wait"><span class="spin"></span> Resuming…</button>`;
+  if (c === 'pausing') return `<button class="cb solo k-wait" title="Sent to the helper on LAPTOP-34BNETR7; waiting for it to stop Claude"><span class="spin"></span> Pausing…</button>`;
+  if (c === 'releasing') return `<button class="cb solo k-wait"><span class="spin"></span> Handing back…</button>`;
+  if (c === 'failed') return `<button class="cb k-bad" data-act="panel">⚠ Claude didn't start</button><button class="cm k-bad" data-act="panel">▾</button>`;
+  return `<button class="cb k-on" data-act="panel"><span class="dot g"></span> Claude on</button><button class="cm k-on" data-act="panel">▾</button>`;
+}
+
+function panel() {
+  const c = S.claude;
+  if (c === 'none' && S.firstStart) return `
+    <div class="ph"><div class="t">▶ Start Claude for this board</div>
+      <div class="d">Claude runs on <b style="color:var(--text)">your PC</b> with your Claude account and reads your copy of <b style="color:var(--text)">odeysys</b>. Alfred only passes the messages.</div></div>
+    <div class="grp" style="padding:12px 16px">
+      <div class="gl" style="padding:0 0 6px">Where is odeysys's code on LAPTOP-34BNETR7?</div>
+      <div class="fld"><input id="folder" value="${S.folder}"><button class="btn" data-act="browse">Browse…</button></div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">Asked once and kept in My settings. Each board gets its own worktree, so boards never mix their changes.</div>
+      <div class="gl" style="padding:12px 0 6px">Show the conversation in</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="showIn"><button class="pill on">Claude Desktop</button><button class="pill">Terminal</button><button class="pill">Both</button><button class="pill">Nowhere - board only</button></div></div>
+    <div class="cta" style="border:0"><button class="btn primary lg" data-act="go">▶ Start Claude</button><button class="btn ghost lg" data-act="close">Cancel</button></div>`;
+  if (c === 'none') return `
+    <div class="ph"><div class="t">No Claude session on this board</div><div class="d">Starts on LAPTOP-34BNETR7 in ${S.folder}.</div></div>
+    <div class="cta"><button class="btn primary lg" data-act="go" style="flex:1">▶ Start Claude</button></div>
+    <div class="pf"><button data-act="settings">⚙ Change the folder in My settings</button></div>`;
+  if (c === 'failed') return `
+    <div class="ph"><div class="t" style="color:var(--red)">⚠ Claude didn't start</div>
+      <div class="d">Claude Code is not signed in on LAPTOP-34BNETR7. Run <code>claude</code> once in a terminal and sign in, then try again.</div></div>
+    <div class="cta"><button class="btn primary lg" data-act="go">↻ Try again</button><button class="btn ghost lg" data-act="close">Close</button></div>`;
+  if (c === 'paused') return `
+    <div class="ph"><div class="t"><span class="dot"></span> Claude is paused</div>
+      <div class="d">Last answered <b style="color:var(--text)">a moment ago</b> on LAPTOP-34BNETR7${S.unread ? ` · <span class="badge">${S.unread}</span> new chat messages since` : ''}</div></div>
+    <div class="cta"><button class="btn primary lg" data-act="resume" style="flex:1">▶ Resume${S.unread ? ` and catch up on ${S.unread} messages` : ''}</button>
+      <button class="btn lg" data-act="askRelease" title="Others may take the board; your sessions are kept">↩ Hand back</button></div>
+    <div class="grp"><div class="gl">Or</div>
+      <button class="it" data-act="fresh"><span class="ico">＋</span><span>Start fresh<small>a new session; it reads the task again from Alfred</small></span><span class="kk"></span></button>
+      <button class="it" data-act="desktop"><span class="ico">🖥</span><span>Read it in Claude Desktop<small>see what it did, without resuming it here</small></span><span class="kk"></span></button>
+      <button class="it" data-act="earlier"><span class="ico">⇄</span><span>Earlier sessions<small>${S.sessions} on this board</small></span><span class="kk">›</span></button></div>
+    <div class="pf"><button data-act="audit">☰ Who did what</button><button data-act="settings" style="margin-left:auto">⚙ My settings</button></div>`;
+  return `
+    <div class="ph"><div class="t"><span class="dot g"></span> Claude is answering this board</div>
+      <div class="d">On <b style="color:var(--text)">LAPTOP-34BNETR7</b> as f.biomy@tildetech.ae · since 14:02</div>
+      <div class="meter"><i style="width:42%"></i></div><div class="d" style="font-size:11.5px">208k of your 500k tokens today</div></div>
+    <div class="quick"><button class="btn lg" data-act="pause" title="Stops answering; Resume later and it remembers everything">⏸ Pause Claude</button>
+      <button class="btn lg" data-act="askRelease" title="Claude stops and others may take the board; your sessions are kept">↩ Hand the board back</button></div>
+    <div class="grp"><div class="gl">See the conversation</div>
+      <button class="it" data-act="desktop"><span class="ico">🖥</span><span>Open in Claude Desktop<small>talk to it there; the board waits while it is open</small></span><span class="kk"></span></button>
+      <button class="it" data-act="terminal"><span class="ico">⌨</span><span>Open in a terminal<small>claude --resume 2723f394</small></span><span class="kk"></span></button>
+      <div class="hint">Not in Desktop's list? Desktop reads new sessions only when it starts. <button class="btn ghost" data-act="restartDesk" style="padding:2px 6px">Restart Desktop</button></div></div>
+    <div class="grp"><div class="gl">While you test</div>
+      <button class="it" data-act="listen"><span class="ico">👂</span><span>${S.listen ? 'Stop watching the recording' : 'Watch a recording'}<small>${S.listen ? 'Claude stops checking new calls; your session goes on' : 'Claude checks every new call while you test and adds cards - on the side, not in this conversation'}</small></span><span class="kk"></span></button></div>
+    <div class="grp"><div class="gl">This session</div>
+      <button class="it" data-act="fresh"><span class="ico">＋</span><span>Start fresh<small>a new session that knows the task, not this conversation</small></span><span class="kk"></span></button>
+      <button class="it" data-act="earlier"><span class="ico">⇄</span><span>Earlier sessions<small>${S.sessions} on this board - pick one to continue</small></span><span class="kk">›</span></button></div>
+    <div class="pf"><button data-act="audit">☰ Who did what</button><button data-act="copyid">⧉ Copy session id</button><button data-act="settings" style="margin-left:auto">⚙ My settings</button></div>`;
+}
+
+function bannerHtml() {
+  const b = S.banner; if (!b) return '';
+  if (b === 'pauseFail') return `<div class="banner bad">⚠ <span><b>Couldn't pause Claude.</b> Your PC (LAPTOP-34BNETR7) is not connected to Alfred, so the pause cannot reach it. Claude is still on; it pauses as soon as the PC reconnects.</span>
+    <span class="spacer"></span><button class="btn" data-act="pause">↻ Try again</button><button class="btn ghost" data-act="askRelease">Hand back instead</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
+  if (b === 'pauseWait') return `<div class="banner wait"><span class="spin" style="color:var(--amber)"></span><span><b>Waiting for your PC</b> to pause Claude - it finishes the answer it is writing first (up to a minute).</span></div>`;
+  if (b === 'paused') return `<div class="banner ok">⏸ <span><b>Claude is paused.</b> Messages you send now wait. <b>▶ Resume</b> continues the same conversation.</span><span class="spacer"></span><button class="btn" data-act="resume">▶ Resume now</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
+  if (b === 'released') return `<div class="banner ok">↩ <span><b>You handed the board back.</b> Claude stopped answering; your session is kept${S.note ? ' and it left a note on where things stand in the brief' : ''}. Anyone may take the board now.</span><span class="spacer"></span><button class="btn" data-act="takeBack">Take it again</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
+  if (b === 'releaseFail') return `<div class="banner bad">⚠ <span><b>Couldn't hand the board back:</b> Alfred said "Nobody holds this board" - someone may have taken it already. Reload to see who holds it now.</span><span class="spacer"></span><button class="btn" data-act="dismiss">OK</button></div>`;
+  return '';
+}
+
+function dialogHtml() {
+  if (S.dialog !== 'release') return '';
+  return `<div class="shade" data-act="shade"><div class="dlg">
+    <div class="dh"><h3>Hand AB#59851 back?</h3><p>Use this when you are done for now, or someone else should continue.</p></div>
+    <ul><li><b>Claude stops answering</b> this board on LAPTOP-34BNETR7.</li>
+      <li><b>Your session is kept</b> - you or anyone can continue it later from Earlier sessions.</li>
+      <li><b>Anyone may take the board</b> and write on it; until then it is free.</li></ul>
+    <label class="chk"><input type="checkbox" id="noteChk" ${S.note ? 'checked' : ''}><span>Leave a note for whoever continues<small>Claude writes where things stand and the next step into the brief before it stops</small></span></label>
+    <div class="df"><button class="btn ghost lg" data-act="closeDlg">Cancel</button><button class="btn primary lg" data-act="release">↩ Hand back</button></div>
+  </div></div>`;
+}
+
+function render() {
+  $('bannerSlot').innerHTML = bannerHtml();
+  $('dialogSlot').innerHTML = dialogHtml();
+  $('claudeBtn').innerHTML = claudeButton();
+  const p = $('panel'); p.hidden = S.open !== 'panel'; if (!p.hidden) p.innerHTML = panel();
+  ['boards', 'state', 'azure'].forEach((m) => { $('m-' + m).hidden = S.open !== m; });
+  $('stateTxt').textContent = S.boardState; $('reopen').hidden = S.boardState === 'Open';
+  $('stateDot').style.background = S.boardState === 'Open' ? 'var(--green)' : 'var(--text-faint)';
+  // stages
+  let h = '';
+  STAGES.forEach((name, i) => {
+    const cls = i < S.stage ? 'done' : i === S.stage ? 'now' : '';
+    if (i) h += `<span class="line ${i <= S.stage ? 'done' : ''}"></span>`;
+    h += `<button class="stg ${cls}" data-stage="${i}" title="Jump the demo to ${name}"><i>${i < S.stage ? '✓' : i + 1}</i>${name}</button>`;
+  });
+  if (S.stage >= 3) {
+    const L = ['Coded', 'Verifying', 'Fixed', 'Re-tested', 'Done']; const at = Math.min(4, S.stage - 3);
+    h += `<span class="spacer"></span><span class="ladder" title="Does the code match the task?">${L.map((x, i) => `<span class="${i < at ? 'done' : i === at ? 'now' : ''}">${i < at ? '✓ ' : ''}${x}</span>`).join('')}</span>`;
+  }
+  $('stages').innerHTML = h;
+  // next card
+  const n = NEXT[Math.max(1, Math.min(6, S.stage))];
+  const on = S.claude === 'on';
+  const busy = S.claude === 'starting' || S.claude === 'resuming';
+  const verb = busy ? 'Claude is getting ready…' : on ? `▶ Ask Claude to ${n.go}` : S.claude === 'paused' ? `▶ Resume Claude and ${n.go}` : `▶ Start Claude and ${n.go}`;
+  $('next').innerHTML = `<div class="ic">${n.ic}</div>
+    <div><div class="k">Next step</div><div class="t">${n.t}</div><div class="d">${n.d}</div></div>
+    <div class="acts">${n.rec && !S.recording ? `<button class="btn primary lg" data-act="record">● Record and ${n.go}</button>` : `<button class="btn primary lg" data-act="nextGo" ${busy ? "disabled style=\"opacity:.6\"" : ""}>${verb}</button>`}
+      <div class="row"><button class="btn" data-act="copy" title="${n.cmd}">⧉ Copy for terminal</button>
+        <span class="rel"><button class="btn ghost" data-menu="other">Other steps ▾</button>
+          <div class="menu" id="m-other" ${S.open === 'other' ? '' : 'hidden'} style="right:0;min-width:280px">
+            ${Object.entries(NEXT).map(([k, v]) => `<button class="mi" data-stage="${k}">${v.t}<small>${v.cmd}</small></button>`).join('')}
+            <div class="sep"></div><button class="mi" data-act="copyResume">Continue on another machine<small>copies /alfred-resume AB#59851</small></button></div></span></div></div>`;
+  // live row
+  $('liveRow').innerHTML = on && (S.working || S.listen) ? `<div class="live"><span class="dot g"></span><b>Claude</b>&nbsp;on LAPTOP-34BNETR7 · ${S.listen ? 'watching the recording · 12 calls checked' : S.working} <span class="spacer"></span>
+      <button class="btn ghost" data-act="desktop">Open in Desktop</button><button class="btn danger" data-act="${S.listen ? 'listen' : 'stopWork'}">Stop</button></div>` : '';
+  $('recRow').innerHTML = S.recording
+    ? `<button class="rec on" data-act="record">● Recording · 12 calls</button><span>Stop when you finish testing.</span>`
+    : `<button class="rec" data-act="record">● Record</button><span>Record the calls while you test this task.</span><span class="spacer"></span><span class="faint">Recordings and related boards are on the Cycles tab.</span>`;
+  // cards
+  const cols = ['Inbox', 'To do', 'Fixed', 'Done']; const cs = CARDS[Math.max(1, Math.min(6, S.stage))];
+  $('cards').innerHTML = cols.map((c, i) => `<div class="col"><h4>${c} ${cs[i].length ? `<span class="faint">${cs[i].length}</span>` : ''}</h4>${cs[i].map((x) => `<div class="crd">${x}</div>`).join('') || '<div class="faint">-</div>'}</div>`).join('');
+  $('factCards').textContent = S.stage <= 1 ? 'no cards yet' : `${cs.flat().length} cards`;
+}
+
+function startClaude(after) {
+  S.open = null; S.claude = 'starting'; render();
+  log('<b>▶ Start Claude</b>: the helper on your PC makes a worktree for this board and starts Claude there. No terminal command.');
+  setTimeout(() => { S.claude = 'on'; S.firstStart = false; render(); flash($('claudeBtn'));
+    log('<b>● Claude on</b>: the board chat, card comments and ▶ runs now go to this session.'); after?.(); }, 1600);
+}
+function runNext() {
+  const n = NEXT[Math.max(1, Math.min(6, S.stage))];
+  S.working = `${n.t.toLowerCase()}…`; render();
+  log(`<b>${n.t}</b>: sent to your Claude session as <code>${n.cmd}</code>. You did not type it.`);
+  setTimeout(() => { S.working = null; S.stage = Math.min(6, S.stage + 1); render(); flash($('next'));
+    log(`Done. The stage moved to <b>${STAGES[S.stage]}</b>, and the Next card now shows what comes after.`); tourAt(); }, 1800);
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act],[data-menu],[data-stage],.pill');
+  if (!t) { if (!e.target.closest('.panel,.menu')) { S.open = null; render(); } return; }
+  if (t.classList.contains('pill') && t.parentElement.id === 'showIn') { t.parentElement.querySelectorAll('.pill').forEach((x) => x.classList.toggle('on', x === t)); return; }
+  if (t.dataset.menu) { S.open = S.open === t.dataset.menu ? null : t.dataset.menu; render(); return; }
+  if (t.dataset.stage) { S.stage = +t.dataset.stage; S.open = null; render(); flash($('next')); log(`Demo jumped to <b>${STAGES[S.stage]}</b>: the Next card, the cards and the ladder follow the stage.`); tourAt(); return; }
+  const a = t.dataset.act;
+  switch (a) {
+    case 'start': if (S.firstStart) { S.open = 'panel'; render(); log('<b>First start on this PC</b>: Alfred asks once where the code is and where to show the conversation.'); } else startClaude(); break;
+    case 'panel': S.open = S.open === 'panel' ? null : 'panel'; render(); if (S.open) log('<b>Claude panel</b>: grouped by what you want to do. Every item says what it does.'); break;
+    case 'browse': log('<b>Browse…</b> opens a folder window on your PC. Alfred never looks at your files.'); break;
+    case 'go': S.folder = $('folder')?.value || S.folder; startClaude(); break;
+    case 'close': S.open = null; render(); break;
+    case 'pause':
+      S.open = null; S.claude = 'pausing'; S.banner = null; render();
+      log('<b>Pause Claude</b>: the button turns to <b>Pausing…</b> at once, so you can see the click landed. Alfred sends the pause to the helper on your PC.');
+      setTimeout(() => {
+        if (!S.pcOnline) { S.claude = 'on'; S.banner = 'pauseFail'; render(); log('<b>Your PC is offline</b>: the pause cannot reach it. A red banner says so, with Try again or Hand back - never a silent nothing.'); return; }
+        S.banner = 'pauseWait'; render();
+        setTimeout(() => { S.claude = 'paused'; S.banner = 'paused'; S.unread = 0; render(); flash($('claudeBtn'));
+          log('<b>Paused</b>: confirmed by your PC. The session is kept; messages you send now wait for Resume.');
+          setTimeout(() => { if (S.claude === 'paused') { S.unread = 3; render(); log('3 chat messages arrived while Claude was paused. Resume will catch it up on them.'); } }, 2000); }, 1300);
+      }, 900); break;
+    case 'askRelease': S.open = null; S.banner = null; S.dialog = 'release'; render(); log('<b>Hand the board back</b> asks first, and says exactly what will happen.'); break;
+    case 'closeDlg': S.dialog = null; render(); break;
+    case 'shade': if (e.target === t) { S.dialog = null; render(); } break;
+    case 'takeBack': S.banner = null; S.claude = 'paused'; render(); log('<b>Take it again</b>: the board is yours; ▶ Resume continues your session.'); break;
+    case 'dismiss': S.banner = null; render(); break;
+    case 'resume': S.open = null; S.claude = 'resuming'; render(); log(`<b>▶ Resume</b>: the same session continues${S.unread ? `, and Claude reads the ${S.unread} messages it missed first` : ''}. It remembers the task and earlier answers.`);
+      setTimeout(() => { S.claude = 'on'; S.unread = 0; render(); flash($('claudeBtn')); }, 1300); break;
+    case 'fresh': S.open = null; S.sessions++; startClaude(); log('<b>Start fresh</b>: a new session that reads the task from Alfred again. The old one stays in Earlier sessions.'); break;
+    case 'earlier': log(`<b>Earlier sessions</b>: a list of the ${S.sessions} sessions on this board (PC, when, what it did), each with Continue.`); break;
+    case 'desktop': log('<b>Open in Claude Desktop</b>: the conversation opens there. While it is open there, the board waits, because two writers would split the conversation.'); break;
+    case 'terminal': log('<b>Open in a terminal</b>: runs <code>claude --resume 2723f394</code> in the board\'s folder.'); break;
+    case 'restartDesk': log('<b>Restart Desktop</b>: shown only as a hint. Desktop lists new sessions after it restarts.'); break;
+    case 'listen': S.listen = !S.listen; S.open = null; render(); log(S.listen ? '<b>Watch a recording</b>: Claude checks every new call on the side and adds cards. It does not type into your conversation.' : 'Stopped watching the recording.'); break;
+    case 'stopWork': S.working = null; render(); log('Stopped this run. Claude stays on for the next message.'); break;
+    case 'release':
+      S.note = !!$('noteChk')?.checked; S.dialog = null; S.open = null; S.claude = 'releasing'; render();
+      log(`<b>Handing back…</b>${S.note ? ' Claude writes its note into the brief, then' : ''} the session stops and the board is freed.`);
+      setTimeout(() => { S.claude = 'none'; S.firstStart = false; S.listen = false; S.working = null; S.banner = 'released'; render();
+        log('<b>Handed back</b>: a green banner confirms it, with Take it again. Your session is kept in Earlier sessions.'); }, 1500); break;
+    case 'audit': log('<b>Who did what</b>: every write on this board - who, from which PC, browser or session.'); break;
+    case 'copyid': log('Session id copied: 2723f394-…'); break;
+    case 'settings': log('<b>My settings</b>: folders per PC, models, daily token budget.'); break;
+    case 'nextGo': if (S.claude === 'on') runNext(); else if (S.claude === 'paused') { S.claude = 'resuming'; render(); setTimeout(() => { S.claude = 'on'; S.unread = 0; render(); runNext(); }, 1200); }
+      else if (S.firstStart) { S.open = 'panel'; render(); log('Claude is needed first: the start panel opened. After you start, press the Next button again.'); } else startClaude(runNext); break;
+    case 'copy': log(`<b>Copy for terminal</b>: <code>${NEXT[Math.max(1, Math.min(6, S.stage))].cmd}</code> copied, for a Claude you run yourself.`); break;
+    case 'copyResume': S.open = null; render(); log('Copied <code>/alfred-resume AB#59851</code>: any Claude, on any machine, picks the task up from Alfred.'); break;
+    case 'record': S.recording = !S.recording; render(); log(S.recording ? '<b>● Recording</b>: the calls you make in the app are kept with this task.' : 'Recording stopped. The calls stay on the Calls tab.'); if (S.recording && S.stage === 5 && S.claude === 'on') { S.listen = true; render(); } break;
+    case 'done': S.boardState = 'Done'; S.open = null; render(); log('<b>Mark done</b>: from the Open ▾ menu. Done, Archive and Delete are no longer always on screen.'); break;
+    case 'archive': S.boardState = 'Archived'; S.open = null; render(); log('<b>Archive</b>: hidden from the board list; Reopen brings it back.'); break;
+    case 'open': S.boardState = 'Open'; S.open = null; render(); log('Reopened.'); break;
+    case 'delete': S.open = null; render(); log('<b>Delete board…</b> asks first (a confirm dialog) - nothing is deleted in this demo.'); break;
+    case 'refresh': S.open = null; render(); log('<b>Refresh from Azure</b>: reads new or changed child items. It moved into Azure ▾ with Fetch attachments.'); break;
+    case 'attach': case 'openaz': S.open = null; render(); log('Azure actions live in one menu now.'); break;
+    case 'chat': log('<b>💬 Chat</b>: the board chat opens on the side. Claude answers there while it is on.'); break;
+  }
+});
+
+/* ---------- guided tour ---------- */
+const TOUR = [
+  { h: 'One header row', p: 'The short id <b>AB#59851</b> and the plain title; the full name shows on hover. <b>Open ▾</b> holds Done, Archive and Delete. On the right are Chat and the <b>Claude button</b>.', el: () => document.querySelector('.h-row') },
+  { h: 'The Claude button says what Claude is doing', p: 'Today it says <b>▶ Start Claude</b>. Press it. The first time on a PC it asks where the code is, then shows <b>Starting…</b> and turns green: <b>● Claude on</b>.', el: () => $('claudeBtn') },
+  { h: 'One stage line', p: 'The 7 stages of the task, computed in one place. <b>Click a stage</b> to jump the demo there; everything below follows. From Code on, the Coded → Done ladder appears on the right.', el: () => $('stages') },
+  { h: 'One next step', p: 'It replaces the three hints of today. It says in plain words what happens next, with <b>one main button</b>. With Claude on, the button sends the command to Claude for you; "Copy for terminal" is there if you run Claude yourself.', el: () => $('next') },
+  { h: 'Try it', p: 'Press the main button in the Next card. Claude does the step, the stage moves on and the card changes. Do it a few times and watch the cards fill up.', el: () => $('next') },
+  { h: 'Pause and Resume', p: 'Open the green Claude button: <b>Pause Claude</b> and <b>Hand the board back</b> are the two buttons at the top. Messages wait while it is paused. <b>▶ Resume</b> continues the same conversation and catches up on what it missed.', el: () => $('claudeBtn') },
+  { h: 'While you test', p: 'Jump to <b>Test</b>: the next step becomes <b>● Record</b>. With Claude on, it also watches the recording and adds cards. One live row shows only while something runs, with Stop.', el: () => $('recRow') },
+  { h: 'Compare with today', p: 'Switch to <b>Today</b> at the top of this panel to see the old header: everything that is outlined in red is gone or moved into a menu.', el: () => document.querySelector('.seg') },
+];
+let step = 0;
+function tourAt() {
+  const t = TOUR[step];
+  $('tour').innerHTML = `<div class="n">Tour · ${step + 1} of ${TOUR.length}</div><h2>${t.h}</h2><p>${t.p}</p>
+    <div class="nav2"><button class="btn ghost" id="tPrev" ${step ? '' : 'disabled'}>‹ Back</button><button class="btn primary" id="tNext">${step < TOUR.length - 1 ? 'Next ›' : 'Start over'}</button></div>`;
+  $('tPrev').onclick = () => { step = Math.max(0, step - 1); tourAt(); flash(TOUR[step].el()); };
+  $('tNext').onclick = () => { step = step < TOUR.length - 1 ? step + 1 : 0; if (!step) reset(); tourAt(); flash(TOUR[step].el()); };
+}
+function reset() { Object.assign(S, { banner: null, dialog: null, stage: 1, claude: 'none', recording: false, open: null, firstStart: true, unread: 0, sessions: 1, boardState: 'Open', listen: false, working: null }); logs.length = 0; render(); log('Demo reset: Define stage, no Claude yet.'); }
+$('vNew').onclick = () => { $('vNew').classList.add('on'); $('vToday').classList.remove('on'); $('new').hidden = false; $('today').hidden = true; };
+$('vToday').onclick = () => { $('vToday').classList.add('on'); $('vNew').classList.remove('on'); $('new').hidden = true; $('today').hidden = false; log('<b>Today</b>: the red outlines show what is repeated, idle, or not for this stage.'); };
+$('simOffline').onchange = (e) => { S.pcOnline = !e.target.checked; log(S.pcOnline ? 'Your PC is online again.' : '<b>Simulating: PC offline.</b> Try Pause Claude now.'); };
+render(); tourAt(); log('Start: Define stage, no Claude session yet. Follow the tour, or click anything.');
+</script>
+</body>
+</html>
