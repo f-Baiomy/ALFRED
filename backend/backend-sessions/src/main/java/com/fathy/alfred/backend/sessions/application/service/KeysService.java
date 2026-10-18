@@ -178,10 +178,12 @@ public class KeysService implements KeysUseCase {
             throw new IllegalArgumentException("The heartbeat says too much (64 KB at most)");
         }
         Instant now = clock.instant();
-        boolean wasOnline = store.helper(helper.keyId()).map(h -> h.online(now)).orElse(false);
+        Optional<Helper> before = store.helper(helper.keyId());
+        boolean wasOnline = before.map(h -> h.online(now)).orElse(false);
         store.helperSeen(helper.keyId(), now, clip(ip), body);
         seen.put(helper.keyId(), now);
-        if (!wasOnline) {
+        // came online, or says something new about its PC (a token kept, Desktop found): the devices pages follow
+        if (!wasOnline || !body.equals(before.map(Helper::info).orElse(null))) {
             notifications.changed("keys", null);
         }
         return store.helper(helper.keyId()).orElseThrow();

@@ -26,7 +26,7 @@ import { homedir, hostname, platform } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
@@ -546,6 +546,8 @@ export class Helper {
       platform: platform(), mcp: this.mcp, azureToken: !!readToken(this.server),
       sessions: [...this.sessions.entries()].map(([id, s]) => ({ cliSessionId: id, boardId: s.boardId })) };
     const me = await this.api.call('PUT', '/board/helpers/heartbeat', { body: info });
+    // the token first: Alfred hands it over once, and an update below restarts this process
+    if (typeof me?.azureToken === 'string') this.keepToken(me.azureToken);
     await this.keepCurrent(me?.versions).catch((e) => log(`could not update from Alfred: ${e.message}`));
     const settings = await this.settings();
     await this.requestsToToasts(me?.user, settings).catch(() => {});
@@ -601,6 +603,20 @@ export class Helper {
     spawn(process.execPath, [self, 'run', '--server', this.server], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     this.stopped = true;
     setTimeout(() => process.exit(0), 200);
+  }
+
+  /**
+   * The Azure DevOps token the user entered in Alfred for this PC (My settings ▸ Azure DevOps): kept here encrypted for
+   * the Windows user, and handed to Alfred's memory again every time this helper starts. "" = forget it here.
+   */
+  keepToken(token) {
+    if (token) {
+      writeFileSync(tokenFile(this.server), protect(token));
+      log('Azure DevOps token kept on this PC (entered in Alfred)');
+    } else {
+      try { unlinkSync(tokenFile(this.server)); } catch { /* none */ }
+      log('Azure DevOps token removed from this PC');
+    }
   }
 
   /** A toast once per new request for a board this user holds (My settings ▸ Tell me ▸ board requests). */

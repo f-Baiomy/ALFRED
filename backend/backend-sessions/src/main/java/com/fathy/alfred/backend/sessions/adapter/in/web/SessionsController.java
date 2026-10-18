@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.sessions.adapter.in.web;
 import com.fathy.alfred.backend.sessions.application.port.in.ConnectUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.HoldersUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.KeysUseCase;
+import com.fathy.alfred.backend.sessions.application.port.in.PcTokenUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.SessionsUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.UserSettingsUseCase;
 import com.fathy.alfred.backend.sessions.domain.Keys;
@@ -57,10 +58,13 @@ public class SessionsController {
     private final UserSettingsUseCase settings;
     private final ObjectProvider<AdminRequestCheck> adminCheck;
     private final ObjectProvider<ConnectUseCase> connect;
+    private final ObjectProvider<PcTokenUseCase> pcToken;
 
     public SessionsController(KeysUseCase keys, HoldersUseCase holders, SessionsUseCase sessions, UserSettingsUseCase settings,
-                              ObjectProvider<AdminRequestCheck> adminCheck, ObjectProvider<ConnectUseCase> connect) {
+                              ObjectProvider<AdminRequestCheck> adminCheck, ObjectProvider<ConnectUseCase> connect,
+                              ObjectProvider<PcTokenUseCase> pcToken) {
         this.connect = connect;
+        this.pcToken = pcToken;
         this.keys = keys;
         this.holders = holders;
         this.sessions = sessions;
@@ -92,6 +96,11 @@ public class SessionsController {
             ConnectUseCase cu = connect.getIfAvailable();
             if (cu != null) {
                 out.put("versions", cu.versions()); // the helper updates itself and the skills when these change
+            }
+            PcTokenUseCase pt = pcToken.getIfAvailable();
+            if (pt != null) {
+                // a token the user entered in a browser for this PC: to this helper only, once ("" = forget it)
+                pt.take(c.get()).ifPresent(t -> out.put("azureToken", t));
             }
             return ResponseEntity.ok(out);
         } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException e) {
@@ -171,6 +180,22 @@ public class SessionsController {
     }
 
     /** The caller's own PCs, to pick where a session starts. */
+    /** The Azure DevOps token entered here, to keep on one of the caller's PCs ({@code token} empty = forget it there). */
+    @PostMapping("/board/me/pc-token")
+    public ResponseEntity<?> pcToken(@Valid @RequestBody PcTokenDto body, HttpServletRequest request) {
+        Optional<Caller> c = caller(request);
+        PcTokenUseCase pt = pcToken.getIfAvailable();
+        if (c.isEmpty() || pt == null) {
+            return unknown();
+        }
+        try {
+            return pt.send(c.get(), body.helperKeyId(), body.token()) ? ResponseEntity.noContent().build()
+                    : refused(HttpStatus.NOT_FOUND, "NOT_YOUR_PC", "That PC is not one of yours");
+        } catch (IllegalArgumentException e) {
+            return refused(HttpStatus.BAD_REQUEST, "INVALID", e.getMessage());
+        }
+    }
+
     @GetMapping("/board/me/helpers")
     public ResponseEntity<?> myHelpers(HttpServletRequest request) {
         Optional<Caller> c = caller(request);
@@ -482,6 +507,13 @@ public class SessionsController {
 
     public record RegisterDto(@Size(max = 200) String user, @Size(max = 200) String machine, @Size(max = 200) String claudeAccount,
                               @Size(max = 200) String connectToken) {
+    }
+
+    public record PcTokenDto(@Size(max = 40) String helperKeyId, @Size(max = 2000) String token) {
+        @Override
+        public String toString() {
+            return "PcTokenDto[helperKeyId=" + helperKeyId + ", token=***]";
+        }
     }
 
     public record PairDto(@Size(max = 20) String code, @Size(max = 200) String label) {

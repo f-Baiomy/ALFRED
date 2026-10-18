@@ -51,6 +51,11 @@ export class SessionsApiService {
     );
   }
 
+  /** The token to keep on one of this user's PCs ('' = remove it there): passed to that PC's helper once, in memory. */
+  pcToken(helperKeyId: string, token: string): Observable<unknown> {
+    return this.http.post(`${this.base}/me/pc-token`, { helperKeyId, token });
+  }
+
   forgetMyToken(): Observable<unknown> {
     return this.http.delete(`${this.config.backendUrl}/teamboards/me/token`);
   }

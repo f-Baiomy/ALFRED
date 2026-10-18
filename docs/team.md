@@ -44,7 +44,9 @@ The user enters a personal access token once on the Team tab (`PUT /teamboards/c
 Alfred checks it (`whoAmI` names its owner - "me") and keeps it **8 hours in memory only** (`TokenVault`): never on
 disk, in a log, in a response or in a browser; a restart or **Forget** drops it, and a token the tracker refuses is
 dropped at once. **Since specs/031 a token is one per user**: a user paired with their Alfred helper keeps their token
-on their own PC (`alfred helper token set`, encrypted with Windows DPAPI for their user), and the helper hands it to
+on a PC of theirs, encrypted with Windows DPAPI for their user - entered in **👤 Me ▸ Azure DevOps** (Save token, Keep it
+on: <PC>; `POST /board/me/pc-token` passes it to that PC's helper once, in memory, on its next heartbeat - `PcTokenService`)
+or on the PC with `alfred helper token set` - and the helper hands it to
 Alfred's memory (`PUT /teamboards/me/token`) while it runs - used for that user's requests only (their X-Alfred-Key,
 `TeamCallerPort`), never read by another user. A request from an unpaired browser reads with the shared token as before
 (the last one entered without a user); work outside a request (lists, hooks, watch rules) uses the connection's newest

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -259,4 +259,21 @@ test("Claude Desktop from the Microsoft Store keeps its sessions inside its pack
   mkdirSync(join(pkg, 'claude-code-sessions'), { recursive: true });
   assert.deepEqual(claudeAppDataDirs(env), [pkg, join(roaming, 'Claude')]);
   assert.equal(desktopSessionsRoot(env), join(pkg, 'claude-code-sessions'));
+});
+
+test('a token entered in Alfred for this PC is kept here, and forgetting it removes it', () => {
+  const home = tmp();
+  const before = process.env.ALFRED_HELPER_HOME;
+  process.env.ALFRED_HELPER_HOME = home;
+  try {
+    const h = quietHelper({ server: 'http://a:3000', api: new FakeApi(), machine: 'PC', primary: true });
+    h.keepToken('pat-123');
+    const file = readdirSync(home).find((f) => f.startsWith('azure-token.'));
+    assert.ok(file);
+    assert.ok(!readFileSync(join(home, file), 'utf8').includes('pat-123')); // encrypted (DPAPI) or encoded, never as typed
+    h.keepToken('');
+    assert.equal(readdirSync(home).some((f) => f.startsWith('azure-token.')), false);
+  } finally {
+    if (before === undefined) delete process.env.ALFRED_HELPER_HOME; else process.env.ALFRED_HELPER_HOME = before;
+  }
 });

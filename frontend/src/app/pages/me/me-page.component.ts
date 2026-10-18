@@ -181,18 +181,30 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
               <div class="card">
                 <h2>Azure DevOps</h2>
                 <div class="kv">
-                  <span>Your token</span><span>
-                    @if (tokenSet()) { <span class="tag ok">✓ in use - for your searches only</span> }
-                    @else if (azureOnSomePc()) { <span class="tag ok">✓ kept on {{ azureOnSomePc() }}</span> }
-                    @else { <span class="tag warn">not set</span> }</span>
+                  <span>Your token</span><span class="row">
+                    @if (tokenSet()) { <span class="tag ok">✓ in use now - for your searches only</span> }
+                    @for (h of devices().helpers; track h.keyId) {
+                      @if (info(h).azureToken) { <span class="tag ok">🔐 kept on {{ h.machine }}</span> }
+                    }
+                    @if (!tokenSet() && !azureOnSomePc()) { <span class="tag warn">not set</span> }</span>
                   <span>Set or replace</span><span class="folder-row">
                     <input type="password" [(ngModel)]="azureToken" placeholder="Paste your Azure DevOps personal access token" autocomplete="off" aria-label="Azure DevOps token">
-                    <button type="button" class="action-btn primary" [disabled]="!azureToken.trim()" (click)="setToken()">Use it</button>
-                    <button type="button" class="action-btn" (click)="clearToken()">Forget</button></span>
-                  <span>Where it is kept</span><span class="muted">In Alfred's memory only, for <b>your</b> searches and writes - another user never reads
-                    with it, and it is never on Alfred's disk, in a log or sent back to a browser. It lasts 8 hours or until Alfred restarts.
-                    To keep it on your PC instead (encrypted for your Windows user, handed over whenever your helper starts), run
-                    <code>alfred helper token set</code> there once.</span>
+                    <button type="button" class="action-btn primary" [disabled]="!azureToken.trim()" (click)="setToken()">Save token</button></span>
+                  <span>Keep it on</span><span>
+                    <select [(ngModel)]="tokenPc" aria-label="Keep the token on">
+                      @for (h of devices().helpers; track h.keyId) {
+                        <option [value]="h.keyId" [disabled]="!h.online">{{ h.machine }}{{ h.online ? '' : ' (offline)' }}</option>
+                      }
+                      <option value="">no PC - only until Alfred restarts</option>
+                    </select></span>
+                  <span>Forget it</span><span class="row">
+                    @for (h of devices().helpers; track h.keyId) {
+                      @if (info(h).azureToken) { <button type="button" class="action-btn" (click)="clearToken(h.keyId)" [disabled]="!h.online">Remove from {{ h.machine }}</button> }
+                    }
+                    <button type="button" class="action-btn" (click)="clearToken(null)">Stop using it now</button></span>
+                  <span>Where it is kept</span><span class="muted">On the PC you choose, encrypted for your Windows user; that PC's helper hands it to Alfred
+                    whenever it starts. Alfred holds it in memory only, for <b>your</b> searches and writes - another user never reads with it - and
+                    never puts it on its disk, in a log or in an answer to a browser.</span>
                 </div>
               </div>
             }
@@ -293,6 +305,8 @@ export class MePageComponent {
   notifyFindings = true;
   notifyRequests = true;
   azureToken = '';
+  /** The PC the token is kept on: this browser's own, else the first online one. */
+  tokenPc = '';
   readonly tokenSet = signal(false);
   private pickingRow: number | null = null;
 
@@ -323,6 +337,13 @@ export class MePageComponent {
       untracked(() => { if (!this.dirty()) this.fill(s); });
     });
     effect(() => {
+      const online = this.devices().helpers.filter((h) => h.online);
+      const mine = this.state.me()?.helperKeyId;
+      untracked(() => {
+        if (!this.tokenPc || !online.some((h) => h.keyId === this.tokenPc)) this.tokenPc = online.find((h) => h.keyId === mine)?.keyId ?? online[0]?.keyId ?? '';
+      });
+    });
+    effect(() => {
       if (this.section() !== 'azure' || !this.state.paired()) return;
       untracked(() => this.api.myTokenLive().subscribe({ next: (live) => this.tokenSet.set(live), error: () => this.tokenSet.set(false) }));
     });
@@ -336,6 +357,7 @@ export class MePageComponent {
         this.pickingRow = null;
       }
     });
+    // a helper's heartbeat says whether it keeps a token: the devices list follows the keys signal
     const keys = this.state.events$.subscribe((e) => { if (e.what === 'keys') this.loadDevices(); });
     inject(DestroyRef).onDestroy(() => { sub.unsubscribe(); keys.unsubscribe(); });
   }
@@ -439,16 +461,27 @@ export class MePageComponent {
     });
   }
 
+  /** Into Alfred's memory now, and - unless "no PC" - onto the chosen PC, which keeps it and hands it over on every start. */
   setToken(): void {
     const token = this.azureToken.trim();
+    const pc = this.tokenPc;
     this.azureToken = '';
     this.api.putMyToken(token).subscribe({
-      next: () => { this.tokenSet.set(true); this.error.set(null); },
+      next: () => {
+        this.tokenSet.set(true);
+        this.error.set(null);
+        if (pc) this.api.pcToken(pc, token).subscribe({ error: () => this.error.set('Saved for now, but that PC could not be reached') });
+      },
       error: () => this.error.set('Alfred did not take the token - is a tracker connected (Team tab)?'),
     });
   }
 
-  clearToken(): void {
+  /** From one PC (it stops handing it over), or - with null - out of Alfred's memory now. */
+  clearToken(helperKeyId: string | null): void {
+    if (helperKeyId) {
+      this.api.pcToken(helperKeyId, '').subscribe({ error: () => this.error.set('Could not reach that PC') });
+      return;
+    }
     this.api.forgetMyToken().subscribe({ next: () => this.tokenSet.set(false), error: () => this.error.set('Could not forget the token') });
   }
 
