@@ -21,8 +21,18 @@ import { LIVE_TOOLS, Reporter, summaryOf, failureOf } from './alfred-live.mjs';
 export function chatTools() {
   return [...LIVE_TOOLS, 'chat_reply', 'chat_read', 'chat_summary', 'chat_watch', 'board_list', 'get_brief', 'board_closed_reasons',
     'search_logs', 'problem_calls', 'triage', 'compare_cycles', 'check_calls', 'get_cycle', 'board_fix', 'board_requirements',
-    'wait_for_calls', 'board_page_put', 'board_page_get', 'board_widget_put', 'board_snippet_view', 'board_lib', 'board_files', 'board_file'];
+    'wait_for_calls', 'board_page_put', 'board_page_get', 'board_widget_put', 'board_snippet_view', 'board_lib', 'board_files', 'board_file',
+    ...TEAM_TOOLS];
 }
+
+/**
+ * Every team_* tool (specs/027, 028, 030). Safe in a chat run: reads are live, every tracker write is a consent bundle the
+ * user approves, and board/start/link changes need askedIn. Missing, the chat could not even prepare a state change.
+ */
+export const TEAM_TOOLS = ['team_search', 'team_saved', 'team_query', 'team_item', 'team_items_live', 'team_tree', 'team_attachment',
+  'team_people', 'team_board_items', 'team_card_items', 'team_card_matches', 'team_incoming', 'team_watch_rules', 'team_watch_run',
+  'team_board_link', 'team_board_unlink', 'team_link_card', 'team_unlink_card', 'team_create_item', 'team_comment', 'team_move_state',
+  'team_set_field', 'team_bundle', 'team_redraft', 'team_propose_card', 'team_refresh_item', 'team_link', 'team_new_board', 'team_start'];
 
 /** The tools whose call answers a chat message. */
 export const CHAT_WRITES = /(^|__)chat_(reply|summary)$/;

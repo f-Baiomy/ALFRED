@@ -334,6 +334,13 @@ test('the chat Claude is taught to draw: the visuals guide, the design kit and t
   for (const tool of ['board_lib', 'board_snippet_view', 'board_page_get', 'board_files', 'board_file']) assert.ok(chatLane.chatTools().includes(tool), tool);
 });
 
+test('a chat run may use every team_* tool - without them it could not even prepare a state change bundle', () => {
+  const source = readFileSync(new URL('../src/tools/team.ts', import.meta.url), 'utf8');
+  const registered = [...new Set(source.match(/'team_[a-z_]+'/g)!.map((s) => s.slice(1, -1)))];
+  assert.ok(registered.length >= 29, `found ${registered.length}`);
+  for (const tool of registered) assert.ok(chatLane.chatTools().includes(tool), tool);
+});
+
 test('an http MCP server gets the user key on every call - without it the board lock refused every write as HELD (specs/032)', () => {
   const entry = { type: 'http', url: 'http://localhost:3000/mcp' };
   assert.deepEqual(live.withIdentity(entry, { ALFRED_KEY: 'ak_1', ALFRED_VIA: 'sess-1' }).headers, { 'X-Alfred-Key': 'ak_1', 'X-Alfred-Via': 'sess-1' });
