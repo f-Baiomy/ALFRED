@@ -26,7 +26,7 @@ import { homedir, hostname, platform } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
@@ -155,8 +155,8 @@ export function mcpNameFor(serverUrl, home = homedir()) {
 export function findClaude(env = process.env) {
   const onPath = spawnSync(WINDOWS ? 'where' : 'which', ['claude'], { encoding: 'utf8' });
   if (onPath.status === 0 && onPath.stdout.trim()) return 'claude';
-  const root = WINDOWS ? join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code') : null;
-  if (!root || !existsSync(root)) return null;
+  const root = claudeAppDataDirs(env).map((d) => join(d, 'claude-code')).find((d) => existsSync(d));
+  if (!root) return null;
   let best = null;
   const walk = (dir, depth) => {
     for (const n of readdirSync(dir)) {
@@ -254,8 +254,31 @@ export function installSkills(skills, root = join(homedir(), '.claude', 'skills'
   return lines;
 }
 
+/**
+ * Claude Desktop's own folder. From the Microsoft Store (MSIX) Desktop's %APPDATA% is redirected into its package -
+ * %LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude - and a process outside the package (the helper) must look
+ * there; the plain %APPDATA%\Claude is the installer build's. The package folder wins when it is there.
+ */
+export function claudeAppDataDirs(env = process.env) {
+  if (!WINDOWS) return [];
+  const out = [];
+  const packages = join(env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Packages');
+  try {
+    for (const n of readdirSync(packages)) {
+      if (!/^Claude_/i.test(n)) continue;
+      const d = join(packages, n, 'LocalCache', 'Roaming', 'Claude');
+      if (existsSync(d)) out.push(d);
+    }
+  } catch { /* no packages folder */ }
+  out.push(join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude'));
+  return out;
+}
+
 export function desktopSessionsRoot(env = process.env) {
-  if (WINDOWS) return join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code-sessions');
+  if (WINDOWS) {
+    const dirs = claudeAppDataDirs(env).map((d) => join(d, 'claude-code-sessions'));
+    return dirs.find((d) => existsSync(d)) ?? dirs.at(-1);
+  }
   if (MAC) return join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions');
   return null; // no Claude Desktop on Linux
 }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  Helper, boardWorktree, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
+  Helper, boardWorktree, claudeAppDataDirs, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
   slug, tokensToday, transcriptOf, writeDesktopRecord,
 } from '../alfred-helper.mjs';
 
@@ -248,4 +248,15 @@ test('a second Alfred on the same PC never rewrites the shared helper or skills,
   lan.api = { call: async () => { fetched = true; return {}; } };
   await lan.keepCurrent({ helper: 'ffffffffffffffff', skills: 'eeeeeeeeeeeeeeee', node: true });
   assert.equal(fetched, false);
+});
+
+test("Claude Desktop from the Microsoft Store keeps its sessions inside its package, and the helper looks there first", { skip: process.platform !== 'win32' }, () => {
+  const local = tmp();
+  const roaming = tmp();
+  const pkg = join(local, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude');
+  const env = { LOCALAPPDATA: local, APPDATA: roaming };
+  assert.equal(desktopSessionsRoot(env), join(roaming, 'Claude', 'claude-code-sessions'));
+  mkdirSync(join(pkg, 'claude-code-sessions'), { recursive: true });
+  assert.deepEqual(claudeAppDataDirs(env), [pkg, join(roaming, 'Claude')]);
+  assert.equal(desktopSessionsRoot(env), join(pkg, 'claude-code-sessions'));
 });

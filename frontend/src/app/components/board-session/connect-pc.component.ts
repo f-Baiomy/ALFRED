@@ -14,7 +14,7 @@ import { SessionsStateService } from '../../core/state/sessions-state.service';
   imports: [FormsModule],
   styles: [`
     :host { display: block; }
-    .steps { margin: .6rem 0; padding-left: 1.2rem; line-height: 1.6; }
+    .steps { margin: .5rem 0; padding-left: 1.2rem; line-height: 1.6; font-size: .88rem; }
     .wait { display: flex; gap: .6rem; align-items: center; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 6px;
       background: var(--card-inner); margin: .6rem 0; }
     .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent-blue, #5b8def);

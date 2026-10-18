@@ -1,6 +1,6 @@
 import { Injectable, Injector, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map, of, switchMap } from 'rxjs';
 import {
   AuditLine, BoardSessionRow, CommandKind, ConnectStart, Devices, HelperCommand, HelperRow, Holder, Me, MySettings, PendingMessage, UserLine,
 } from '../models/sessions.models';
@@ -35,6 +35,24 @@ export class SessionsApiService {
 
   collect(connectId: string, collectSecret: string): Observable<{ keyId: string; key: string; user: string; machine: string }> {
     return this.http.post<{ keyId: string; key: string; user: string; machine: string }>(`${this.base}/connect/collect`, { connectId, collectSecret });
+  }
+
+  /** This user's own Azure DevOps token, held in Alfred's memory for them only (never stored, never sent back). */
+  putMyToken(token: string): Observable<unknown> {
+    return this.http.put(`${this.config.backendUrl}/teamboards/me/token`, { token });
+  }
+
+  /** Whether a token is in use for this user on the first tracker connection (their own, else the shared one). */
+  myTokenLive(): Observable<boolean> {
+    return this.http.get<{ id: string }[]>(`${this.config.backendUrl}/teamboards/connections`).pipe(
+      switchMap((cs) => (cs.length
+        ? this.http.get<{ live: boolean }>(`${this.config.backendUrl}/teamboards/connections/${encodeURIComponent(cs[0].id)}/token`).pipe(map((t) => !!t.live))
+        : of(false))),
+    );
+  }
+
+  forgetMyToken(): Observable<unknown> {
+    return this.http.delete(`${this.config.backendUrl}/teamboards/me/token`);
   }
 
   devices(): Observable<Devices> {

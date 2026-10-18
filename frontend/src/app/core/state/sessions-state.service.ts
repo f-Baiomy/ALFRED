@@ -78,8 +78,12 @@ export class SessionsStateService {
   }
 
   loadMe(): void {
+    // the key this request is sent with: an answer to an older request (before pairing or connecting finished) must
+    // neither overwrite who this browser is now nor drop the key it has just been given
+    const sent = readKey();
     this.api.me().subscribe({
       next: (m) => {
+        if (readKey() !== sent) return;
         this.me.set(m);
         if (m.user) {
           this.loadHelpers();
@@ -89,7 +93,7 @@ export class SessionsStateService {
           saveKey(null); // the key was revoked or Alfred was reset: this browser is unpaired again
         }
       },
-      error: () => this.me.set(null),
+      error: () => { if (readKey() === sent) this.me.set(null); },
     });
   }
 

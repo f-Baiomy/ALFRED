@@ -22,10 +22,12 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
   standalone: true,
   imports: [FormsModule, RouterLink, DatePipe, DecimalPipe, ConnectPcComponent],
   styles: [`
-    .me { display: grid; grid-template-columns: 200px 1fr; gap: 1rem; padding: 1rem; max-width: 1200px; }
+    .me { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 1rem; padding: 1rem; max-width: 1200px; box-sizing: border-box; }
     .side { display: flex; flex-direction: column; gap: 2px; }
-    .side button { text-align: left; border: 0; background: none; color: var(--text-dim); padding: .45rem .6rem; border-radius: 6px; font: inherit; cursor: pointer; }
-    .side button.on, .side button:hover { background: var(--card-inner); color: var(--text); }
+    .side button { text-align: left; border: 0; border-left: 3px solid transparent; background: none; color: var(--text-dim); padding: .45rem .6rem;
+      border-radius: 0 6px 6px 0; font: inherit; cursor: pointer; white-space: nowrap; }
+    .side button:hover { color: var(--text); }
+    .side button.on { background: var(--card-inner); color: var(--text); border-left-color: var(--accent-blue, #5b8def); font-weight: 600; }
     .head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
     .head h1 { margin: 0; font-size: 1.2rem; }
     .tag { display: inline-block; padding: .05rem .5rem; border-radius: 999px; background: var(--card-inner); font-size: .75rem; color: var(--text-dim); }
@@ -34,7 +36,17 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
     .card h2 { margin: 0 0 .5rem; font-size: 1rem; }
     .muted { color: var(--text-dim); font-size: .85rem; }
     table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-    th, td { text-align: left; padding: .4rem .45rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    td .action-btn { white-space: nowrap; }
+    .places select { min-width: 9rem; }
+    .places td.folder { min-width: 18rem; }
+    .folder-row { display: flex; gap: .4rem; align-items: center; }
+    .folder-row input { flex: 1; min-width: 0; }
+    .check { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; cursor: pointer; }
+    .add { margin-top: .6rem; }
+    .dirty { color: #d29922; font-size: .8rem; }
+    .nowrap { white-space: nowrap; }
+    main { min-width: 0; }
     th { color: var(--text-dim); font-weight: 500; font-size: .78rem; }
     input[type=text], input[type=number], select { box-sizing: border-box; padding: .35rem .45rem; border: 1px solid var(--border); border-radius: 6px;
       background: var(--card-inner); color: var(--text); font: inherit; font-size: .85rem; }
@@ -44,7 +56,13 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
     code { background: var(--card-inner); padding: 0 .3rem; border-radius: 4px; font-size: .8rem; word-break: break-all; }
     .scroll { overflow-x: auto; }
     .row { display: flex; gap: .4rem; flex-wrap: wrap; }
-    @media (max-width: 760px) { .me { grid-template-columns: 1fr; } .side { flex-direction: row; overflow-x: auto; } .kv { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+      .me { grid-template-columns: 1fr; padding: .75rem 16px; }
+      .side { flex-direction: row; overflow-x: auto; }
+      .side button { border-left: 0; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; }
+      .side button.on { border-bottom-color: var(--accent-blue, #5b8def); }
+      .kv { grid-template-columns: 1fr; }
+    }
   `],
   template: `
     <div class="me">
@@ -57,7 +75,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
         <div class="head">
           <h1>👤 My settings</h1>
           @if (state.user(); as u) { <span class="muted">{{ u }}</span> <span class="tag">🔒 only you see this</span> }
-          @if (dirty()) { <button type="button" class="action-btn primary" (click)="save()">Save</button> }
+          @if (dirty()) { <span class="dirty">unsaved changes</span> <button type="button" class="action-btn primary" (click)="save()">Save</button> }
           @if (saved()) { <span class="tag ok">✓ saved</span> }
           @if (error()) { <span class="tag bad">{{ error() }}</span> }
         </div>
@@ -78,10 +96,10 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                   <tr><th>PC</th><th>State</th><th>Claude</th><th>Desktop</th><th>MCP</th><th>Helper</th><th></th></tr>
                   @for (h of devices().helpers; track h.keyId) {
                     <tr>
-                      <td><b>{{ h.machine }}</b>@if (h.keyId === state.me()?.helperKeyId) { <span class="tag">this browser's</span> }<br><span class="muted">{{ h.ip }}</span></td>
-                      <td>@if (h.online) { <span class="tag ok">● online</span> } @else { <span class="tag">○ last seen {{ h.lastSeen | date:'short' }}</span> }</td>
+                      <td class="nowrap"><b>{{ h.machine }}</b>@if (h.keyId === state.me()?.helperKeyId) { <br><span class="tag">this browser's PC</span> }</td>
+                      <td class="nowrap">@if (h.online) { <span class="tag ok">● online</span> } @else { <span class="tag">○ last seen {{ h.lastSeen | date:'short' }}</span> }</td>
                       <td>{{ info(h).claudeAccount || h.claudeAccount || '-' }}</td>
-                      <td>{{ info(h).desktop ? 'found' : '-' }}</td>
+                      <td>{{ info(h).desktop ? '✓ found' : 'not found' }}</td>
                       <td>{{ info(h).mcp || '-' }}</td>
                       <td>{{ info(h).version || '-' }}</td>
                       <td><button type="button" class="action-btn" (click)="revoke(h.keyId)">Revoke</button></td>
@@ -91,8 +109,13 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                 <p class="muted">A revoked helper stops working at once; its browsers are unpaired with it.</p>
               </div>
               <div class="card">
+                <h2>Connect another PC, or repair this one</h2>
+                <p class="muted">Run the connect file on the PC it is for. Running it again on a connected PC repairs it and keeps its browsers and sessions.</p>
+                <app-connect-pc />
+              </div>
+              <div class="card">
                 <h2>Your browsers</h2>
-                <table>
+                <div class="scroll"><table>
                   <tr><th>Browser</th><th>Paired</th><th>Last seen</th><th></th></tr>
                   @for (b of devices().browsers; track b.keyId) {
                     <tr><td>{{ b.label || 'Browser' }}@if (b.thisOne) { <span class="tag">this one</span> }</td><td>{{ b.pairedAt | date:'short' }}</td>
@@ -100,31 +123,35 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                       <td>@if (b.thisOne) { <button type="button" class="action-btn" (click)="state.unpair()">Unpair</button> }
                         @else { <button type="button" class="action-btn" (click)="revoke(b.keyId)">Revoke</button> }</td></tr>
                   }
-                </table>
+                </table></div>
               </div>
             }
             @case ('projects') {
               <div class="card">
                 <h2>Projects and folders <span class="muted">- per PC, because paths differ per PC</span></h2>
-                <div class="scroll"><table>
+                <div class="scroll"><table class="places">
                   <tr><th>Project</th><th>PC</th><th>Repo folder</th><th>Open sessions in</th><th>Board worktrees</th><th></th></tr>
                   @for (p of places(); track $index) {
                     <tr>
-                      <td><select [ngModel]="p.project" (ngModelChange)="setPlace($index, { project: $event })">
-                        @for (o of projects(); track o) { <option [value]="o">{{ o }}</option> }</select></td>
-                      <td><select [ngModel]="p.machine" (ngModelChange)="setPlace($index, { machine: $event })">
-                        @for (h of devices().helpers; track h.keyId) { <option [value]="h.machine">{{ h.machine }}</option> }</select></td>
-                      <td><input type="text" class="wide" [ngModel]="p.folder" (ngModelChange)="setPlace($index, { folder: $event })" placeholder="C:\\work\\odeysys">
-                        <button type="button" class="action-btn" (click)="pickFolder($index)" [disabled]="!helperOf(p.machine)?.online">Pick folder…</button></td>
-                      <td><select [ngModel]="p.openIn" (ngModelChange)="setPlace($index, { openIn: $event })">
+                      <td><select [ngModel]="p.project" (ngModelChange)="setPlace($index, { project: $event })" aria-label="Project">
+                        @for (o of projectChoices(p.project); track o) { <option [value]="o">{{ o }}</option> }</select></td>
+                      <td><select [ngModel]="p.machine" (ngModelChange)="setPlace($index, { machine: $event })" aria-label="PC">
+                        @for (m of machineChoices(p.machine); track m) { <option [value]="m">{{ m || 'Any PC' }}</option> }</select></td>
+                      <td class="folder"><div class="folder-row">
+                        <input type="text" [ngModel]="p.folder" (ngModelChange)="setPlace($index, { folder: $event })" placeholder="C:\\work\\odeysys" aria-label="Repo folder">
+                        <button type="button" class="action-btn" (click)="pickFolder($index)" [disabled]="!pickerFor(p.machine)"
+                          [title]="pickerTitle(p.machine)">Pick…</button></div></td>
+                      <td><select [ngModel]="p.openIn" (ngModelChange)="setPlace($index, { openIn: $event })" aria-label="Open sessions in">
                         <option value="DESKTOP">Claude Desktop</option><option value="TERMINAL">Terminal</option><option value="BOTH">Both</option>
                         <option value="BACKGROUND">Background only</option></select></td>
-                      <td><label><input type="checkbox" [ngModel]="p.worktrees" (ngModelChange)="setPlace($index, { worktrees: $event })"> one per board</label></td>
+                      <td><label class="check"><input type="checkbox" [ngModel]="p.worktrees" (ngModelChange)="setPlace($index, { worktrees: $event })"> one per board</label></td>
                       <td><button type="button" class="action-btn" (click)="removePlace($index)">Remove</button></td>
                     </tr>
+                  } @empty {
+                    <tr><td colspan="6" class="muted">None yet - the first ▶ alfred-live of a project asks for its folder on your PC and keeps it here.</td></tr>
                   }
                 </table></div>
-                <button type="button" class="action-btn" (click)="addPlace()">＋ Add a project folder</button>
+                <button type="button" class="action-btn add" (click)="addPlace()">＋ Add a project folder</button>
                 <p class="muted">Pick folder opens a folder picker on that PC through its helper - Alfred never browses your PC. Claude Desktop shows a new
                   session after it restarts, and asks you once to trust each folder.</p>
               </div>
@@ -155,11 +182,17 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                 <h2>Azure DevOps</h2>
                 <div class="kv">
                   <span>Your token</span><span>
-                    @if (azureOnSomePc()) { <span class="tag ok">✓ kept on {{ azureOnSomePc() }}</span> } @else { <span class="tag warn">not set</span> }</span>
-                  <span>Where it is kept</span><span>On your PC only, encrypted for your Windows user. Never on Alfred's disk. Alfred holds it in memory while your
-                    helper is online, for <b>your</b> searches and writes only - another user never reads with it.</span>
-                  <span>Set or replace</span><span>On your PC: <code>alfred helper token set</code> (paste it; it is never shown or logged) ·
-                    <code>alfred helper token clear</code> removes it.</span>
+                    @if (tokenSet()) { <span class="tag ok">✓ in use - for your searches only</span> }
+                    @else if (azureOnSomePc()) { <span class="tag ok">✓ kept on {{ azureOnSomePc() }}</span> }
+                    @else { <span class="tag warn">not set</span> }</span>
+                  <span>Set or replace</span><span class="folder-row">
+                    <input type="password" [(ngModel)]="azureToken" placeholder="Paste your Azure DevOps personal access token" autocomplete="off" aria-label="Azure DevOps token">
+                    <button type="button" class="action-btn primary" [disabled]="!azureToken.trim()" (click)="setToken()">Use it</button>
+                    <button type="button" class="action-btn" (click)="clearToken()">Forget</button></span>
+                  <span>Where it is kept</span><span class="muted">In Alfred's memory only, for <b>your</b> searches and writes - another user never reads
+                    with it, and it is never on Alfred's disk, in a log or sent back to a browser. It lasts 8 hours or until Alfred restarts.
+                    To keep it on your PC instead (encrypted for your Windows user, handed over whenever your helper starts), run
+                    <code>alfred helper token set</code> there once.</span>
                 </div>
               </div>
             }
@@ -259,6 +292,8 @@ export class MePageComponent {
   notifyDrafts = true;
   notifyFindings = true;
   notifyRequests = true;
+  azureToken = '';
+  readonly tokenSet = signal(false);
   private pickingRow: number | null = null;
 
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => ps.map((p) => p.project)), catchError(() => of([] as string[]))),
@@ -288,6 +323,10 @@ export class MePageComponent {
       untracked(() => { if (!this.dirty()) this.fill(s); });
     });
     effect(() => {
+      if (this.section() !== 'azure' || !this.state.paired()) return;
+      untracked(() => this.api.myTokenLive().subscribe({ next: (live) => this.tokenSet.set(live), error: () => this.tokenSet.set(false) }));
+    });
+    effect(() => {
       if (this.section() !== 'users' || !this.state.me()?.admin) return;
       untracked(() => this.api.users().subscribe({ next: (u) => this.users.set(u), error: () => this.users.set([]) }));
     });
@@ -307,6 +346,28 @@ export class MePageComponent {
 
   helperOf(machine: string): HelperRow | undefined {
     return this.devices().helpers.find((h) => h.machine === machine);
+  }
+
+  /** The PCs a row may name: "Any PC", each of this user's PCs, and the row's own value even when that PC is gone. */
+  machineChoices(current: string | undefined): string[] {
+    const all = ['', ...this.devices().helpers.map((h) => h.machine)];
+    return [...new Set(current && !all.includes(current) ? [...all, current] : all)];
+  }
+
+  projectChoices(current: string): string[] {
+    const all = this.projects();
+    return current && !all.includes(current) ? [current, ...all] : all;
+  }
+
+  /** The online PC a folder picker opens on: the row's PC, or for "Any PC" this browser's own. */
+  pickerFor(machine: string | undefined): HelperRow | null {
+    const h = machine ? this.helperOf(machine) : this.state.targetHelper() ?? undefined;
+    return h?.online ? h : null;
+  }
+
+  pickerTitle(machine: string | undefined): string {
+    const h = this.pickerFor(machine);
+    return h ? `Opens a folder picker on ${h.machine}` : 'That PC is not online';
   }
 
   private loadDevices(): void {
@@ -353,7 +414,7 @@ export class MePageComponent {
   }
 
   pickFolder(i: number): void {
-    const h = this.helperOf(this.places()[i].machine);
+    const h = this.pickerFor(this.places()[i].machine);
     if (!h) return;
     this.pickingRow = i;
     this.state.send('PICK_FOLDER', { helperKeyId: h.keyId }).subscribe();
@@ -376,6 +437,19 @@ export class MePageComponent {
       this.saved.set(true);
       this.fill(v);
     });
+  }
+
+  setToken(): void {
+    const token = this.azureToken.trim();
+    this.azureToken = '';
+    this.api.putMyToken(token).subscribe({
+      next: () => { this.tokenSet.set(true); this.error.set(null); },
+      error: () => this.error.set('Alfred did not take the token - is a tracker connected (Team tab)?'),
+    });
+  }
+
+  clearToken(): void {
+    this.api.forgetMyToken().subscribe({ next: () => this.tokenSet.set(false), error: () => this.error.set('Could not forget the token') });
   }
 
   release(boardId: string): void {
