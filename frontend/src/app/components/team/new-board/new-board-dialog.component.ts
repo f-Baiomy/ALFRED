@@ -42,6 +42,13 @@ type FirstCycle = 'NEW' | 'RECORD' | 'NONE';
             <h4>New board from {{ ref() }}</h4>
             <div class="tnb-dim tnb-title">{{ title() }}</div>
           </div>
+          @if (itsBoard(); as b) {
+            <!-- the item has its board already: say so first, or the dialog looks stuck behind a disabled Create -->
+            <div class="tnb-have">
+              <span>{{ ref() }} already has a board: <b>{{ b.board.name }}</b>. Open it, or make another one with a different name.</span>
+              <button type="button" class="action-btn primary" (click)="openBoard(b.board.project, b.board.id)">Open board</button>
+            </div>
+          }
           <label>Board name
             <input #nameInput type="text" name="name" [(ngModel)]="name" [maxlength]="max" required (ngModelChange)="nameEdited()" (keydown.enter)="$event.preventDefault(); create()" />
             <span class="tnb-count">{{ name.length }} / {{ max }}</span>
@@ -85,7 +92,8 @@ type FirstCycle = 'NEW' | 'RECORD' | 'NONE';
             <span class="tnb-dim">Nothing is written to the tracker.</span>
             <button type="button" class="action-btn" (click)="dlg.close()">Cancel</button>
             <!-- a click, not a submit: a drawer around it may cancel the click's default, and then no submit is ever sent -->
-            <button type="button" class="action-btn primary tnb-create" [disabled]="busy() || !project || !name.trim() || !!taken()" (click)="create()">Create board</button>
+            <button type="button" class="action-btn tnb-create" [class.primary]="!itsBoard()" [disabled]="busy() || !project || !name.trim() || !!taken()"
+                    [title]="taken() ? 'A board is already called that - change the name' : ''" (click)="create()">{{ busy() ? 'Creating…' : 'Create board' }}</button>
           </div>
         </form>
       }
@@ -117,6 +125,8 @@ type FirstCycle = 'NEW' | 'RECORD' | 'NONE';
     .tnb-warn { color: var(--amber); font-size: .78rem; margin: 0; }
     .tnb-warn a { color: var(--blue, #60a5fa); }
     .tnb-done { margin: 0; font-size: .86rem; }
+    .tnb-have { display: flex; gap: .6rem; align-items: center; justify-content: space-between; padding: .5rem .6rem; border-radius: 7px;
+      border: 1px solid var(--blue, #60a5fa); background: rgba(96,165,250,.08); font-size: .8rem; }
     .tnb-actions { display: flex; gap: .4rem; align-items: center; justify-content: flex-end; }
     .tnb-actions .tnb-dim { margin-right: auto; font-size: .74rem; }
   `],
@@ -154,6 +164,8 @@ export class TeamNewBoardDialogComponent implements AfterViewInit {
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly made = signal<NewBoardResult | null>(null);
+  /** The board the tracker mapping says this item already has. */
+  private readonly targetBoard = signal<string | null>(null);
   /** Bumped on every name edit so `taken` re-reads the plain field. */
   private readonly edits = signal(0);
 
@@ -165,6 +177,12 @@ export class TeamNewBoardDialogComponent implements AfterViewInit {
   attachments = false;
 
   readonly ref = computed(() => `AB#${this.extId()}`);
+  /** The open board this item is already the main item of (by the mapping, or by a board's linked item). */
+  readonly itsBoard = computed(() => {
+    const id = this.targetBoard();
+    const linked = `${this.conn()}/${this.extId()}`;
+    return this.boards().find((b) => !b.board.isDefault && (b.board.id === id || b.linkedItem === linked)) ?? null;
+  });
   readonly taken = computed(() => {
     this.edits();
     const n = this.name.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -179,6 +197,7 @@ export class TeamNewBoardDialogComponent implements AfterViewInit {
       this.dlg()?.nativeElement.showModal?.();
       this.api.itemTarget(this.conn(), this.extId()).subscribe({
         next: (t) => {
+          if (t?.boardId) this.targetBoard.set(t.boardId);
           if (t?.project) {
             this.mapped.set(true);
             this.remember = false;
@@ -203,7 +222,11 @@ export class TeamNewBoardDialogComponent implements AfterViewInit {
 
   loadBoards(project: string): void {
     this.boardApi.boards(project, ['OPEN']).subscribe({
-      next: (b) => { this.boards.set(b); this.edits.update((v) => v + 1); },
+      next: (b) => {
+        this.boards.set(b);
+        this.edits.update((v) => v + 1);
+        if (this.itsBoard()) this.main = false; // it is the main item of its board already
+      },
       error: () => this.boards.set([]),
     });
   }

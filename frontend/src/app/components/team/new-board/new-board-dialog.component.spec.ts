@@ -12,14 +12,14 @@ import { TeamNewBoardDialogComponent } from './new-board-dialog.component';
 const TITLE = 'Q4-INTE-CORE-015 Baggage Bundle Choice Display & Ancillary Clarification "Air Arabia"';
 
 describe('TeamNewBoardDialogComponent (specs/029)', () => {
-  function setUp(target: unknown = null, existing: string[] = []) {
+  function setUp(target: unknown = null, existing: string[] = [], linkedItem: string | null = null) {
     const api = {
       itemTarget: jasmine.createSpy('itemTarget').and.returnValue(of(target)),
       newBoardFromItem: jasmine.createSpy('newBoardFromItem'),
     };
     const boards = {
-      boards: jasmine.createSpy('boards').and.returnValue(of(existing.map((name, i) => ({ board: { id: 'b' + i, name, isDefault: false }, cards: 0,
-        cycleIds: [], boardIds: [], linkedItem: null })))),
+      boards: jasmine.createSpy('boards').and.returnValue(of(existing.map((name, i) => ({ board: { id: 'b' + i, name, project: 'odeysys', isDefault: false }, cards: 0,
+        cycleIds: [], boardIds: [], linkedItem })))),
     };
     TestBed.configureTestingModule({
       imports: [TeamNewBoardDialogComponent],
@@ -95,5 +95,19 @@ describe('TeamNewBoardDialogComponent (specs/029)', () => {
     c.create();
     f.detectChanges();
     expect(el.textContent).toContain('Alfred has no project odeysys');
+  });
+
+  it('says first when the item already has its board, with Open board, and does not make it main twice', async () => {
+    const { f, el } = setUp(null, ['#59851_' + TITLE], 'c1/59851');
+    await f.whenStable();
+    f.detectChanges();
+    const c = f.componentInstance;
+    expect(c.itsBoard()?.board.id).toBe('b0');
+    expect(el.querySelector('.tnb-have')?.textContent).toContain('AB#59851 already has a board');
+    expect(c.main).toBeFalse();
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate').and.resolveTo(true);
+    (el.querySelector('.tnb-have button') as HTMLButtonElement).click();
+    expect(router.navigate).toHaveBeenCalledWith(['/board'], { queryParams: { project: 'odeysys', board: 'b0' } });
   });
 });
