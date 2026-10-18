@@ -21,12 +21,12 @@
 // writes into the session itself only for its first turn and for a sync the user asks for while it is not open.
 import * as childProcess from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir, hostname, platform } from 'node:os';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir, hostname, platform, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 
 // The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
 // reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
@@ -416,16 +416,33 @@ function openTerminal(cwd, cliSessionId, claude = 'claude') {
   }
 }
 
-function pickFolder() {
+/**
+ * The folder window on this PC. Windows: Shell.Application's "Browse For Folder" run by wscript.exe - a windowed program,
+ * so no console comes with it (PowerShell's dialog brought a big empty PowerShell window along). The answer comes back
+ * through a file in a temp folder, which is removed. Null when the user cancels.
+ */
+export function pickFolder(title = 'Pick the repo folder for Alfred board sessions', run = (cmd, args, o) => spawnSync(cmd, args, o)) {
   if (WINDOWS) {
-    const r = spawnSync('powershell.exe', ['-NoProfile', '-STA', '-Command',
-      'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; '
-      + '$d.Description = "Repo folder for Alfred board sessions"; if ($d.ShowDialog() -eq "OK") { $d.SelectedPath }'], { encoding: 'utf8', timeout: 600_000, windowsHide: false });
-    return r.stdout.trim() || null;
+    const dir = mkdtempSync(join(tmpdir(), 'alfred-pick-'));
+    try {
+      const out = join(dir, 'picked.txt');
+      const script = join(dir, 'pick.js');
+      writeFileSync(script, [
+        `var f = new ActiveXObject("Shell.Application").BrowseForFolder(0, ${JSON.stringify(title)}, 0x51, 0);`,
+        'var fso = new ActiveXObject("Scripting.FileSystemObject");',
+        `var t = fso.CreateTextFile(${JSON.stringify(out)}, true, true);`,
+        't.Write(f ? f.Self.Path : ""); t.Close();',
+      ].join('\r\n'));
+      run('wscript.exe', ['//nologo', '//E:jscript', script], { timeout: 600_000, windowsHide: false });
+      const picked = existsSync(out) ? readFileSync(out, 'utf16le').replace(/^﻿/, '').trim() : '';
+      return /^[A-Za-z]:\\|^\\\\/.test(picked) ? picked : null; // a real folder, not "This PC" or a library
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
   const r = MAC
-    ? spawnSync('osascript', ['-e', 'POSIX path of (choose folder with prompt "Repo folder for Alfred board sessions")'], { encoding: 'utf8', timeout: 600_000 })
-    : spawnSync('zenity', ['--file-selection', '--directory'], { encoding: 'utf8', timeout: 600_000 });
+    ? run('osascript', ['-e', `POSIX path of (choose folder with prompt ${JSON.stringify(title)})`], { encoding: 'utf8', timeout: 600_000 })
+    : run('zenity', ['--file-selection', '--directory', `--title=${title}`], { encoding: 'utf8', timeout: 600_000 });
   return r.status === 0 ? r.stdout.trim().replace(/\/$/, '') || null : null;
 }
 
@@ -740,7 +757,7 @@ export class Helper {
         return 'Claude Desktop restarted - every session Alfred added is in its sidebar now.';
       }
       case 'PICK_FOLDER': {
-        const folder = pickFolder();
+        const folder = this.pickFolder(c.project ? `Pick the repo folder of ${c.project} - Alfred starts its Claude sessions there` : undefined);
         if (!folder) throw new Error('No folder picked');
         return folder;
       }
@@ -828,7 +845,7 @@ export class Helper {
   /** The first ▶ for a project on this PC: the folder picker opens here, and the answer is kept in My settings. */
   async askFolder(project, settings) {
     this.notify('Alfred', `Pick the repo folder for ${project} on ${this.machine}`);
-    const folder = this.pickFolder();
+    const folder = this.pickFolder(`Pick the repo folder of ${project} - Alfred starts its Claude sessions there`);
     if (!folder) throw new Error(`NO_FOLDER: no repo folder for ${project} on ${this.machine} - pick one, or set it in 👤 Me`);
     const projects = [...(settings?.projects ?? []), { project, machine: this.machine, folder, openIn: 'DESKTOP', worktrees: true }];
     await this.api.call('PUT', '/board/me/settings', { body: { ...(settings ?? {}), projects } });

@@ -45,14 +45,21 @@ describe('BoardSessionButtonComponent (specs/031)', () => {
     expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ boardId: 'b1', project: 'odeysys' }));
   });
 
-  it('starts at once when the project has no folder on this PC yet - the PC asks for it there', () => {
+  it('asks where the project is - and why - before starting on a PC that has no folder for it', () => {
     const send = spyOn(state, 'send').and.returnValue(of({ id: 'c1' } as HelperCommand));
     state.settings.set({});
     const f = render();
     (f.nativeElement.querySelector('.main') as HTMLButtonElement).click();
     f.detectChanges();
-    expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ project: 'odeysys' }));
-    expect(f.nativeElement.textContent).toContain("Pick odeysys's repo folder in the window that opens on WORK-PC");
+    expect(send).not.toHaveBeenCalled();
+    expect(f.nativeElement.textContent).toContain("Where is odeysys's code on WORK-PC?");
+    expect(f.nativeElement.textContent).toContain('so Claude can read the code');
+
+    const browse = [...f.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent?.includes('Browse')) as HTMLButtonElement;
+    browse.click();
+    f.detectChanges();
+    expect(send).toHaveBeenCalledWith('PICK_FOLDER', jasmine.objectContaining({ project: 'odeysys' }));
+    expect(f.nativeElement.textContent).toContain('Look for it on the taskbar');
   });
 
   it('shows the attached session while it answers', () => {

@@ -286,3 +286,19 @@ test('every tool the helper starts goes through the hidden wrappers - no console
   const shown = src.split('\n').filter((l) => l.includes(', windowsHide: false'));
   assert.equal(shown.length, 3, shown.join('\n')); // the folder picker and the two ways to open a terminal
 });
+
+test('the Windows folder window comes from wscript (no console), says which project, and returns only a real folder', { skip: process.platform !== 'win32' }, async () => {
+  const { pickFolder } = await import('../alfred-helper.mjs');
+  let seen;
+  const answer = (path) => (cmd, args) => {
+    seen = { cmd, script: readFileSync(args.at(-1), 'utf8') };
+    const out = JSON.parse(seen.script.match(/CreateTextFile\(("(?:[^"\\]|\\.)*")/)[1]);
+    writeFileSync(out, `\uFEFF${path}`, 'utf16le');
+    return { status: 0 };
+  };
+  assert.equal(pickFolder('Pick the repo folder of odeysys', answer('C:\\work\\odeysys')), 'C:\\work\\odeysys');
+  assert.equal(seen.cmd, 'wscript.exe');
+  assert.match(seen.script, /BrowseForFolder\(0, "Pick the repo folder of odeysys"/);
+  assert.equal(pickFolder('x', answer('')), null); // cancelled
+  assert.equal(pickFolder('x', answer('::{20D04FE0-3AEA-1069-A2D8-08002B30309D}')), null); // "This PC"
+});

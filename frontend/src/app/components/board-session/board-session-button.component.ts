@@ -28,7 +28,7 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
     .bsb .caret { border-left: 1px solid var(--border); padding: .35rem .5rem; }
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--text-dim); }
     .dot.ok { background: #3fb950; } .dot.warn { background: #d29922; } .dot.bad { background: #f85149; }
-    .menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; width: 330px; background: var(--card); border: 1px solid var(--border);
+    .menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; width: 330px; background: var(--popover-solid, var(--card)); border: 1px solid var(--border);
       border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
     .menu .head { padding: .55rem .75rem; border-bottom: 1px solid var(--border); font-size: .85rem; }
     .menu .head small, .muted { color: var(--text-dim); }
@@ -36,13 +36,15 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
     .menu button:hover { background: var(--card-inner); }
     .menu hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
     .danger { color: #f85149 !important; }
-    .shade { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
-    .dlg { width: 540px; max-width: 100%; max-height: 90vh; overflow: auto; background: var(--card); color: var(--text); border: 1px solid var(--border);
+    .shade { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .dlg { width: 540px; max-width: 100%; max-height: 90vh; overflow: auto; background: var(--popover-solid, var(--card)); color: var(--text); border: 1px solid var(--border);
       border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
     .dlg h3 { margin: 0; padding: .9rem 1rem .25rem; font-size: 1rem; }
     .dlg .sub { padding: 0 1rem .6rem; color: var(--text-dim); font-size: .88rem; }
     .dlg .sec { padding: .6rem 1rem; border-top: 1px solid var(--border); font-size: .88rem; }
     .dlg .foot { padding: .7rem 1rem; border-top: 1px solid var(--border); display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+    .dlg .row { display: flex; gap: .4rem; align-items: center; margin: .35rem 0 .25rem; }
+    .dlg small { display: block; font-size: .78rem; }
     .opt { display: flex; gap: .6rem; padding: .35rem 0; align-items: flex-start; cursor: pointer; }
     .opt input[type=radio] { margin-top: .25rem; }
     .opt b { display: block; }
@@ -207,13 +209,21 @@ type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'folde
       }
       @case ('folder') {
         <div class="shade"><div class="dlg">
-          <h3>Where is {{ project() }} on {{ target()?.machine ?? 'this PC' }}?</h3>
-          <div class="sub">Sessions start in the project's repo folder on your PC; each board gets its own worktree there.</div>
-          <div class="sec">Repo folder<input type="text" [(ngModel)]="folder" placeholder="C:\\work\\odeysys">
-            <button type="button" class="action-btn" style="margin-top:.4rem" (click)="pickFolder()">Pick folder on {{ target()?.machine ?? 'this PC' }}…</button></div>
-          <div class="sec">Open sessions in
-            <select [(ngModel)]="openIn"><option value="DESKTOP">Claude Desktop</option><option value="TERMINAL">Terminal</option>
-              <option value="BOTH">Both</option><option value="BACKGROUND">Background only</option></select></div>
+          <h3>Where is {{ project() }}'s code on {{ target()?.machine ?? 'this PC' }}?</h3>
+          <div class="sub">▶ alfred-live starts a Claude Code session on your PC, inside {{ project() }}'s repo - so Claude can read the code
+            (and fix it when you ask). Alfred needs that folder once for this PC; it is kept in 👤 Me ▸ Projects and folders.
+            Each board gets its own git worktree inside it, so boards never mix their changes.</div>
+          <div class="sec">Repo folder
+            <div class="row"><input type="text" [(ngModel)]="folder" placeholder="C:\\work\\odeysys" style="flex:1">
+              <button type="button" class="action-btn" [disabled]="picking()" (click)="pickFolder()">Browse…</button></div>
+            @if (picking()) {
+              <small class="muted">A "Browse For Folder" window opened on {{ target()?.machine ?? 'your PC' }}. Not in front? Look for it on the taskbar.</small>
+            } @else {
+              <small class="muted">Browse opens a folder window on {{ target()?.machine ?? 'your PC' }} - Alfred itself never looks at your files.</small>
+            }</div>
+          <div class="sec">Show the session in
+            <select [(ngModel)]="openIn"><option value="DESKTOP">Claude Desktop</option><option value="TERMINAL">a terminal</option>
+              <option value="BOTH">both</option><option value="BACKGROUND">nowhere - it answers the board in the background</option></select></div>
           <div class="foot"><button type="button" class="action-btn" (click)="dialog.set(null)">Cancel</button>
             <button type="button" class="action-btn primary" [disabled]="!folder.trim()" (click)="saveFolderAndStart()">Save and start</button></div>
         </div></div>
@@ -281,6 +291,8 @@ export class BoardSessionButtonComponent {
   folder = '';
   openIn: ProjectPlace['openIn'] = 'DESKTOP';
   private laterFor: string | null = null;
+  /** The folder window is open on the user's PC. */
+  readonly picking = signal(false);
   /** ▶ was pressed before this PC was connected; it continues once it is. */
   private startWaiting = false;
 
@@ -377,8 +389,13 @@ export class BoardSessionButtonComponent {
     if (!this.paired()) { this.startWaiting = true; this.dialog.set('pair'); return; }
     if (!this.target()) { this.startWaiting = true; this.dialog.set('helper'); return; }
     this.startWaiting = false;
-    // no folder for this project on that PC yet: the helper opens a folder picker there and keeps the answer
-    if (!this.placeHere()) this.notice.set(`Pick ${this.project()}'s repo folder in the window that opens on ${this.target()!.machine}`);
+    // no folder for this project on that PC yet: ask here first, saying why - never a folder window out of nowhere
+    if (!this.placeHere()) {
+      this.folder = '';
+      this.picking.set(false);
+      this.dialog.set('folder');
+      return;
+    }
     this.state.send('START', { boardId: this.boardId(), project: this.project(), args: { title: this.title() ?? this.boardId(), boardRef: this.boardId() } })
       .subscribe((c) => { if (!c) this.notice.set('Could not send it to your PC'); });
   }
@@ -507,7 +524,10 @@ export class BoardSessionButtonComponent {
   }
 
   pickFolder(): void {
-    this.state.send('PICK_FOLDER', { project: this.project() }).subscribe();
+    this.picking.set(true);
+    this.state.send('PICK_FOLDER', { project: this.project() }).subscribe((c) => {
+      if (!c) { this.picking.set(false); this.notice.set('Could not reach your PC'); }
+    });
   }
 
   saveFolderAndStart(): void {
@@ -536,6 +556,7 @@ export class BoardSessionButtonComponent {
   private onFinished(c: HelperCommand): void {
     const r = c.result ?? '';
     if (c.kind === 'PICK_FOLDER') {
+      this.picking.set(false);
       if (c.state === 'DONE' && r) this.folder = r;
       return;
     }
