@@ -492,15 +492,21 @@ export const modelFor = (settings, job) => settings?.models?.[job] || settings?.
 // --------------------------------------------------------------------------------------------------------- the helper
 
 export class Helper {
-  constructor({ server, api, machine, mcp, skillsDir, claude = 'claude' }) {
+  constructor({ server, api, machine, mcp, skillsDir, claude = 'claude', primary, desktop, notify: toast }) {
     this.server = server;
+    // the PC's first-connected Alfred: the one whose skills and helper version this PC follows (several Alfreds may be
+    // connected at once, each with its own helper process - only one may rewrite the shared files)
+    this.primary = primary ?? (readConfig().default ?? server) === server;
     this.api = api;
     this.machine = machine;
     this.mcp = mcp;
     this.skillsDir = skillsDir;
     this.claude = claude;
     this.sessions = new Map(); // cliSessionId → { boardId, project, cwd, title, runner: bool }
-    this.pickFolder = pickFolder; // a dialog on this PC; tests replace it
+    // what reaches the user's screen - a folder dialog, Claude Desktop, a terminal, a toast; tests replace them all
+    this.pickFolder = pickFolder;
+    this.desktop = desktop ?? { record: writeDesktopRecord, open: openUrl, terminal: openTerminal, restart: restartDesktop };
+    this.notify = toast ?? notify;
     this.stopped = false;
   }
 
@@ -528,7 +534,7 @@ export class Helper {
         if (!s.runner) continue;
         this.stopRunner(id);
         await this.report(id, { state: 'WAITING_BUDGET', tokensToday: tokensToday(transcriptOf(id)) }).catch(() => {});
-        notify('Alfred', `Daily budget reached (${used.toLocaleString()} of ${budget.toLocaleString()} tokens) - ${s.title ?? s.boardId} waits`);
+        this.notify('Alfred', `Daily budget reached (${used.toLocaleString()} of ${budget.toLocaleString()} tokens) - ${s.title ?? s.boardId} waits`);
       }
     }
     // where each of our sessions runs now: open in Desktop/a terminal means that session answers itself
@@ -553,14 +559,16 @@ export class Helper {
     if (!versions) return;
     const config = readConfig();
     const entry = config.servers?.[this.server];
-    if (versions.skills && entry && config.default === this.server && entry.skills !== versions.skills) {
+    if (versions.skills && entry && this.primary && entry.skills !== versions.skills) {
       const skills = await this.api.call('GET', '/board/connect/skills', { timeoutMs: 60_000 });
       for (const line of installSkills(skills)) log(`skills: ${line}`);
       entry.skills = skills.version;
       writeConfig(config);
     }
     const self = fileURLToPath(import.meta.url);
-    if (!versions.helper || this.busy || !resolve(self).startsWith(resolve(appDir()))) return;
+    // only the primary Alfred's helper replaces the shared file - two Alfreds at different versions would otherwise swap
+    // it back and forth on every heartbeat
+    if (!versions.helper || !this.primary || this.busy || !resolve(self).startsWith(resolve(appDir()))) return;
     if (shortHash(readFileSync(self, 'utf8')) === versions.helper) return;
     const res = await fetch(`${this.server}/board/connect/alfred-helper.mjs`, { signal: AbortSignal.timeout(60_000) });
     const text = res.ok ? await res.text() : '';
@@ -582,7 +590,7 @@ export class Helper {
       const key = `${h.boardId}|${h.request.user}|${h.request.at}`;
       if (this.seenRequests.has(key)) continue;
       this.seenRequests.add(key);
-      notify('Alfred', `${h.request.user} asks for board ${h.boardId}${h.request.note ? `: ${h.request.note}` : ''}`);
+      this.notify('Alfred', `${h.request.user} asks for board ${h.boardId}${h.request.note ? `: ${h.request.note}` : ''}`);
     }
   }
 
@@ -651,16 +659,16 @@ export class Helper {
         return this.resume(c, args);
       case 'OPEN_DESKTOP': {
         const s = await this.known(c, args);
-        const id = writeDesktopRecord({ cliSessionId: s.cliSessionId, cwd: s.cwd, title: s.title, model: s.model });
+        const id = this.desktop.record({ cliSessionId: s.cliSessionId, cwd: s.cwd, title: s.title, model: s.model });
         if (!id) return 'Claude Desktop is not on this PC - open it in a terminal instead';
-        openUrl(`claude://claude.ai/epitaxy/${id}`);
+        this.desktop.open(`claude://claude.ai/epitaxy/${id}`);
         this.track(s).openIn = 'DESKTOP';
         await this.report(s.cliSessionId, { desktopId: id });
         return `Opened in Claude Desktop. If it is not in the sidebar, restart Claude Desktop once; the first time, Desktop asks you to trust ${s.cwd}.`;
       }
       case 'OPEN_TERMINAL': {
         const s = await this.known(c, args);
-        openTerminal(s.cwd, s.cliSessionId, this.claude);
+        this.desktop.terminal(s.cwd, s.cliSessionId, this.claude);
         this.track(s).openIn = 'TERMINAL';
         return `Opened a terminal: claude --resume ${s.cliSessionId}`;
       }
@@ -681,7 +689,7 @@ export class Helper {
       }
       case 'RESTART_DESKTOP': {
         const s = c.sessionId || args.cliSessionId ? await this.known(c, args).catch(() => null) : null;
-        await restartDesktop(s ? `local_${s.cliSessionId}` : null);
+        await this.desktop.restart(s ? `local_${s.cliSessionId}` : null);
         return 'Claude Desktop restarted - every session Alfred added is in its sidebar now.';
       }
       case 'PICK_FOLDER': {
@@ -772,7 +780,7 @@ export class Helper {
 
   /** The first ▶ for a project on this PC: the folder picker opens here, and the answer is kept in My settings. */
   async askFolder(project, settings) {
-    notify('Alfred', `Pick the repo folder for ${project} on ${this.machine}`);
+    this.notify('Alfred', `Pick the repo folder for ${project} on ${this.machine}`);
     const folder = this.pickFolder();
     if (!folder) throw new Error(`NO_FOLDER: no repo folder for ${project} on ${this.machine} - pick one, or set it in 👤 Me`);
     const projects = [...(settings?.projects ?? []), { project, machine: this.machine, folder, openIn: 'DESKTOP', worktrees: true }];
@@ -790,7 +798,9 @@ export class Helper {
     if (!existsSync(where.folder)) throw new Error(`NO_FOLDER: ${where.folder} does not exist on ${this.machine}`);
     const title = args.title || c.boardId;
     const isProject = String(c.boardId ?? '').startsWith('default:');
-    const place = where.worktrees && !isProject ? boardWorktree(where.folder, args.worktreeName || title) : { cwd: where.folder };
+    // a board of another Alfred gets its own worktree even when its name matches one of the primary Alfred's boards
+    const tag = this.primary ? '' : `${mcpDefaultName(this.server).replace(/^alfred-/, '')} `;
+    const place = where.worktrees && !isProject ? boardWorktree(where.folder, tag + (args.worktreeName || title)) : { cwd: where.folder };
     const cliSessionId = randomUUID();
     // the first turn reads the whole task (the setup model); the board's answers afterwards are chat work (the chat model)
     const model = modelFor(settings, isProject ? 'chat' : 'setup');
@@ -804,17 +814,17 @@ export class Helper {
     const problem = this.startRunner(cliSessionId);
     let desktopId = null;
     if (where.openIn === 'DESKTOP' || where.openIn === 'BOTH') {
-      desktopId = writeDesktopRecord({ cliSessionId, cwd: place.cwd, title, model });
-      if (desktopId) openUrl(`claude://claude.ai/epitaxy/${desktopId}`);
+      desktopId = this.desktop.record({ cliSessionId, cwd: place.cwd, title, model });
+      if (desktopId) this.desktop.open(`claude://claude.ai/epitaxy/${desktopId}`);
     }
-    if (where.openIn === 'TERMINAL' || where.openIn === 'BOTH') openTerminal(place.cwd, cliSessionId);
+    if (where.openIn === 'TERMINAL' || where.openIn === 'BOTH') this.desktop.terminal(place.cwd, cliSessionId);
     await this.report(cliSessionId, { state: problem ? 'IDLE' : 'ANSWERING', desktopId, tokensToday: tokensToday(transcriptOf(cliSessionId)) });
     // ▶ on a board with no session: the run the user pressed follows, queued for the session that now answers the board
     if (!problem && args.thenRun?.command && !isProject) {
       await this.api.call('POST', '/board/skill-runs', { body: { project: c.project, cycleId: c.boardId, cardNumber: args.thenRun.cardNumber ?? null,
         command: args.thenRun.command, prompt: args.thenRun.prompt ?? args.thenRun.command } }).catch((e) => log(`the run did not queue: ${e.message}`));
     }
-    notify('Alfred', `Session for ${title} is ready${desktopId ? ' - in Claude Desktop' : ''}`);
+    this.notify('Alfred', `Session for ${title} is ready${desktopId ? ' - in Claude Desktop' : ''}`);
     return [`Started ${cliSessionId} in ${place.cwd}${place.branch ? ` (branch ${place.branch})` : ''}.`,
       desktopId ? 'Shown in Claude Desktop - restart Desktop once if it is not in the sidebar; Desktop asks you to trust the folder the first time.' : null,
       problem].filter(Boolean).join(' ');
@@ -876,7 +886,7 @@ export class Helper {
             log(`✓ ${c.kind}: ${result}`);
           } catch (e) {
             log(`✗ ${c.kind}: ${e.message}`);
-            notify('Alfred', `${c.kind.toLowerCase().replace(/_/g, ' ')} failed: ${e.message}`);
+            this.notify('Alfred', `${c.kind.toLowerCase().replace(/_/g, ' ')} failed: ${e.message}`);
             await this.api.call('PUT', `/board/helper-commands/${c.id}`, { body: { state: 'FAILED', result: e.message } }).catch(() => {});
           } finally {
             this.busy = false;

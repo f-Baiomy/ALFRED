@@ -426,6 +426,12 @@ Running the file again (another browser, a broken install) replaces the PC's key
 hashes of the helper and the skills); the helper reinstalls the skills when theirs changed (only from the PC's default
 Alfred) and replaces its own file and restarts when it runs from the connect folder (never a source checkout's copy).
 
+**Several Alfreds on one PC** (this machine's and a LAN one, say): connect from each Alfred's page. Each gets its own key,
+MCP server (`alfred-local-3000`, `alfred-lan-80`), helper process (start-with-Windows starts one per Alfred), Azure token
+file and board worktrees (`.alfred-worktrees/lan-80-<board>` for every Alfred but the first). The files they share - the
+helper script and `~/.claude/skills` - follow the **first-connected (primary) Alfred** only; the others never rewrite
+them, so two Alfreds at different versions cannot swap them back and forth. Each browser origin keeps its own key.
+
 What Alfred hands out: Docker mounts `./helper` and `./skills` read-only at `/opt/alfred-connect/` and bakes `node.exe`
 (build-versions.json's Node, checksummed) into the backend image; natively the supervisor points `ALFRED_CONNECT_HELPER`,
 `ALFRED_CONNECT_SKILLS` and `ALFRED_CONNECT_NODE` at `app/helper`, `app/skills` and the bundled Node (Windows only).

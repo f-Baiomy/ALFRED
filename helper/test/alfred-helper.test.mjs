@@ -109,6 +109,11 @@ test('a session open in Desktop or a terminal is seen; a -p run or a runner nami
   assert.equal(openInteractively('none', lines), false);
 });
 
+/** A Helper whose screen side (Desktop record, claude:// links, terminals, toasts, the folder dialog) does nothing. */
+function quietHelper(o) {
+  return new Helper({ desktop: { record: () => null, open: () => {}, terminal: () => {}, restart: async () => {} }, notify: () => {}, ...o });
+}
+
 class FakeApi {
   constructor(settings = {}) {
     this.key = 'ak_0123456789abcdef.s';
@@ -127,7 +132,7 @@ class FakeApi {
 test('START: worktree, first turn, holder, runner, report - and nothing without a folder', async () => {
   const repo = tmp();
   const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'BACKGROUND', worktrees: false }] });
-  const h = new Helper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true });
   const turns = [];
   h.turn = (id, prompt, o) => { turns.push({ id, prompt, ...o }); return 'ok'; };
   h.startRunner = () => null;
@@ -151,7 +156,7 @@ test('START: worktree, first turn, holder, runner, report - and nothing without 
 test('the first START of a project on a PC asks for its folder here and keeps it in My settings', async () => {
   const repo = tmp();
   const api = new FakeApi({ projects: [] });
-  const h = new Helper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
   h.turn = () => 'ok';
   h.startRunner = () => null;
   h.pickFolder = () => repo;
@@ -165,12 +170,12 @@ test('the first START of a project on a PC asks for its folder here and keeps it
 test('a command for a session that is not on this PC says NOT_HERE', async () => {
   const api = new FakeApi();
   api.sessions = [{ id: 's1', boardId: 'b1', cliSessionId: 'not-on-this-pc', machine: 'WORK-PC', current: true }];
-  const h = new Helper({ server: 'http://a:3000', api, machine: 'LAPTOP-2', mcp: 'alfred' });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'LAPTOP-2', mcp: 'alfred' });
   await assert.rejects(h.handle({ kind: 'OPEN_TERMINAL', boardId: 'b1', sessionId: 's1', args: '{}' }), /NOT_HERE: .* \(it was on WORK-PC\)/);
 });
 
 test('moving a transcript between PCs is refused with the way that works', async () => {
-  const h = new Helper({ server: 'http://a:3000', api: new FakeApi(), machine: 'PC' });
+  const h = quietHelper({ server: 'http://a:3000', api: new FakeApi(), machine: 'PC' });
   await assert.rejects(h.handle({ kind: 'BRING_TRANSCRIPT', args: '{}' }), /Continue here from Alfred's copy/);
 });
 
@@ -225,4 +230,22 @@ test("a new Alfred MCP server is named after Alfred's address and sends this use
 
 test("the helper names versions the way Alfred does (the first 16 hex of SHA-256)", () => {
   assert.equal(shortHash('abc'), 'ba7816bf8f01cfea');
+});
+
+test('a second Alfred on the same PC never rewrites the shared helper or skills, and keeps its own worktrees', { skip: spawnSync('git', ['--version']).status !== 0 }, async () => {
+  const repo = tmp();
+  spawnSync('git', ['-C', repo, 'init', '-q']);
+  spawnSync('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init']);
+  const api = new FakeApi({ projects: [{ project: 'odeysys', folder: repo }] });
+  const lan = quietHelper({ server: 'http://192.168.1.80:3000', api, machine: 'PC', mcp: 'alfred-lan-80', primary: false });
+  lan.turn = () => 'ok';
+  lan.startRunner = () => null;
+
+  const result = await lan.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{"title":"AB#1"}' });
+  assert.match(result, /\.alfred-worktrees[\\/]lan-80-ab-1/);
+
+  let fetched = false;
+  lan.api = { call: async () => { fetched = true; return {}; } };
+  await lan.keepCurrent({ helper: 'ffffffffffffffff', skills: 'eeeeeeeeeeeeeeee', node: true });
+  assert.equal(fetched, false);
 });
