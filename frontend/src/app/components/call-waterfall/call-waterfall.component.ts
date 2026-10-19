@@ -185,21 +185,21 @@ interface WaterfallGroup {
         <div class="spacer-line"></div>
       </div>
     </ng-template>
-    <div class="waterfall" cdkDropList [cdkDropListDisabled]="!reorderState" (cdkDropListDropped)="onDrop($event)">
+    <div class="waterfall" cdkDropList [cdkDropListDisabled]="!spacersEditable()" (cdkDropListDropped)="onDrop($event)">
       @for (entry of mergedGroups(); track trackByMergedGroupKey(entry)) {
         @if (entry.kind === 'spacer') {
           <!-- \`detached\`: its position couldn't be worked out against what's shown (see layoutSpacers), so it sits at the end, dimmed, rather than vanishing. -->
           <div class="spacer-row" [class.spacer-row-detached]="entry.detached" cdkDrag>
             <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
             <div class="spacer-line"></div>
-            <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="reorderState?.deleteSpacer(entry.spacer.id)" />
+            <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" [readonly]="!spacersEditable()" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="reorderState?.deleteSpacer(entry.spacer.id)" />
             <div class="spacer-line"></div>
           </div>
         } @else {
           @let group = entry.item;
           <!-- Never actually draggable (cdkDragDisabled) - only here so a spacer's drop position can land between two root groups. See onDrop. -->
           <div class="waterfall-group call-row" cdkDrag [cdkDragDisabled]="true">
-          @if (group.root && reorderState) {
+          @if (group.root && spacersEditable()) {
             @if (spacerGap.composingGapKey() === group.root.id) {
               <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
             } @else {
@@ -456,7 +456,7 @@ interface WaterfallGroup {
           </div>
         }
       }
-      @if (reorderState) {
+      @if (spacersEditable()) {
         @if (spacerGap.composingGapKey() === null) {
           <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
         } @else {
@@ -598,6 +598,8 @@ export class CallWaterfallComponent {
 
   /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. */
   readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
+  /** Spacers can be added, moved, renamed and deleted here - not on another Alfred's cycle (specs/035). */
+  readonly spacersEditable = computed(() => !!this.reorderState && !this.reorderState.readOnly?.());
   readonly spacerGap = createSpacerGapController(this.reorderState);
 
   /** rows() cut into one group per root call - see WaterfallGroup. */

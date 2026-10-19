@@ -4,7 +4,7 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DbCaptureStateService } from './db-capture-state.service';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, Subscription, forkJoin, map, of, switchMap, tap } from 'rxjs';
+import { Observable, Subscription, auditTime, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import {
   CallDetail,
   CallDetailPart,
@@ -25,6 +25,8 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../services/i
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState, CycleSpacer } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, InterceptionFilter, ResendFilter, createCallListView } from './call-list-view';
 import { reconnectingSocket } from './reconnecting-socket';
+import { LinksSocketService } from '../links/links-socket.service';
+import { splitRef } from '../links/remote-ref';
 import { SessionCyclesStateService } from './session-cycles-state.service';
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
@@ -39,6 +41,9 @@ const RANGE_CHUNK = 200;
  * CallsStateService's fetch-on-demand+live-merge+selection+search/sort/group/stats shape (via the
  * same createCallListView factory), scoped to one cycle's captured calls.
  */
+/** Every inbound project of another Alfred's cycle - its project list is the owner's, which this Alfred does not have. */
+const REMOTE_INBOUND_KEY = '*';
+
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly dbState = inject(DbCaptureStateService);
@@ -56,6 +61,14 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
    *  History tab (SessionCycleDetailComponent's `cycleId` input). Wins over the route. */
   private readonly pinnedCycleId = signal<string | null>(null);
   readonly cycleId = computed(() => this.pinnedCycleId() ?? this.routeCycleId());
+  /**
+   * The slug of the link this cycle is read through, when it is another Alfred's (specs/035): `<id>@<slug>`. A local
+   * cycle id is a UUID and never has one. A remote cycle is read-only here and refreshed by that Alfred's signals.
+   */
+  readonly remoteSlug = computed(() => splitRef(this.cycleId())?.slug ?? null);
+  readonly remote = computed(() => this.remoteSlug() !== null);
+  private readonly linksSocket = inject(LinksSocketService);
+  private remoteSignals: Subscription | null = null;
 
   useCycle(id: string | null): void {
     this.pinnedCycleId.set(id);
@@ -91,7 +104,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
    * has no equivalent. */
   readonly customOrder = signal<readonly string[]>([]);
 
-  readonly dragEnabled = computed(() => !this.groupBySupplier());
+  readonly dragEnabled = computed(() => !this.groupBySupplier() && !this.remote());
+  /** Another Alfred's cycle: shown, never changed from here (specs/035) - see CallRemovalState/CallReorderState. */
+  readonly readOnly = computed(() => this.remote());
 
   /** Every spacer for the currently-open cycle - see CallReorderState. Reloaded whenever the open cycle changes. */
   readonly spacers = signal<readonly CycleSpacer[]>([]);
@@ -184,6 +199,47 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       { allowSignalWrites: true }
     );
 
+    // Another Alfred's cycle: both directions, every project of the owner, and its signals instead of this Alfred's
+    // sockets. Decided again whenever the open cycle switches between this Alfred's and another's.
+    effect(() => {
+      const slug = this.remoteSlug();
+      untracked(() => this.useOrigin(slug));
+    }, { allowSignalWrites: true });
+    if (untracked(() => this.remote())) return;
+    this.loadLocalSources();
+  }
+
+  private localSourcesLoaded = false;
+
+  private useOrigin(slug: string | null): void {
+    this.remoteSignals?.unsubscribe();
+    this.remoteSignals = null;
+    if (!slug) {
+      if (!this.localSourcesLoaded && this.wsSubscriptions.length === 0 && this.sourcesKnown()) {
+        // came here from another Alfred's cycle: this Alfred's own sources again
+        this.sourcesKnown.set(false);
+        this.loadLocalSources();
+      }
+      return;
+    }
+    this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
+    this.wsSubscriptions = [];
+    this.localSourcesLoaded = false;
+    this.inboundLoggingFeatureEnabled.set(false);
+    this.internalServices.set([]);
+    this.selectedSources.set(new Set([EXTERNAL_SOURCE_KEY, REMOTE_INBOUND_KEY]));
+    this.sourcesKnown.set(true);
+    // a capture, a cleared call or a moved spacer there: fetch again (no push of the call itself crosses a link);
+    // "resync" after the link came back
+    // Coalesced: a busy cycle there signals per captured call.
+    this.remoteSignals = this.linksSocket.signals(slug, ['session-cycles', 'comments', 'db-capture']).pipe(auditTime(400)).subscribe((e) => {
+      this.view.refresh();
+      if (e.channel !== 'comments' && e.channel !== 'db-capture') this.reloadSpacers();
+    });
+  }
+
+  private loadLocalSources(): void {
+    this.localSourcesLoaded = true;
     this.internalLoggingApi.getFeatureEnabled().subscribe({
       next: (res) => {
         this.inboundLoggingFeatureEnabled.set(res.enabled);
@@ -234,6 +290,8 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     const wantExternal = selected.has(EXTERNAL_SOURCE_KEY);
     const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
     const wantInternal = internalNames.length > 0;
+    // every project of another Alfred's cycle: its project list is the owner's, not this Alfred's
+    if (internalNames.includes(REMOTE_INBOUND_KEY)) internalNames.length = 0;
 
     const recordAndUnwrap = (page: { calls: readonly CapturedCall[]; total: number }): CallsPageResult => {
       for (const c of page.calls) {
@@ -291,10 +349,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private fetchOverlapsForSource(query: CallOverlapQuery): Observable<CallOverlapCandidate[]> {
     const id = this.cycleId();
     const selected = this.selectedSources();
-    const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
+    const allInbound = selected.has(REMOTE_INBOUND_KEY);
+    const internalNames = allInbound ? [] : [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
     return this.api.getCallOverlaps(id, query, internalNames).pipe(
       map((candidates) =>
-        candidates.filter((c) => (c.source === 'external' ? selected.has(EXTERNAL_SOURCE_KEY) : selected.has(c.serviceName ?? 'unknown')))
+        candidates.filter((c) => (c.source === 'external' ? selected.has(EXTERNAL_SOURCE_KEY)
+          : allInbound || selected.has(c.serviceName ?? 'unknown')))
       )
     );
   }
@@ -316,6 +376,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   /** Mirrors CallsStateService.toggleServiceLogging - see its doc. */
   toggleServiceLogging(name: string, enabled: boolean): void {
+    if (this.remote()) return;
     this.internalLoggingApi.setEnabled(name, enabled).subscribe((services) => this.internalServices.set(services));
   }
 
@@ -396,6 +457,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private connectLiveUpdates(): void {
     this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
     this.wsSubscriptions = [];
+    if (this.remote()) return;
 
     const selected = this.selectedSources();
     const wsBase = this.config.backendUrl.replace(/^http/, 'ws');

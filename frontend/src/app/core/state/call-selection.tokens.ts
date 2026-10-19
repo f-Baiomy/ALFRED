@@ -53,6 +53,8 @@ export const BULK_SELECTION_STATE = new InjectionToken<BulkSelectionState>('BULK
  * with zero changes to CallListComponent/SupplierGroupComponent in between.
  */
 export interface CallRemovalState {
+  /** True while the open cycle is another Alfred's (specs/035): shown, never changed from here. */
+  readonly readOnly?: Signal<boolean>;
   remove(call: CallRecord): void;
   /** Bulk counterpart to remove() - one request instead of one per call, for BulkActionsBarComponent's "Remove selected". */
   removeMany(calls: readonly CallRecord[]): void;
@@ -89,6 +91,8 @@ export interface CycleSpacer {
  */
 export interface CallReorderState {
   readonly dragEnabled: Signal<boolean>;
+  /** True while the open cycle is another Alfred's (specs/035): its spacers are shown, never added, moved or renamed. */
+  readonly readOnly?: Signal<boolean>;
   reorder(orderedCalls: readonly CallRecord[]): void;
   readonly spacers: Signal<readonly CycleSpacer[]>;
   addSpacer(label: string, afterCallId: string | null, anchorTimestamp: string | null): void;

@@ -97,6 +97,8 @@
               <input type="checkbox" [checked]="state.isSelected(cycle)" (change)="toggleSelected(cycle, $event)" />
             </td>
             <td>{{ cycle.name }}
+              @if (copiedFrom(cycle.name); as from) { <span class="lk-chip" title="Kept with Keep a copy - not live">copy · from {{ from }}</span> }
+              <span (click)="$event.stopPropagation()"><app-out-pill kind="CYCLE" [target]="cycle.id" [name]="cycle.name" [project]="cycle.assignedTo" /></span>
               @if (alsoOn?.get(cycle.id)?.length) { <span class="cycle-also-on">also on {{ alsoOn.get(cycle.id)!.join(', ') }}</span> }
               @if (boardsOn(cycle.id) > 1) {
                 <button type="button" class="cycle-verdicts-btn" title="Every board's verdicts on this cycle's calls"
@@ -113,6 +115,7 @@
                 {{ cycle.status === 'RECORDING' ? 'Pause' : 'Record' }}
               </button>
               <button type="button" class="action-btn" (click)="edit(cycle)">Edit</button>
+              <button type="button" class="action-btn" title="Let a linked Alfred read this cycle live" (click)="stream(cycle)">⇉ Stream…</button>
               <button type="button" class="action-btn" title="Open in a new tab" (click)="openInNewTab(cycle, $event)">Open in new tab</button>
               <app-action-menu [label]="cycleExport.exportingCycleId() === cycle.id ? 'Exporting…' : 'Export'">
                 <button
@@ -172,6 +175,51 @@
         (showing {{ state.visibleCycles().length }} of {{ state.sortedCycles().length }})
       </button>
     }
+  }
+
+  @if (sharedBoards().length || sharedCycles().length) {
+    <!-- specs/035 D24: what other Alfreds stream to this one - read live from them, nothing of it kept here. -->
+    <section class="cycle-group lk-shared">
+      <div class="cycle-group-head">
+        <span class="cycle-group-board">⇇ Shared with me</span>
+        <span class="cycle-group-meta">streamed from other Alfreds · read live, nothing of them is kept here</span>
+      </div>
+      <table class="cycles-table">
+        <thead><tr><th>Name</th><th>From</th><th>State</th><th>On boards here</th><th>Since</th><th></th></tr></thead>
+        <tbody>
+          @for (s of sharedBoards(); track s.id) {
+            <tr class="cycle-row" [class.lk-ended]="!!s.endedAt" (click)="openShared(s)">
+              <td>▦ {{ s.targetName || s.target }} <span class="board-dim">board · {{ s.project }}</span></td>
+              <td (click)="$event.stopPropagation()"><app-origin-pill [ref]="refOf(s)" kind="BOARD" /></td>
+              <td>
+                @if (s.endedAt) { <span class="lk-chip off">stream ended</span> }
+                @else if (linkOnline(s)) { <span class="lk-chip ok">● live</span> } @else { <span class="lk-chip off">offline</span> }
+              </td>
+              <td class="board-dim">-</td>
+              <td>{{ s.createdAt | date: 'medium' }}</td>
+              <td class="cycle-row-actions" (click)="$event.stopPropagation()">
+                @if (!s.endedAt) { <button type="button" class="action-btn" (click)="openShared(s)">Open board</button> }
+              </td>
+            </tr>
+          }
+          @for (s of sharedCycles(); track s.id) {
+            <tr class="cycle-row" [class.lk-ended]="!!s.endedAt" (click)="openShared(s)">
+              <td>◷ {{ s.targetName || s.target }}@if (s.env) { <span class="lk-chip amber">🧪 {{ s.env }}</span> }</td>
+              <td (click)="$event.stopPropagation()"><app-origin-pill [ref]="refOf(s)" kind="CYCLE" /></td>
+              <td>
+                @if (s.endedAt) { <span class="lk-chip off">stream ended</span> }
+                @else if (linkOnline(s)) { <span class="lk-chip ok">● live</span> } @else { <span class="lk-chip off">offline</span> }
+              </td>
+              <td>{{ boardsOfRef(refOf(s)).join(', ') || '-' }}</td>
+              <td>{{ s.createdAt | date: 'medium' }}</td>
+              <td class="cycle-row-actions" (click)="$event.stopPropagation()">
+                @if (!s.endedAt) { <button type="button" class="action-btn" (click)="openShared(s)">Open</button> }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
   }
 </main>
 

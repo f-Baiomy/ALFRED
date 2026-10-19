@@ -59,8 +59,12 @@ export class SessionCyclesApiService {
     return `${this.config.backendUrl}/session-cycles`;
   }
 
-  get(id: string): Observable<SessionCycle> {
-    return this.http.get<SessionCycle>(`${this.baseUrl}/${encodeURIComponent(id)}`);
+  /**
+   * `purpose` ("copy" / "export") is said to another Alfred's cycle once its copy or export is made, so its owner's
+   * read log names it (specs/035 D31, D34) - ignored for this Alfred's own.
+   */
+  get(id: string, purpose?: 'copy' | 'export'): Observable<SessionCycle> {
+    return this.http.get<SessionCycle>(`${this.baseUrl}/${encodeURIComponent(id)}`, purpose ? { params: { alfredPurpose: purpose } } : {});
   }
 
   /** A Relive run's own cycle - created (and filled from the call logs) the first time a run

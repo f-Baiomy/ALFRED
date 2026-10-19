@@ -59,6 +59,8 @@ export class CallListComponent {
   private readonly pinService = inject(PinService);
   /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. Not private: the template reads it directly to wire a spacer chip's rename output straight to the store. */
   readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
+  /** Spacers can be added, moved, renamed and deleted here - not on another Alfred's cycle (specs/035). */
+  readonly spacersEditable = computed(() => !!this.reorderState && !this.reorderState.readOnly?.());
 
   /** Auto-load the next page on scroll instead of a manual "Load more" button - the default for every list. */
   readonly infiniteScroll = input(true);

@@ -25,6 +25,12 @@ import { BoardSummary } from '../../core/models/board.models';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { BoardSocketService } from '../../core/services/board-socket.service';
 import { groupCyclesByBoard } from '../../shared/utils/cycle-groups';
+import { LinksStateService } from '../../core/links/links-state.service';
+import { Stream } from '../../core/links/links.models';
+import { OriginPillComponent } from '../../components/links/origin-pill/origin-pill.component';
+import { OutPillComponent } from '../../components/links/out-pill/out-pill.component';
+import { StreamDialogService } from '../../components/links/stream-dialog/stream-dialog.service';
+import { copiedFrom } from '../../core/links/keep-copy.service';
 
 const GROUP_KEY = 'alfred.cycles.groupBy';
 
@@ -58,6 +64,8 @@ const SORT_OPTIONS: readonly SelectOption[] = [
     SelectPickerComponent,
     NgTemplateOutlet,
     CycleVerdictsDialogComponent,
+    OriginPillComponent,
+    OutPillComponent,
   ],
   templateUrl: './session-cycles-list.component.html',
 })
@@ -72,6 +80,38 @@ export class SessionCyclesListComponent {
   readonly cycleExport = inject(CycleExportService);
   readonly state = inject(SessionCyclesStateService);
   readonly profilesState = inject(ProfilesStateService);
+
+  // --------------------------------------------------------------------------- streamed to and from here (specs/035)
+  readonly links = inject(LinksStateService);
+  private readonly streamDialog = inject(StreamDialogService);
+  /** Boards and cycles other Alfreds stream to this one (D24) - read live, nothing of them kept here. */
+  readonly sharedBoards = computed(() => this.links.given().filter((s) => s.kind === 'BOARD'));
+  readonly sharedCycles = computed(() => this.links.given().filter((s) => s.kind === 'CYCLE'));
+  readonly copiedFrom = copiedFrom;
+
+  refOf(s: Stream): string {
+    const slug = this.links.linkById().get(s.linkId)?.slug;
+    return slug ? `${s.target}@${slug}` : s.target;
+  }
+
+  /** The boards of this Alfred a streamed cycle is on. */
+  boardsOfRef(ref: string): string[] {
+    return this.boards().filter((b) => b.cycleIds.includes(ref)).map((b) => b.board.name);
+  }
+
+  linkOnline(s: Stream): boolean {
+    return !!this.links.linkById().get(s.linkId)?.online;
+  }
+
+  openShared(s: Stream): void {
+    if (s.endedAt) return;
+    if (s.kind === 'CYCLE') void this.router.navigate(['/cycles', this.refOf(s)]);
+    else void this.router.navigate(['/board'], { queryParams: { board: this.refOf(s), project: s.project } });
+  }
+
+  stream(cycle: SessionCycle): void {
+    this.streamDialog.open({ kind: 'CYCLE', target: cycle.id, name: cycle.name, project: cycle.assignedTo ?? null });
+  }
 
   readonly newName = signal('');
   readonly newAssignedTo = signal<string | null>(null);
@@ -94,6 +134,7 @@ export class SessionCyclesListComponent {
   readonly groups = computed(() => groupCyclesByBoard(this.state.sortedCycles(), this.boards()));
 
   constructor() {
+    this.links.start();
     this.loadBoards();
     const sub = inject(BoardSocketService).events$
       .pipe(filter((e) => e.type === 'board-changed' && (e.what === 'boards' || e.what === 'deleted')))

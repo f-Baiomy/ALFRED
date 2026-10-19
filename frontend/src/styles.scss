@@ -13127,3 +13127,78 @@ app-board-cycles { display: block; position: relative; }
 .tcb-azure * { color: #201f1e; border-color: #e1dfdd; }
 .tcb-azure a, .tcb-azure a * { color: #0078d4; }
 .tob-bar { margin: 6px 0 10px; }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Links & streams between Alfreds (specs/035): settings, the Stream dialog, the bottom-right tray, origin pills.
+   --------------------------------------------------------------------------------------------------------------- */
+.lk-lbl { margin: 1.1rem 0 .4rem; font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim);
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.lk-lbl .board-dim { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.lk-line { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .35rem 0; border-bottom: 1px solid var(--border); font-size: .82rem; }
+.lk-line:last-of-type { border-bottom: 0; }
+.lk-indent { margin: -.1rem 0 .35rem 1rem; }
+.lk-sp { flex: 1; }
+.lk-small { font-size: .75rem; }
+.lk-dim { color: var(--text-dim); }
+.lk-ok { color: var(--green); }
+.lk-warn { color: var(--amber); }
+.lk-note { font-size: .75rem; color: var(--text-dim); margin-top: .3rem; line-height: 1.4; }
+.lk-in { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font: inherit; font-size: .8rem;
+  padding: .3rem .5rem; min-width: 0; }
+.lk-in:focus { outline: none; border-color: var(--border-strong); }
+.lk-wide { width: min(260px, 100%); }
+.lk-sel { padding: .15rem .35rem; font-size: .72rem; }
+.lk-check { display: flex; gap: .5rem; align-items: center; font-size: .8rem; margin: .4rem 0; flex-wrap: wrap; }
+.lk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.lk-code { font-family: ui-monospace, Consolas, monospace; font-size: 1.15rem; letter-spacing: .25em; font-weight: 700; color: var(--purple-light); }
+.lk-chip { display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .45rem; border-radius: 99px; font-size: .7rem; border: 1px solid var(--border);
+  color: var(--text-dim); white-space: nowrap; }
+.lk-chip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.lk-chip.off { color: var(--text-faint); border-style: dashed; }
+.lk-chip.amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.lk-chip.cyan { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.lk-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.lk-table th { text-align: left; font-weight: 600; color: var(--text-dim); padding: .3rem .4rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.lk-table td { padding: .35rem .4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.lk-table .lk-acts { white-space: nowrap; text-align: right; }
+.lk-table .lk-text { max-width: 340px; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .lk-table { display: block; overflow-x: auto; } }
+
+.lk-dialog { max-width: 620px; }
+.lk-dialog h2 .lk-dim { font-weight: 400; }
+.lk-field { margin: .9rem 0; }
+.lk-fl { font-size: .78rem; font-weight: 700; color: var(--text); margin-bottom: .35rem; }
+.lk-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.lk-seg button { background: var(--bg-2); color: var(--text-dim); border: 0; border-right: 1px solid var(--border); padding: .35rem .75rem; font: inherit;
+  font-size: .8rem; cursor: pointer; }
+.lk-seg button:last-child { border-right: 0; }
+.lk-seg button.on { background: color-mix(in srgb, var(--purple) 28%, transparent); color: var(--purple-light); font-weight: 600; }
+.lk-seg button:disabled { cursor: not-allowed; opacity: .5; }
+.lk-seg-sm button { padding: .15rem .5rem; font-size: .72rem; }
+
+.lk-stack { position: fixed; right: 16px; bottom: 16px; z-index: 90; display: flex; flex-direction: column; gap: .5rem; width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px); overflow-y: auto; }
+.lk-req { @include frosted(var(--frost-tint-strong), false); border: 1px solid var(--border-strong); border-radius: 12px; padding: .7rem .8rem;
+  font-size: .8rem; color: var(--text); box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.lk-req-link { border-color: color-mix(in srgb, var(--cyan) 50%, transparent); }
+.lk-req-auto { display: flex; align-items: center; gap: .5rem; justify-content: space-between; }
+.lk-req-draft { border-style: dashed; }
+.lk-req-err { color: var(--red); }
+.lk-more { text-align: center; color: var(--purple-light); text-decoration: none; }
+.lk-target { color: var(--cyan); }
+.lk-diff { margin: .35rem 0; padding: .4rem .55rem; border-radius: 6px; background: var(--bg-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 140px; overflow-y: auto; }
+.lk-row { display: flex; gap: .4rem; align-items: center; margin-top: .45rem; flex-wrap: wrap; }
+.lk-row .lk-in { flex: 1; }
+.lk-draft { display: flex; gap: .4rem; align-items: center; margin: .25rem 0; }
+.lk-draft .lk-small:first-child { flex: 1; overflow-wrap: anywhere; }
+.lk-btn { font: inherit; font-size: .75rem; padding: .3rem .6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text);
+  cursor: pointer; }
+.lk-btn:hover { border-color: var(--border-strong); }
+.lk-btn.p { background: color-mix(in srgb, var(--purple) 22%, transparent); border-color: var(--border-strong); color: var(--purple-light); font-weight: 600; }
+.lk-btn.r { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.lk-btn:disabled { opacity: .5; cursor: not-allowed; }
+.lk-ended { opacity: .6; }
+.lk-offline { border-color: color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); }
+.board-mention-origin { margin-left: .25rem; font-size: .68rem; color: var(--cyan); }
+.board-mention-origin.off { color: var(--text-faint); }

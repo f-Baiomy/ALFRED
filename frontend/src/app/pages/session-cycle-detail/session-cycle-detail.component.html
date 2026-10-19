@@ -4,6 +4,24 @@
   }
   @if (cycle(); as c) {
     <div class="cycle-row-actions">
+      @if (remote()) {
+        <!-- Another Alfred's cycle (specs/035): read live from it, never changed from here. -->
+        <app-origin-pill [ref]="c.id" kind="CYCLE" />
+        <span class="badge" [class]="c.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused'">
+          {{ c.status === 'RECORDING' ? 'Recording there' : 'Paused' }}
+        </span>
+        @if (!passedOn()) {
+          <button type="button" class="action-btn" [disabled]="!!keepCopyService.busy() || !originOnline()"
+                  title="Fetch the whole cycle now and keep it here as a local cycle - never live again" (click)="keepCopy()">
+            {{ keepCopyService.busy() === c.id ? (keepCopyService.progress() || 'Copying…') : '⧉ Keep a copy' }}
+          </button>
+        }
+      } @else {
+      @if (copiedFrom(); as from) { <span class="lk-chip" title="Kept with Keep a copy - not live">copy · from {{ from }}</span> }
+      <app-out-pill kind="CYCLE" [target]="c.id" [name]="c.name" [project]="cycleProject() || c.assignedTo" />
+      @if (!runCycle()) {
+        <button type="button" class="action-btn" title="Let a linked Alfred read this cycle live" (click)="stream()">⇉ Stream…</button>
+      }
       @if (!runCycle()) {
         <span class="badge" [class]="c.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused'">
           {{ c.status === 'RECORDING' ? 'Recording' : 'Paused' }}
@@ -28,6 +46,7 @@
       >
         {{ chainPanelLoading() ? 'Analyzing…' : 'Create scenario from cycle…' }}
       </button>
+      }
       <app-action-menu [label]="cycleExport.exportingCycleId() === c.id ? 'Exporting…' : 'Export cycle'">
         <button
           type="button"
@@ -49,13 +68,22 @@
       @if (cycleExport.progress(); as progress) {
         <span class="muted">{{ progress }}</span>
       }
-      <button type="button" class="action-btn danger" [disabled]="clearingCalls()" (click)="clearAllCalls()">
-        {{ clearingCalls() ? 'Clearing…' : 'Clear all calls' }}
-      </button>
+      @if (!remote()) {
+        <button type="button" class="action-btn danger" [disabled]="clearingCalls()" (click)="clearAllCalls()">
+          {{ clearingCalls() ? 'Clearing…' : 'Clear all calls' }}
+        </button>
+      }
     </div>
   }
 </div>
 
+@if (remote() && !originOnline()) {
+  <div class="bulk-action-message lk-offline" role="status">⇇ {{ links.nameOf(remoteSlug()) }} is offline - its calls are read live from it, so
+    none are shown until it is back@if (origin()?.lastSeen) { (last seen {{ origin()?.lastSeen | date: 'd MMM HH:mm' }})}. Nothing of it is kept here.</div>
+}
+@if (copyMessage(); as message) {
+  <div class="bulk-action-message">{{ message }}</div>
+}
 @if (cycleExport.message(); as message) {
   <div class="bulk-action-message">{{ message }}</div>
 }
@@ -68,7 +96,8 @@
 
 <app-header
   [title]="cycle()?.name ?? 'Session Cycle'"
-  [subtitle]="runCycle() ? 'Every call this Relive run made - the steps it sent, the supplier calls, what it blocked' : 'Captured calls for this session cycle'"
+  [subtitle]="runCycle() ? 'Every call this Relive run made - the steps it sent, the supplier calls, what it blocked'
+    : remote() ? 'Streamed from ' + links.nameOf(remoteSlug()) + ' - read live, nothing kept here' : 'Captured calls for this session cycle'"
   [selectedSources]="state.selectedSources()"
   [internalServices]="state.internalServices()"
   [inboundLoggingFeatureEnabled]="state.inboundLoggingFeatureEnabled()"

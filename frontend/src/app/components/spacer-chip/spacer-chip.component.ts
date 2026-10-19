@@ -23,8 +23,10 @@ import { CycleSpacer } from '../../core/state/call-selection.tokens';
         @if (detached()) {
           <span class="spacer-detached-hint" title="Its anchor call is hidden by the current filter or sort">(anchor hidden)</span>
         }
-        <button type="button" class="spacer-icon-btn" (click)="editing.set(true)" aria-label="Rename spacer">&#9998;</button>
-        <button type="button" class="spacer-icon-btn" (click)="remove.emit()" aria-label="Delete spacer">&#10005;</button>
+        @if (!readonly()) {
+          <button type="button" class="spacer-icon-btn" (click)="editing.set(true)" aria-label="Rename spacer">&#9998;</button>
+          <button type="button" class="spacer-icon-btn" (click)="remove.emit()" aria-label="Delete spacer">&#10005;</button>
+        }
       </div>
     }
   `,
@@ -42,6 +44,8 @@ export class SpacerChipComponent {
   readonly spacer = input.required<CycleSpacer>();
   /** Its position couldn't be worked out against what's currently shown - see layoutSpacers' rule d. */
   readonly detached = input(false);
+  /** Shown only - another Alfred's cycle (specs/035). */
+  readonly readonly = input(false);
   readonly rename = output<string>();
   readonly remove = output<void>();
 

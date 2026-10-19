@@ -1,8 +1,9 @@
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { CallFocusService } from '../../core/services/call-focus.service';
-import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DatePipe } from '@angular/common';
 import { forkJoin, switchMap } from 'rxjs';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
@@ -46,6 +47,14 @@ import { BoardSocketService } from '../../core/services/board-socket.service';
 import { ChatStateService } from '../../core/state/chat-state.service';
 import { TeamBoardPickerComponent } from '../../components/team/board-picker/board-picker.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { LinksStateService } from '../../core/links/links-state.service';
+import { LinksSocketService } from '../../core/links/links-socket.service';
+import { KeepCopyService, copiedFrom } from '../../core/links/keep-copy.service';
+import { splitRef } from '../../core/links/remote-ref';
+import { RemoteContextService } from '../../core/links/remote-context.service';
+import { OriginPillComponent } from '../../components/links/origin-pill/origin-pill.component';
+import { StreamDialogService } from '../../components/links/stream-dialog/stream-dialog.service';
+import { OutPillComponent } from '../../components/links/out-pill/out-pill.component';
 
 /**
  * One open session-cycle: its own poll+live-merge+selection+search/sort/group/stats state
@@ -59,7 +68,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
   selector: 'app-session-cycle-detail',
   standalone: true,
   imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent,
-    TeamBoardPickerComponent],
+    TeamBoardPickerComponent, OriginPillComponent, OutPillComponent, DatePipe],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -113,7 +122,26 @@ export class SessionCycleDetailComponent {
   private readonly refDetail = inject(CallRefDetailService);
   private readonly cyclesApi = inject(SessionCyclesApiService);
   private readonly scenarioSource = inject(ScenarioCycleSourceService);
+  private readonly router = inject(Router);
   readonly addMessage = signal<string | null>(null);
+
+  // ------------------------------------------------------------------------------- another Alfred's cycle (specs/035)
+  readonly links = inject(LinksStateService);
+  readonly keepCopyService = inject(KeepCopyService);
+  private readonly streamDialog = inject(StreamDialogService);
+  /** Read live from the Alfred behind this slug - shown, never changed here (D20, D25). */
+  readonly remote = this.state.remote;
+  readonly remoteSlug = this.state.remoteSlug;
+  readonly origin = computed(() => this.links.linkOf(this.remoteSlug()));
+  readonly originOnline = computed(() => !this.remote() || !!this.origin()?.online);
+  /** A cycle read through two links is passed on: its owner is further away, and only this Alfred's direct ones copy. */
+  readonly passedOn = computed(() => {
+    const s = splitRef(this.state.cycleId());
+    return !!s && splitRef(s.inner) !== null;
+  });
+  /** "copy · from 83" - a cycle kept with Keep a copy (D34), named so. */
+  readonly copiedFrom = computed(() => copiedFrom(this.cycle()?.name));
+  readonly copyMessage = signal<string | null>(null);
 
   /** D2 "Create scenario from cycle" - null until opened; loading while the cycle's calls are being hydrated. */
   readonly chainPanelCalls = signal<readonly CallRecord[] | null>(null);
@@ -121,6 +149,27 @@ export class SessionCycleDetailComponent {
   readonly chainPanelError = signal<string | null>(null);
 
   constructor() {
+    this.links.start();
+    // Presence (D29): the owner sees this cycle is open here, while it is - said again on every reconnect.
+    const socket = inject(LinksSocketService);
+    let viewing: { slug: string; target: string } | null = null;
+    effect(() => {
+      const s = splitRef(this.state.cycleId());
+      untracked(() => {
+        if (viewing) socket.viewing(viewing.slug, viewing.target, false);
+        viewing = s ? { slug: s.slug, target: s.inner } : null;
+        if (viewing) socket.viewing(viewing.slug, viewing.target, true);
+      });
+    });
+    const context = inject(RemoteContextService);
+    effect(() => {
+      const id = this.state.cycleId();
+      untracked(() => context.cycleRef.set(splitRef(id) ? id : null));
+    });
+    inject(DestroyRef).onDestroy(() => {
+      if (viewing) socket.viewing(viewing.slug, viewing.target, false);
+      context.cycleRef.set(null);
+    });
     this.boardApi.access().subscribe({ next: (a) => this.boardEditable.set(a.editable), error: () => undefined });
     effect(() => {
       const id = this.state.cycleId();
@@ -212,6 +261,27 @@ export class SessionCycleDetailComponent {
           });
       });
     });
+  }
+
+  /** Keep a copy (D34): the whole cycle, fetched now, stored here as a local cycle - then shown. */
+  keepCopy(): void {
+    const c = this.cycle();
+    if (!c || !this.remote()) return;
+    this.copyMessage.set(null);
+    this.keepCopyService.keepCopy(c).subscribe({
+      next: (copy) => {
+        this.copyMessage.set(`Kept as "${copy.name}" - a local cycle, not live.`);
+        void this.router.navigate(['/cycles', copy.id]);
+      },
+      error: (e) => this.copyMessage.set(`Could not keep a copy: ${e?.error?.message || e?.message || 'reading it failed'}`),
+    });
+  }
+
+  /** Stream this (local) cycle to a linked Alfred, or change how (D5). */
+  stream(): void {
+    const c = this.cycle();
+    if (!c || this.remote()) return;
+    this.streamDialog.open({ kind: 'CYCLE', target: c.id, name: c.name, project: this.cycleProject() || c.assignedTo || null });
   }
 
   /** Lets the user collect calls from the live log and other cycles, then copies them all in on Return. */

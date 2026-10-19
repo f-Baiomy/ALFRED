@@ -16,11 +16,13 @@ import { SpecViewerComponent } from '../../components/board/spec-viewer/spec-vie
 import { MentionCallPopupComponent } from '../../components/board/mention-call-popup/mention-call-popup.component';
 import { ChatDockComponent } from '../../components/chat/chat-dock/chat-dock.component';
 import { ChatStateService } from '../../core/state/chat-state.service';
+import { LinksTrayComponent } from '../../components/links/links-tray/links-tray.component';
+import { StreamDialogComponent } from '../../components/links/stream-dialog/stream-dialog.component';
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent, ChatDockComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent, ChatDockComponent, LinksTrayComponent, StreamDialogComponent],
   templateUrl: './main-layout.component.html',
 })
 export class MainLayoutComponent {

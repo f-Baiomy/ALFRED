@@ -16,7 +16,7 @@
       <button type="button" class="bulk-btn" [disabled]="resendLoading()" (click)="resendSelected()">
         {{ resendLoading() ? 'Loading…' : 'Resend selected…' }}
       </button>
-      @if (removalState) {
+      @if (removalState && !removalState.readOnly?.()) {
         <button type="button" class="bulk-btn danger" (click)="removeSelected()">Remove selected</button>
       }
       <app-action-menu label="Export">

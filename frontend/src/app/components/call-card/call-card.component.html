@@ -257,7 +257,7 @@
         }
         <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
         <app-call-actions [call]="call()" />
-        @if (removalState) {
+        @if (removalState && !removalState.readOnly?.()) {
           <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
         }
         @if (diagnosable()) {
@@ -404,7 +404,7 @@
       }
       <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
       <app-call-actions [call]="call()" />
-      @if (removalState) {
+      @if (removalState && !removalState.readOnly?.()) {
         <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
       }
       <span class="call-time">{{ formattedTime() }}</span>

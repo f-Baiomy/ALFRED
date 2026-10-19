@@ -51,20 +51,20 @@
             <div class="spacer-line"></div>
           </div>
         </ng-template>
-        <div class="calls-tree-list" cdkDropList [cdkDropListDisabled]="!reorderState" (cdkDropListDropped)="onDropRoots($event)">
+        <div class="calls-tree-list" cdkDropList [cdkDropListDisabled]="!spacersEditable()" (cdkDropListDropped)="onDropRoots($event)">
           @for (entry of mergedRoots(); track trackByMergedRootKey(entry)) {
             @if (entry.kind === 'spacer') {
               <!-- `detached`: its position couldn't be worked out against what's shown (see layoutSpacers), so it sits at the end, dimmed, rather than vanishing. -->
               <div class="spacer-row" [class.spacer-row-detached]="entry.detached" cdkDrag>
                 <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
                 <div class="spacer-line"></div>
-                <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
+                <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" [readonly]="!spacersEditable()" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
                 <div class="spacer-line"></div>
               </div>
             } @else {
               <!-- Never actually draggable (cdkDragDisabled) - only here so a spacer's drop position can land between two roots (see onDropRoots). Holds its own leading gap so hovering the root reveals it - see .call-row. -->
               <div class="call-row" cdkDrag [cdkDragDisabled]="true">
-                @if (reorderState) {
+                @if (spacersEditable()) {
                   @if (nestedSpacerGap.composingGapKey() === entry.item.call.id) {
                     <ng-container [ngTemplateOutlet]="nestedSpacerComposer" />
                   } @else {
@@ -92,7 +92,7 @@
               </div>
             }
           }
-          @if (reorderState) {
+          @if (spacersEditable()) {
             @if (nestedSpacerGap.composingGapKey() === null) {
               <ng-container [ngTemplateOutlet]="nestedSpacerComposer" />
             } @else {
@@ -127,7 +127,7 @@
               <div class="spacer-row" [class.spacer-row-detached]="entry.detached" cdkDrag>
                 <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
                 <div class="spacer-line"></div>
-                <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
+                <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" [readonly]="!spacersEditable()" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
                 <div class="spacer-line"></div>
               </div>
             } @else if (dragEnabled()) {

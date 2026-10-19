@@ -46,6 +46,9 @@
 <!-- One spec viewer for the whole app: a spec chip on any page opens it (specs/014-task-board). -->
 <app-spec-viewer />
 <app-mention-call-popup />
+<!-- specs/035: link offers and requests from other Alfreds wait for an answer on every page; the one Stream dialog. -->
+<app-links-tray />
+<app-stream-dialog />
 <!-- Loaded once the page is idle, outside the initial bundle (each holds its state in a service, so
      one asked for before it has loaded opens as soon as it has). -->
 @defer (on idle) {
