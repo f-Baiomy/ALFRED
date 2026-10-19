@@ -54,7 +54,8 @@ the 🔒 button - never retry.
    ```
 
    `--model` **only when the user named one**; otherwise the runs use Claude Code's default model. With `--cycle <boardId>`, this
-   chat handles that board (specs/027: the flag kept its name; it takes the board id): every ▶ on its cards and every comment that needs an investigation comes into this chat
+   chat handles that board (specs/027: the flag kept its name; it takes the board id) and is registered as the board's
+   session (its JSON's `session`: the board then shows Claude on, and its Pause / Resume / Hand back act on this chat): every ▶ on its cards and every comment that needs an investigation comes into this chat
    (see "While it runs"); `--no-board-runs` when the user wants answers only. It prints JSON: the
    Alfred it reaches, the log files, and `watch` (the command to follow the chat log). `alreadyRunning` → say so and
    only re-arm the watch (step 4). An error line → show it and stop: `cannot reach Alfred at …`; `does not let this
@@ -118,7 +119,8 @@ when, the model, and the last lines of the log - show them.
 
 ## stop
 
-`node "<this skill's folder>/alfred-live.mjs" stop --server <server> --project <project>`, then stop the Monitor watch
+`node "<this skill's folder>/alfred-live.mjs" stop --server <server> --project <project>` (it finds the board this chat
+answers by itself; the board shows the session stopped), then stop the Monitor watch
 (TaskStop). Say in one line how many cards it answered (count the `→ ✦` lines in its last lines, or "see the board").
 Check lines the user's answers gave are proposed by `/alfred-sync` - offer it.
 

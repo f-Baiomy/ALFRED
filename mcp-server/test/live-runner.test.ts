@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -312,7 +312,37 @@ test('a terminal session that answers a cycle has its own chat log; without one 
   assert.notEqual(own.chat, shared.chat);
   assert.match(own.chat, /\.e488c1e46e4c\.chat\.log$/);
   assert.match(shared.chat, /-p\.chat\.log$/);
-  assert.equal(own.pid, shared.pid, 'one runner per board: a new terminal takes the cycle over');
+  assert.equal(own.pid, shared.pid, 'one terminal per board: a new terminal takes the board over');
+});
+
+test('each board has its own runner files, and a chat finds the runner it started by its id', () => {
+  const url = 'http://localhost:3000';
+  const a = live.files(url, 'p', 'alfred-live-test', 'chat-a', 'board-a');
+  const b = live.files(url, 'p', 'alfred-live-test', 'chat-b', 'board-b');
+  assert.notEqual(a.pid, b.pid, 'a second board session never ends the first board runner');
+  writeFileSync(a.pid, JSON.stringify({ pid: process.pid, alfred: url, project: 'p', cycleId: 'board-a', chatId: 'chat-a' }));
+  try {
+    assert.equal(live.runnerFile(url, 'p', { chatId: 'chat-a', kind: 'alfred-live-test' }).pid, a.pid, '`stop` in the chat stops its own board');
+    assert.equal(live.runnerFile(url, 'p', { cycleId: 'board-b', kind: 'alfred-live-test' }).pid, b.pid);
+    assert.equal(live.runnerFile(url, 'p', { chatId: 'chat-z', kind: 'alfred-live-test' }).pid, live.files(url, 'p', 'alfred-live-test').pid);
+  } finally { unlinkSync(a.pid); }
+});
+
+test('a chat that runs /alfred-live for a board registers as the board session and holds it', async () => {
+  const calls: any[] = [];
+  const alfred = { call: async (method: string, path: string, o: any) => { calls.push([method, path, o.body]); return {}; } };
+  const env = { ALFRED_KEY: 'k', CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' };
+  assert.deepEqual(await live.registerSession(alfred, { boardId: 'b1', project: 'p', chatId: 'c1', cwd: 'C:/r', state: 'ANSWERING', env }), { registered: true });
+  assert.deepEqual(calls[0], ['PUT', '/board/sessions', { boardId: 'b1', project: 'p', cliSessionId: 'c1', cwd: 'C:/r', state: 'ANSWERING', makeCurrent: true, openIn: 'DESKTOP' }]);
+  assert.deepEqual(calls[1], ['POST', '/board/holders/take', { boardId: 'b1', project: 'p', sessionId: 'c1' }]);
+  calls.length = 0;
+  await live.registerSession(alfred, { boardId: 'b1', project: 'p', chatId: 'c1', cwd: 'C:/r', state: 'STOPPED', env });
+  assert.deepEqual(calls.map((c) => c[1]), ['/board/sessions'], 'stop says Stopped and keeps the board held');
+  assert.equal(calls[0][2].state, 'STOPPED');
+  const none = await live.registerSession(alfred, { boardId: 'b1', project: 'p', chatId: 'c1', cwd: 'C:/r', state: 'ANSWERING', env: {} });
+  assert.equal(none.registered, false, 'no helper key on the PC: nothing to register with');
+  assert.equal(live.openInOf({ CLAUDE_CODE_ENTRYPOINT: 'cli' }), 'TERMINAL');
+  assert.equal(live.openInOf({}), null, 'a runner the helper started does not overwrite where the session is open');
 });
 
 test('with a chat the heartbeat says the chat handles the cycle and whether it is still open', async () => {

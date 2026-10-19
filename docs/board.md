@@ -1100,6 +1100,17 @@ stopped hearing its chat log does not change that. So the Claude button and the 
 the board's chat has its session listening (the chat summary's `claudeOn`: the board's runner registered with
 `chatAlive`); an ANSWERING session without it shows "▶ Resume Claude" ("Claude stopped answering") (`claudeView`).
 
+**A chat that runs /alfred-live is the board's session, wherever it started.** `/alfred-live <project> <board>` in a
+Claude Desktop chat or a terminal the user opened themself registers that chat as the board's session (`PUT
+/board/sessions` with the helper's key on that PC, `openIn` from `CLAUDE_CODE_ENTRYPOINT`, made current) and holds the
+board - the same as one ▶ Start Claude opened. So the board shows "● Claude on", and Pause, Resume and Hand back act
+on that chat through the PC's helper; `/alfred-live stop` in the chat reports it STOPPED (the board stays held until
+Hand back). Each board has its own runner files (pid, logs, cursor - keyed by the board), so a second board's session
+never ends the first's; `stop` / `status` without `--cycle` find the runner this chat started by its session id, and
+one chat that moves to another board stops its runner on the first. A board with no chat message yet still shows
+Claude on from the board's live heartbeat (`chatAlive`). Without a helper on the PC the chat still answers, but the
+board's buttons cannot reach it.
+
 **Somewhere else.** A board whose session lives on another PC shows "Claude on WORK-PC"; its popup offers: resume it
 there (that PC's helper is online), **continue here from Alfred's copy** (a new session started with `/alfred-resume`,
 which reads the brief, decisions and chat), pick another of the board's sessions, or enter any local session id

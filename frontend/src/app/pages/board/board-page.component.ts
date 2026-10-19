@@ -30,6 +30,7 @@ import { BoardCyclesComponent } from '../../components/board/board-cycles/board-
 import { TeamRelatedItemsComponent } from '../../components/team/related-items/related-items.component';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ChatStateService } from '../../core/state/chat-state.service';
+import { SkillRunsStateService } from '../../core/state/skill-runs-state.service';
 import { StageStripComponent } from '../../components/board/stage-strip/stage-strip.component';
 import { BoardSessionButtonComponent } from '../../components/board-session/board-session-button.component';
 import { SessionsStateService } from '../../core/state/sessions-state.service';
@@ -252,9 +253,14 @@ export class BoardPageComponent {
     const scope = this.cycleId();
     return this.chat.summaries().find((s) => s.scope === scope) ?? null;
   });
+  private readonly runs = inject(SkillRunsStateService);
+  /**
+   * Claude answers this board: its chat says so, or the board's session listens (its live heartbeat) - also a session
+   * the user started with /alfred-live in a chat of their own, on a board with no chat message yet.
+   */
   readonly terminalOn = computed(() => {
     const s = this.chatSummary();
-    return !!(s?.terminal?.open || s?.claudeOn);
+    return !!(s?.terminal?.open || s?.claudeOn || this.runs.chat(this.cycleId())?.chatAlive);
   });
   /** The banner, only on the board it is about. */
   readonly bannerHere = computed(() => {
@@ -281,6 +287,11 @@ export class BoardPageComponent {
 
   constructor() {
     effect(() => document.body.classList.toggle('card-window', this.windowMode()));
+    effect(() => {
+      const id = this.cycleId();
+      const project = this.project();
+      if (id && project) untracked(() => this.runs.watchCycle(project, id));
+    });
     // another Alfred's board: presence for its owner (D29), and notes on its calls go over its stream
     const context = inject(RemoteContextService);
     const linksSocket = inject(LinksSocketService);

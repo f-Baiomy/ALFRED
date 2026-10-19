@@ -932,10 +932,12 @@ export function listenLanesOff(url, project) {
   return out;
 }
 
-export function files(url, project, kind = 'alfred-live', chatId = null) {
+export function files(url, project, kind = 'alfred-live', chatId = null, cycleId = null) {
   const dir = join(tmpdir(), kind);
   mkdirSync(dir, { recursive: true });
-  const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
+  // one runner per board: the board is part of the key, so starting a second board's session never ends the first's
+  // (they shared one pid file per project, and the second /alfred-live killed the first board's runner - 2026-10-19)
+  const key = `${url}|${project ?? ''}${cycleId ? `|${cycleId}` : ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
   // a terminal session that answers a cycle has its own chat log: after a hand-over the old one hears nothing more
   const own = chatId ? `.${String(chatId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12)}` : '';
   return { dir, key, log: join(dir, `${key}.log`), chat: join(dir, `${key}${own}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`),
@@ -1480,6 +1482,53 @@ export function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/**
+ * The runner a `stop` / `status` means: the board's when --cycle names one; else the one this chat started (a chat
+ * that ran /alfred-live for a board says only `stop`); else the project's own.
+ */
+export function runnerFile(url, project, { cycleId = null, chatId = null, kind = 'alfred-live' } = {}) {
+  const own = cycleId ? files(url, project, kind, chatId, cycleId) : null;
+  if (own && existsSync(own.pid)) return own;
+  if (cycleId || chatId) {
+    // a running runner of this board or this chat, wherever its pid file is (one started before runners were per board
+    // has the project's file)
+    const dir = join(tmpdir(), kind);
+    for (const name of (() => { try { return readdirSync(dir); } catch { return []; } })()) {
+      if (!name.endsWith('.pid.json')) continue;
+      const r = running(join(dir, name));
+      if (!r || r.alfred !== url || (r.project ?? null) !== (project ?? null)) continue;
+      if (cycleId ? r.cycleId === cycleId : r.chatId === chatId) {
+        return { ...files(url, project, kind, r.cycleId ? r.chatId : null, r.cycleId), pid: join(dir, name) };
+      }
+    }
+  }
+  return own ?? files(url, project, kind, chatId);
+}
+
+/** How a session runs, from Claude Code's environment: a Claude Desktop chat, a terminal, or not known (the helper ran it). */
+export function openInOf(env = process.env) {
+  if (!env.CLAUDE_CODE_ENTRYPOINT) return null;
+  return env.CLAUDE_CODE_ENTRYPOINT === 'claude-desktop' ? 'DESKTOP' : 'TERMINAL';
+}
+
+/**
+ * A chat that runs /alfred-live for a board is that board's session, wherever it was started (2026-10-19): it holds the
+ * board and is its current session, so the board shows Claude on and its Pause, Resume and Hand back act on this chat -
+ * the same as a session ▶ Start Claude opened. Needs the helper's key on this PC (sessions are a helper's); without
+ * one the board still hears the chat through the live heartbeat, only its buttons cannot reach it.
+ */
+export async function registerSession(alfred, { boardId, project, chatId, cwd, state, env = process.env }) {
+  if (!boardId || !chatId || !env.ALFRED_KEY) return { registered: false, why: 'no helper key on this PC - connect it from the board (⬇ Connect this PC)' };
+  try {
+    await alfred.call('PUT', '/board/sessions', { body: { boardId, project: project ?? '', cliSessionId: chatId, cwd, state,
+      ...(state === 'ANSWERING' ? { makeCurrent: true, ...(openInOf(env) ? { openIn: openInOf(env) } : {}) } : {}) } });
+    if (state === 'ANSWERING') await alfred.call('POST', '/board/holders/take', { body: { boardId, project: project ?? '', sessionId: chatId } });
+    return { registered: true };
+  } catch (error) {
+    return { registered: false, why: String(error.message).replace(/^.*?→ /, '').slice(0, 200) };
+  }
+}
+
 export function running(pidFile) {
   try {
     const s = JSON.parse(readFileSync(pidFile, 'utf8'));
@@ -1512,8 +1561,9 @@ export async function main(argv) {
   if (!process.env.ALFRED_KEY) { const k = helperKey(url); if (k) process.env.ALFRED_KEY = k; }
   const project = args.project;
   // the terminal session that answers a cycle: the chat that ran /alfred-live (read from Claude Code's environment)
-  const sessionChat = args.cycle ? (args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null) : null;
-  const f = files(url, project, 'alfred-live', sessionChat);
+  const sessionChat = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
+  const f = command === 'start' || command === 'run' ? files(url, project, 'alfred-live', args.cycle ? sessionChat : null, args.cycle)
+    : runnerFile(url, project, { cycleId: args.cycle, chatId: sessionChat });
   const print = (o) => process.stdout.write(JSON.stringify(o, null, 1) + '\n');
 
   if (command === 'status') {
@@ -1533,15 +1583,32 @@ export async function main(argv) {
     // frees the cycle at once (the runner's own last beat may come too late, or never)
     const chat = r?.chatId && r?.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {};
     await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live', ...chat } }).catch(() => null);
+    // the board says Stopped for this chat (its ▶ Resume asks the chat again); the board stays held - Hand back frees it
+    const session = r?.chatId && r?.cycleId
+      ? await registerSession(new Alfred(url), { boardId: r.cycleId, project, chatId: r.chatId, cwd: r.cwd ?? cwd, state: 'STOPPED' }) : null;
     // specs/020: the answers may come from /alfred-listen's live lane - "stop answering me" reaches it too; listen keeps checking calls
     const lanes = r ? [] : listenLanesOff(url, project);
-    print({ stopped: !!r, ...(lanes.length ? { listenLiveLaneStopped: lanes, note: "the answers came from /alfred-listen's live lane - "
+    print({ stopped: !!r, ...(session ? { session } : {}), ...(lanes.length ? { listenLiveLaneStopped: lanes, note: "the answers came from /alfred-listen's live lane - "
       + 'stopped it; listen keeps checking calls (alfred-listen stop ends listen itself)' } : {}), last: tail(f.log, 5) });
     return;
   }
   if (command === 'start') {
-    const r = running(f.pid);
     const chatIdNow = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
+    if (args.cycle && chatIdNow) {
+      // one board per chat: this chat's runner on another board ends (that board's session is told it stopped)
+      const old = runnerFile(url, project, { chatId: chatIdNow });
+      const was = old.pid !== f.pid ? running(old.pid) : null;
+      if (was?.cycleId && was.cycleId !== args.cycle) {
+        if (existsSync(old.pid)) unlinkSync(old.pid);
+        try { process.kill(was.pid); } catch { /* it ends itself: the pid file is gone */ }
+        await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live',
+          cycleId: was.cycleId, chatId: was.chatId } }).catch(() => null);
+        await registerSession(new Alfred(url), { boardId: was.cycleId, project, chatId: was.chatId, cwd, state: 'STOPPED' });
+      }
+    }
+    // this board's runner, also one started before runners were per board (in the project's file)
+    const cur = args.cycle ? runnerFile(url, project, { cycleId: args.cycle }) : f;
+    const r = running(cur.pid);
     if (r && args.cycle && chatIdNow && (r.chatId !== chatIdNow || r.cycleId !== args.cycle)) {
       // The newest /alfred-live for a cycle takes it over (plan-terminal-answers.md): the old terminal is told in its own
       // chat log and stops listening; its runner ends and frees the cycle.
@@ -1551,12 +1618,15 @@ export async function main(argv) {
             + ' now - this session no longer answers the board chat or its cards; stop watching this log.\n');
         } catch { /* the log is gone: nothing to tell */ }
       }
-      if (existsSync(f.pid)) unlinkSync(f.pid);
+      if (existsSync(cur.pid)) unlinkSync(cur.pid);
       try { process.kill(r.pid); } catch { /* it ends itself: the pid file is gone */ }
       await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live',
         ...(r.chatId && r.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {}) } }).catch(() => null);
     } else if (r) {
-      print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${r.chat ?? f.chat}"`,
+      // running already: this chat is (still) the board's session - say so again, so the board shows it
+      const session = r.cycleId && r.chatId
+        ? await registerSession(new Alfred(url), { boardId: r.cycleId, project, chatId: r.chatId, cwd: r.cwd ?? cwd, state: 'ANSWERING' }) : null;
+      print({ alreadyRunning: true, ...r, ...(session ? { session } : {}), watch: `tail -n 0 -F "${r.chat ?? f.chat}"`,
         ...(r.cycleId && existsSync(join(f.dir, 'chat-rules.md')) ? { chatRules: join(f.dir, 'chat-rules.md') } : {}) });
       return;
     }
@@ -1592,9 +1662,11 @@ export async function main(argv) {
     });
     child.unref();
     const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, chatId: chatId ?? null, model: args.model ?? null,
-      parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
+      parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, cwd, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
-    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"`,
+    // the chat is the board's session now, also when it was started here and not from ▶ Start Claude
+    const session = byChat ? await registerSession(alfred, { boardId: args.cycle, project, chatId, cwd, state: 'ANSWERING' }) : null;
+    print({ started: true, ...started, ...(session ? { session } : {}), model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"`,
       ...(chatRules ? { chatRules } : {}) });
     return;
   }

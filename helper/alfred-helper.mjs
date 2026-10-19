@@ -953,7 +953,9 @@ export class Helper {
     const s = this.sessions.get(cliSessionId);
     const runner = this.liveRunner();
     if (!runner || !this.mcp || !s) return;
-    spawnSync(process.execPath, [runner, 'stop', '--server', this.mcp, '--project', s.project], { cwd: s.cwd, encoding: 'utf8', timeout: 60_000,
+    // the board's own runner (one per board): a project-wide stop ended whichever board's runner the project file named
+    const board = s.boardId && !s.boardId.startsWith('default:') ? ['--cycle', s.boardId] : [];
+    spawnSync(process.execPath, [runner, 'stop', '--server', this.mcp, '--project', s.project, ...board, '--chat', cliSessionId], { cwd: s.cwd, encoding: 'utf8', timeout: 60_000,
       env: { ...process.env, ...this.env(cliSessionId) } });
     s.runner = false;
   }
