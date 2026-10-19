@@ -45,8 +45,7 @@ export function requestVerb(kind: RequestKind): string {
         }
         @for (r of waiting(); track r.id) {
           <div class="lk-req">
-            <div><b>{{ links.nameOf(slugOf(r)) }}{{ r.author ? ' · ' + r.author : '' }}</b> <span class="lk-dim">asks to {{ verb(r) }}</span>
-              <span class="lk-target">{{ r.targetLabel || r.target }}</span></div>
+            <div><b>{{ who(r) }}</b><span class="lk-dim"> asks to {{ verb(r) }} </span><span class="lk-target">{{ r.targetLabel || r.target }}</span></div>
             <div class="lk-diff">{{ r.text }}</div>
             <div class="lk-small lk-dim">{{ r.createdAt | date: 'HH:mm' }} · shown in every open tab, the first answer wins</div>
             @if (rejecting() === r.id) {
@@ -69,7 +68,7 @@ export function requestVerb(kind: RequestKind): string {
         }
         @for (r of links.autoAccepted(); track r.id) {
           <div class="lk-req lk-req-auto">
-            <span><b>{{ links.nameOf(slugOf(r)) }}</b> <span class="lk-dim">{{ verb(r) }} {{ r.targetLabel || r.target }} - accepted automatically</span></span>
+            <span><b>{{ links.nameOf(slugOf(r)) }}</b><span class="lk-dim"> {{ verb(r) }} {{ r.targetLabel || r.target }} - accepted automatically</span></span>
             <div class="lk-row">
               <button type="button" class="lk-btn" [disabled]="busy() === r.id" (click)="undo(r)">Undo</button>
               <button type="button" class="lk-btn" (click)="links.dismissAuto(r.id)">OK</button>
@@ -116,6 +115,14 @@ export class LinksTrayComponent {
 
   verb(r: LinkRequest): string {
     return requestVerb(r.kind);
+  }
+
+  /** The Alfred, and who on it when that says more ("PC-1", "PC-1 · QA 90 via PC-1", "PC-1 (Claude)"). */
+  who(r: LinkRequest): string {
+    const name = this.links.nameOf(this.slugOf(r));
+    const author = (r.author ?? '').trim();
+    if (!author || author === name) return name;
+    return author.startsWith(name) ? author : `${name} · ${author}`;
   }
 
   slugOf(r: LinkRequest): string | null {

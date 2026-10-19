@@ -1,4 +1,5 @@
 import { TeamsStateService } from '../../../core/state/teams-state.service';
+import { userLabel } from '../../../core/links/remote-ref';
 import { TextDirectionStateService } from '../../../core/state/text-direction-state.service';
 import { choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
 import { NgTemplateOutlet } from '@angular/common';
@@ -138,7 +139,7 @@ export interface TimelineReply {
     <ng-template #comment let-e let-item="item" let-root="root">
       <div class="board-ev cd-c" [class.claude]="e.actor === 'CLAUDE'" [class.me]="e.actor === 'USER'" [class.cd-new]="isNew(e)" [attr.data-entry]="e.id"
            [attr.data-new]="isNew(e) ? '' : null">
-        <span class="cd-av" [class.claude]="e.actor === 'CLAUDE'" aria-hidden="true">{{ e.actor === 'CLAUDE' ? '✦' : 'Y' }}</span>
+        <span class="cd-av" [class.claude]="e.actor === 'CLAUDE'" aria-hidden="true">{{ e.actor === 'CLAUDE' ? '✦' : user().charAt(0) }}</span>
         <div class="cd-c-main">
           <div class="board-ev-who cd-who"><b>{{ who(e) }}</b> <span class="cd-time" [title]="full(e.at)">{{ time(e.at) }}</span>
             @if (isNew(e)) { <span class="cd-newdot" title="New since you last looked"></span> }
@@ -255,7 +256,7 @@ export interface TimelineReply {
           <div class="run-dialog-head"><b>Earlier texts</b><button type="button" class="board-link" (click)="history.set(null)">✕</button></div>
           <div class="board-version now"><div class="board-dim">Now</div><app-markdown-view [text]="h.now" /></div>
           @for (v of h.versions; track $index) {
-            <div class="board-version"><div class="board-dim">{{ v.actor === 'CLAUDE' ? '✦ Claude' : 'You' }} · until {{ when(v.at) }}</div><app-markdown-view [text]="v.text" /></div>
+            <div class="board-version"><div class="board-dim">{{ v.actor === 'CLAUDE' ? '✦ Claude' : user() }} · until {{ when(v.at) }}</div><app-markdown-view [text]="v.text" /></div>
           } @empty {
             <div class="board-dim">{{ h.loading ? 'Loading…' : 'No earlier texts.' }}</div>
           }
@@ -603,7 +604,12 @@ export class ActivityTimelineComponent {
   }
 
   who(e: ActivityEntry): string {
-    return e.actor === 'CLAUDE' ? 'Claude' : 'You';
+    return e.actor === 'CLAUDE' ? 'Claude' : this.user();
+  }
+
+  /** "You" here; the owning Alfred's name on another Alfred's card (specs/035). */
+  user(): string {
+    return userLabel(this.card()?.id ?? this.cycleId());
   }
 
   name(e: ActivityEntry): string {
@@ -642,7 +648,7 @@ export class ActivityTimelineComponent {
 
   /** The one-line change, its mentions (a link added or removed) as pills rather than their `@[...]` text. */
   change(e: ActivityEntry): { text?: string; mention?: MentionRef }[] {
-    return parseMentions(changeText(e, (id) => this.teamsState.byId().get(id)?.name ?? id)).map((s) => ('mention' in s ? { mention: s.mention } : { text: s.text }));
+    return parseMentions(changeText(e, (id) => this.teamsState.byId().get(id)?.name ?? id, this.user())).map((s) => ('mention' in s ? { mention: s.mention } : { text: s.text }));
   }
 
   when(iso: string): string {

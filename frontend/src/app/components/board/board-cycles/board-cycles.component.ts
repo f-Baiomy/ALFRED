@@ -130,7 +130,7 @@ function writeSet(key: string, set: ReadonlySet<string>): void {
         @for (v of shown(); track v.row.cycleId) {
           <app-cycle-row [cycle]="v.cycle" [row]="v.row" [summary]="summaries()[v.row.cycleId] ?? null" [marks]="marks()[v.row.cycleId] ?? null"
                          [found]="found()[v.row.cycleId] ?? []" [boardId]="boardId()" [editable]="editable()" [selected]="selected().has(v.row.cycleId)"
-                         [env]="envOf(v.row.cycleId)" [offline]="offline().has(v.row.cycleId)" [versus]="versusOf(v.row.cycleId)" [hasBaseline]="!!baseline()" [claudeSummaries]="claudeSummaries()"
+                         [env]="envOf(v.row.cycleId)" [offline]="offline().has(v.row.cycleId)" [refused]="ended().get(v.row.cycleId) ?? null" [versus]="versusOf(v.row.cycleId)" [hasBaseline]="!!baseline()" [claudeSummaries]="claudeSummaries()"
                          [pauseHint]="pauseHintOf(v.row, v.cycle)"
                          (selectedChange)="select(v.row.cycleId, $event)" (action)="onAction(v.cycle, v.row, $event)"
                          (cardTimeline)="showTimeline($event.card, $event.event)" (dismissPause)="hidePauseHint(v.row.cycleId)" (changed)="cycleChanged($event)" />
@@ -336,6 +336,8 @@ export class BoardCyclesComponent {
   /** Cycles of other Alfreds on this board (specs/035 D25), read from their owners; a placeholder while one is offline. */
   private readonly remoteCycles = signal<Record<string, SessionCycle>>({});
   readonly offline = signal<ReadonlySet<string>>(new Set());
+  /** Of those, the ones their Alfred refused (D22, D8): what it said - waiting will not bring them back. */
+  readonly ended = signal<ReadonlyMap<string, string>>(new Map());
   /** The environment each test cycle belongs to (D41): `cycleRef -> STG`, kept by this host. */
   private readonly envTags = signal<Record<string, string>>({});
   private readonly cycleById = computed(() => new Map([...this.cycleState.cycles().map((c) => [c.id, c] as const),
@@ -483,10 +485,15 @@ export class BoardCyclesComponent {
       next: (c) => {
         this.remoteCycles.update((m) => ({ ...m, [ref]: { ...c, id: ref } }));
         this.offline.update((o) => new Set([...o].filter((x) => x !== ref)));
+        this.ended.update((o) => new Map([...o].filter(([x]) => x !== ref)));
       },
-      error: () => {
+      error: (e: { status?: number; error?: { error?: string } }) => {
         this.remoteCycles.update((m) => (m[ref] ? m : { ...m, [ref]: placeholder() }));
+        // the export still cannot read it either way, so both count as away there
         this.offline.update((o) => new Set([...o, ref]));
+        const code = e?.status === 403 ? e?.error?.error : undefined;
+        const why = code === 'NOT_STREAMED' ? 'stream ended' : code === 'NOT_PASSED_ON' ? 'not passed on' : null;
+        this.ended.update((o) => new Map([...[...o].filter(([x]) => x !== ref), ...(why ? [[ref, why] as [string, string]] : [])]));
       },
     });
   }
@@ -821,11 +828,14 @@ export class BoardCyclesComponent {
     if (away.length) {
       const names = away.map((c) => `“${c.name}”`).join(', ');
       const others = p.cycles.length - away.length;
+      const allEnded = away.every((c) => this.ended().has(c.id));
+      const why = allEnded ? 'no longer streamed here' : away.some((c) => this.ended().has(c.id))
+        ? 'offline or no longer streamed here' : 'on an Alfred that is offline';
       if (!others) {
-        this.say(`${names}: their Alfred is offline - an export never cuts calls, so try again when it is back.`, true);
+        this.say(`${names}: ${why} - an export never cuts calls, so ${allEnded ? 'ask its owner to stream it again' : 'try again when it is back'}.`, true);
         return;
       }
-      const go = await this.confirmDialog.confirm(`${names} ${away.length === 1 ? 'is' : 'are'} on an Alfred that is offline - an export never `
+      const go = await this.confirmDialog.confirm(`${names} ${away.length === 1 ? 'is' : 'are'} ${why} - an export never `
         + `cuts calls, so ${away.length === 1 ? 'it' : 'they'} cannot be written now. Export the other ${others} without ${away.length === 1 ? 'it' : 'them'}?`,
         'Export without them');
       if (!go) return;

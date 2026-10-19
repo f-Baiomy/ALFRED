@@ -1,4 +1,5 @@
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
+import { userLabel } from '../../../core/links/remote-ref';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
   CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
@@ -195,7 +196,7 @@ export class BoardCardComponent {
   readonly liveWork = computed(() => this.live.working().find((w) => w.project === this.card().project && w.cardNumber === this.card().number) ?? null);
   readonly liveStep = currentStep;
   readonly unread = computed(() => this.seen.isUnread(this.card()));
-  readonly waiting = computed(() => waitingPill(this.card(), this.now()));
+  readonly waiting = computed(() => waitingPill(this.card(), this.now(), userLabel(this.card().id)));
   readonly skill = computed(() => skillFor(this.card()));
   readonly chip = computed(() => {
     const r = this.retest();
@@ -233,7 +234,11 @@ export class BoardCardComponent {
   readonly buttons = RESOLUTION_BUTTONS;
   readonly stale = computed(() => isStale(this.card(), this.now()));
   readonly age = computed(() => ageText(this.card().updatedAt, this.now()));
-  readonly cycleLabel = computed(() => this.cycleName() ?? this.card().cycleId ?? '');
+  // a card's task key is its board's id since specs/027 - name the board when it is one
+  readonly cycleLabel = computed(() => {
+    const id = this.card().cycleId;
+    return this.cycleName() ?? (id ? this.boardNames().get(id) ?? id : '');
+  });
   readonly scopeText = computed(() => {
     const s = this.card().scope;
     return s === 'IN_SCOPE' ? 'in scope' : s === 'OUT_OF_SCOPE' ? 'out of scope' : 'scope?';

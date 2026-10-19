@@ -2,6 +2,7 @@ import {
   BriefComment, CardKind, CardRef, CardStatus, CardSummary, ChecklistFile, ChecklistItem, SessionLogEntry, TestStep,
 } from '../../core/models/board.models';
 import { textAsMarkdown } from './rich-html';
+import { userLabel } from '../../core/links/remote-ref';
 
 /**
  * The Task view of a session cycle (a cycle is a task - skills/_shared/rules.md §0): the brief split into its sections,
@@ -273,7 +274,10 @@ export function needsYou(cards: readonly CardSummary[]): { card: CardSummary; wh
   return cards.filter((c) => c.status !== 'CLOSED' && c.status !== 'DONE').flatMap((c) => {
     if (c.proposal) return [{ card: c, why: 'Claude proposes ' + (c.proposal.kind === 'MERGE' ? 'a merge' : c.proposal.kind === 'REOPEN' ? 'reopening it' : c.proposal.status.toLowerCase().replace('_', ' ')) }];
     if (c.kind === 'QUESTION' && c.status === 'INBOX') return [{ card: c, why: 'a question' }];
-    if (c.waiting?.who === 'USER') return [{ card: c, why: 'waits on you' }];
+    if (c.waiting?.who === 'USER') {
+      const who = userLabel(c.id); // another Alfred's card waits on its own people (specs/035)
+      return [{ card: c, why: `waits on ${who === 'You' ? 'you' : who}` }];
+    }
     return [];
   });
 }

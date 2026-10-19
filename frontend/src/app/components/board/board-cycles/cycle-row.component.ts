@@ -42,7 +42,10 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
             @if (r.baseline) { <span class="cyx-tag base" title="Compare and “vs baseline” use this cycle">⚑ baseline</span> }
             @if (remote()) { <span (click)="$event.stopPropagation()"><app-origin-pill [ref]="c.id" kind="CYCLE" [host]="editable()" [allowRemove]="editable()" (remove)="act('remove')" /></span> }
             @if (env()) { <span class="cyx-tag" title="The environment it tests">{{ env() }}</span> }
-            @if (offline()) { <span class="cyx-tag" title="Its Alfred cannot be reached - its calls are not shown, nothing is guessed">offline</span> }
+            @if (refused(); as why) { <span class="cyx-tag" [title]="why === 'not passed on'
+              ? 'Its owner lets the Alfred in between read it but not pass it on - ask the owner to allow passing on'
+              : 'Its Alfred stopped streaming it - its calls are no longer shown here; remove it or ask its owner to stream it again'">{{ why }}</span> }
+            @else if (offline()) { <span class="cyx-tag" title="Its Alfred cannot be reached - its calls are not shown, nothing is guessed">offline</span> }
           </div>
           <div class="cyx-sub">
             @if (c.status === 'RECORDING') { <span class="cyx-recpill">● REC</span> } @else if (when()) { <span>{{ when() }}</span> }
@@ -279,6 +282,8 @@ export class CycleRowComponent {
   readonly claudeSummaries = input(true);
   /** Its Alfred cannot be reached right now (specs/035 D21). */
   readonly offline = input(false);
+  /** Its Alfred refused it - "stream ended" (D22), "not passed on" (D8): unlike offline, waiting will not bring it back. */
+  readonly refused = input<string | null>(null);
   /** Another Alfred's cycle on this board (D25): the board's choices (baseline, archive, remove) are this host's; the
    *  cycle itself - recording, its name, description, steps - stays its owner's. */
   readonly remote = computed(() => splitRef(this.cycle().id) !== null);

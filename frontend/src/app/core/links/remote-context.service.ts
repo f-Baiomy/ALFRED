@@ -29,4 +29,14 @@ export class RemoteContextService {
     }
     return active.find((s) => s.kind === 'BOARD') ?? active.find((s) => s.kind === 'CYCLE');
   }
+
+  /**
+   * The open cycle as the link a call is reached through names it (`<cycle>` for its owner's own, `<cycle>@<x>` for one
+   * passed on from a third Alfred), so the owner can place a note on that call - none when the call is not the open cycle's.
+   */
+  cycleForCall(callRef: string): string | undefined {
+    const call = splitRef(callRef);
+    const cycle = splitRef(this.cycleRef());
+    return call && cycle && cycle.slug === call.slug ? cycle.inner : undefined;
+  }
 }

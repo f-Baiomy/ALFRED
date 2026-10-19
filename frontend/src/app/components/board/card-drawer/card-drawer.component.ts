@@ -1,4 +1,5 @@
 import { AskOwnerComponent } from '../../links/ask-owner/ask-owner.component';
+import { userLabel } from '../../../core/links/remote-ref';
 import { splitRef } from '../../../core/links/remote-ref';
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
@@ -165,7 +166,7 @@ function writeJson(key: string, value: unknown): void {
                 @if (editable()) { <button type="button" class="board-link cd-hover-only" (click)="editingShort.set(true)">✎ short name</button> }
               }
             </div>
-            <app-card-home [card]="c" [editable]="editable()" />
+            <app-card-home [card]="c" [editable]="editable()" [homeName]="cycleName()" />
             <div class="cd-props">
               <span class="cd-prop" [class]="'cd-prop cd-prop-' + c.status"><span class="cd-k">Status</span>
                 <app-select-picker class="select-compact" [disabled]="!editable()" [options]="statusOptions" [value]="statusValue()"
@@ -317,7 +318,7 @@ function writeJson(key: string, value: unknown): void {
               <div class="run-dialog-head"><b>Earlier descriptions</b><button type="button" class="board-link" (click)="descHistory.set(null)">✕</button></div>
               <div class="board-version now"><div class="board-dim">Now</div><app-markdown-view [text]="c.description" empty="No description." /></div>
               @for (v of h.versions; track $index) {
-                <div class="board-version"><div class="board-dim">{{ v.actor === 'CLAUDE' ? '✦ Claude' : 'You' }} · until {{ v.at }}</div><app-markdown-view [text]="v.text" empty="(empty)" /></div>
+                <div class="board-version"><div class="board-dim">{{ v.actor === 'CLAUDE' ? '✦ Claude' : userOf(c.id) }} · until {{ v.at }}</div><app-markdown-view [text]="v.text" empty="(empty)" /></div>
               } @empty {
                 <div class="board-dim">{{ h.loading ? 'Loading…' : 'No earlier descriptions kept.' }}</div>
               }
@@ -329,7 +330,7 @@ function writeJson(key: string, value: unknown): void {
           @if (card(); as c) { @if (needs(); as n) {
             <section class="cd-sec cd-needs" [class.cd-attn]="n.rows.length" [class.closed]="!isOpen('needs', n.rows.length > 0)">
               <button type="button" class="cd-sh" (click)="toggleSection('needs', n.rows.length > 0)">
-                <span class="cd-car">▾</span><h5>{{ n.rows.length ? 'Needs you' : 'Notes' }}</h5><span class="cd-smry">{{ n.summary }}</span></button>
+                <span class="cd-car">▾</span><h5>{{ n.rows.length ? (userOf(c.id) === 'You' ? 'Needs you' : 'Waits on ' + userOf(c.id)) : 'Notes' }}</h5><span class="cd-smry">{{ n.summary }}</span></button>
               @if (isOpen('needs', n.rows.length > 0)) {
                 <div class="cd-sb">
                   @if (c.proposal; as p) {
@@ -603,7 +604,7 @@ export class CardDrawerComponent {
   private readonly seen = inject(BoardSeenService);
   /** "Now" for the waiting time, taken when the card is read - no clock of its own. */
   private readonly readAt = signal(Date.now());
-  readonly waiting = computed(() => { const c = this.card(); return c ? waitingPill(c, this.readAt()) : null; });
+  readonly waiting = computed(() => { const c = this.card(); return c ? waitingPill(c, this.readAt(), userLabel(c.id)) : null; });
   readonly skill = computed(() => {
     const c = this.card();
     return c ? skillFor(c) : null;
@@ -1334,5 +1335,10 @@ export class CardDrawerComponent {
       if (!ok) return;
       this.api.delete(c.id).subscribe({ next: () => this.closed.emit(), error: (e) => this.error.set(messageOf(e)) });
     });
+  }
+
+  /** "You" here; the owning Alfred's name on another Alfred's card (specs/035). */
+  userOf(cardId: string): string {
+    return userLabel(cardId);
   }
 }

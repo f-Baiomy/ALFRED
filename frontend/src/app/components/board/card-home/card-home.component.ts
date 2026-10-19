@@ -56,10 +56,12 @@ export class CardHomeComponent {
   readonly error = signal<string | null>(null);
 
   readonly homeId = computed(() => this.card().boardId ?? defaultBoardId(this.card().project));
+  /** The home board's name when it is not one of this Alfred's boards (another Alfred's, specs/035). */
+  readonly homeName = input<string | null>(null);
   readonly homeOptions = computed<SelectOption[]>(() => {
     const opts = this.boards().filter((b) => b.board.state !== 'ARCHIVED' || b.board.id === this.homeId())
       .map((b) => ({ value: b.board.id, label: b.board.isDefault ? `${b.board.name} (default)` : b.board.name }));
-    return opts.some((o) => o.value === this.homeId()) ? opts : [{ value: this.homeId(), label: this.homeId() }, ...opts];
+    return opts.some((o) => o.value === this.homeId()) ? opts : [{ value: this.homeId(), label: this.homeName() || this.homeId() }, ...opts];
   });
   readonly addOptions = computed<SelectOption[]>(() => {
     const on = new Set(this.related());

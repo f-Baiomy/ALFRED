@@ -39,14 +39,17 @@ export function waitingText(w: WaitingOn | null | undefined, now: number): strin
  * 1 decision · 3 min", "waiting on you: a proposal", "sort it", "your reply"; "waiting on Claude: your question" after the
  * user asked back on an open question. Null for nobody / not set.
  */
-export function waitingPill(card: Pick<CardSummary, 'waiting' | 'openQuestions' | 'proposal' | 'status'>, now: number): string | null {
+export function waitingPill(card: Pick<CardSummary, 'waiting' | 'openQuestions' | 'proposal' | 'status'>, now: number,
+                            user = 'You'): string | null {
   const w = card.waiting;
   if (!w || w.who === 'NONE') return null;
   const age = ageText(w.since, now);
   const n = card.openQuestions ?? 0;
   if (w.who === 'USER') {
-    const what = n ? `${n} decision${n === 1 ? '' : 's'}` : card.proposal ? 'a proposal' : card.status === 'INBOX' ? 'sort it' : 'your reply';
-    return `waiting on you: ${what} · ${age}`;
+    // another Alfred's card waits on its own people (specs/035), never on this browser's user
+    const mine = user === 'You';
+    const what = n ? `${n} decision${n === 1 ? '' : 's'}` : card.proposal ? 'a proposal' : card.status === 'INBOX' ? 'sort it' : mine ? 'your reply' : 'a reply';
+    return `waiting on ${mine ? 'you' : user}: ${what} · ${age}`;
   }
   if (w.who === 'CLAUDE' && n) return `waiting on Claude: your question · ${age}`;
   return waitingText(w, now);

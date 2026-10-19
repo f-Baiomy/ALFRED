@@ -1,4 +1,5 @@
 import { EnvMatrixComponent } from '../../links/env-matrix/env-matrix.component';
+import { userLabel } from '../../../core/links/remote-ref';
 import { WorkItemStripComponent } from '../work-item-strip/work-item-strip.component';
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -85,7 +86,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
       </div>
       @if (needs().length) {
         <div class="tv-needs">
-          <b>Needs you</b><span class="tv-info" title="Everything on this task waiting for you; click one to go there.">ⓘ</span>
+          <b>{{ needsWho() }}</b><span class="tv-info" [title]="'Everything on this task waiting for ' + (needsWho() === 'Needs you' ? 'you' : whose()) + '; click one to go there.'">ⓘ</span>
           @for (n of needs(); track n.text) {
             <button type="button" class="tv-it" [class.bad]="n.tone === 'bad'" (click)="need(n)">{{ n.text }}</button>
           }
@@ -208,6 +209,9 @@ export class TaskViewComponent {
   private readonly api = inject(BoardApiService);
   private readonly mentions = inject(BoardMentionsService);
   readonly cycleId = input.required<string>();
+  /** Another Alfred's board waits on its own people, not on this browser's user (specs/035). */
+  readonly whose = computed(() => userLabel(this.cycleId()));
+  readonly needsWho = computed(() => (this.whose() === 'You' ? 'Needs you' : `Waits on ${this.whose()}`));
   readonly project = input('');
   readonly editable = input(true);
   readonly cycleName = input<string | null>(null);

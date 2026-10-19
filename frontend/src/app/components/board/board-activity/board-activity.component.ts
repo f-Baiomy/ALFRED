@@ -1,4 +1,5 @@
 import { Component, DestroyRef, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { userLabel } from '../../../core/links/remote-ref';
 import { DatePipe } from '@angular/common';
 import { filter } from 'rxjs';
 import { BoardActivity } from '../../../core/models/board.models';
@@ -19,7 +20,7 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
       @for (a of items(); track a.id) {
         <div class="board-activity-row" [class.undone]="a.undoneAt">
           <span class="board-activity-at" [title]="a.at">{{ a.at | date: 'd MMM HH:mm' }}</span>
-          <span><b>{{ a.actor === 'CLAUDE' ? 'Claude' : 'You' }}</b> {{ a.text }}</span>
+          <span><b>{{ a.actor === 'CLAUDE' ? 'Claude' : user() }}</b> {{ a.text }}</span>
           @if (a.undo && !a.undoneAt && editable()) {
             <button type="button" class="action-btn" (click)="undo(a)">Undo</button>
           } @else { <span></span> }
@@ -42,6 +43,10 @@ export class BoardActivityComponent {
   private readonly api = inject(BoardApiService);
 
   readonly boardId = input.required<string>();
+  /** "You" here; the owning Alfred's name on another Alfred's board (specs/035). */
+  user(): string {
+    return userLabel(this.boardId());
+  }
   readonly editable = input(true);
   /** On the board page's Activity tab (specs/029): always open, no fold. */
   readonly flat = input(false);

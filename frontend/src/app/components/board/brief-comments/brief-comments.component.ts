@@ -1,4 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { userLabel } from '../../../core/links/remote-ref';
 import { Component, ElementRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { BriefComment, CycleBrief } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
@@ -60,7 +61,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
           <div [class.tv-rep]="c !== root">
             <div class="tv-cw">
               <span class="tv-av" [class.cl]="c.actor === 'CLAUDE'">{{ c.actor === 'CLAUDE' ? '✦' : 'Y' }}</span>
-              <b [class.cln]="c.actor === 'CLAUDE'">{{ c.actor === 'CLAUDE' ? 'Claude' : 'You' }}</b>
+              <b [class.cln]="c.actor === 'CLAUDE'">{{ c.actor === 'CLAUDE' ? 'Claude' : user() }}</b>
               <span class="board-dim">{{ when(c.createdAt) }}</span>
               @if (c.asks) { <span class="tv-asks">❓ asks you</span> }
             </div>
@@ -103,6 +104,10 @@ export class BriefCommentsComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly cycleId = input.required<string>();
+  /** "You" here; the owning Alfred's name on another Alfred's brief (specs/035). */
+  user(): string {
+    return userLabel(this.cycleId());
+  }
   readonly project = input('');
   readonly editable = input(true);
   readonly comments = input<readonly BriefComment[]>([]);

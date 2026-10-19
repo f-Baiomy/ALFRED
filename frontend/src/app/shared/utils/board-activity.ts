@@ -27,9 +27,12 @@ export function proposalTarget(value: string | null): string {
   return STATUS_LABELS[status as CardStatus] ?? status;
 }
 
-/** "You moved Inbox → In progress" - a recorded change in words. `teamName` turns a team id into its name. */
-export function changeText(e: ActivityEntry, teamName: (id: string) => string = (id) => id): string {
-  const who = e.actor === 'CLAUDE' ? 'Claude' : 'You';
+/**
+ * "You moved Inbox → In progress" - a recorded change in words. `teamName` turns a team id into its name; `user` names
+ * the user (another Alfred's name for its card, specs/035).
+ */
+export function changeText(e: ActivityEntry, teamName: (id: string) => string = (id) => id, user = 'You'): string {
+  const who = e.actor === 'CLAUDE' ? 'Claude' : user;
   const status = (v: string | null) => (v ? STATUS_LABELS[v as CardStatus] ?? v : '');
   const scope = (v: string | null) => (v ? SCOPE_LABELS[v as Scope] ?? v : '');
   switch (e.kind) {

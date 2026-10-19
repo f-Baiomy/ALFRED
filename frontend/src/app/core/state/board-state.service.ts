@@ -1,4 +1,5 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
+import { splitRef } from '../links/remote-ref';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, Subject, auditTime, merge } from 'rxjs';
 import {
@@ -41,7 +42,8 @@ export class BoardStateService {
   readonly openCardVersion = signal(0);
 
   readonly cards = computed<readonly CardSummary[]>(() => this.page()?.cards ?? []);
-  readonly editable = computed(() => this.access().editable);
+  /** Another Alfred's board (specs/035) is read only here whatever this browser may change: its owner's. */
+  readonly editable = computed(() => this.access().editable && splitRef(this.cycleId()) === null);
 
   constructor() {
     const destroyRef = inject(DestroyRef);

@@ -1,4 +1,5 @@
 import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { userLabel } from '../../../core/links/remote-ref';
 import { HttpErrorResponse } from '@angular/common/http';
 import { debounceTime, filter } from 'rxjs';
 import { BoardStage, NextSteps } from '../../../core/models/board.models';
@@ -62,7 +63,7 @@ export function stageCount(st: BoardStage | null): string | null {
       @if (waitingAll(); as n) {
         <span aria-hidden="true">·</span>
         <button type="button" class="you" [title]="waiting().length ? 'Open #' + waiting()[0] + ' - the first one' : 'Changes waiting to go to Azure'"
-                (click)="openFirst()">⚑ {{ n }} wait{{ n === 1 ? 's' : '' }} on you</button>
+                (click)="openFirst()">⚑ {{ n }} wait{{ n === 1 ? 's' : '' }} on {{ waitsOn() }}</button>
       }
       @if (count(); as c) { <span aria-hidden="true">·</span><span class="amber">{{ c }}</span> }
       @if (outbox.count(); as n) {
@@ -100,6 +101,12 @@ export class BoardFactsComponent {
 
   readonly project = input('');
   readonly boardId = input.required<string>();
+
+  /** "you" here; the owning Alfred on another Alfred's board (specs/035). */
+  waitsOn(): string {
+    const u = userLabel(this.boardId());
+    return u === 'You' ? 'you' : u;
+  }
   readonly stage = input<BoardStage | null>(null);
   readonly cards = input(0);
   readonly editable = input(true);

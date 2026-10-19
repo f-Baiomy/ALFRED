@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LinksApiService } from './links-api.service';
 import { LinksSocketService } from './links-socket.service';
 import { AlfredSelf, LinkInfo, LinkProblem, LinkRequest, Offer, Pairing, Presence, SendRequest, Stream } from './links.models';
-import { originOf, setKnownSlugs } from './remote-ref';
+import { originOf, setKnownNames, setKnownSlugs, streamedNames } from './remote-ref';
 
 /** A request the owner could not take now (offline): kept in this browser only and sent when the owner is back (D14). */
 export interface LinkDraft {
@@ -84,6 +84,12 @@ export class LinksStateService {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    // the names of what other Alfreds stream here, for the places that only have a ref (the chat bar)
+    effect(() => {
+      const bySlug = this.linkById();
+      streamedNames.set(new Map(this.given().filter((x) => x.targetName && bySlug.has(x.linkId))
+        .map((x) => [`${x.target}@${bySlug.get(x.linkId)!.slug}`, x.targetName!])));
+    }, { allowSignalWrites: true });
     this.refresh$.pipe(auditTime(150), takeUntilDestroyed(destroyRef)).subscribe((what) => this.load(what));
     this.socket.events$.pipe(takeUntilDestroyed(destroyRef)).subscribe((e) => {
       switch (e.type) {
@@ -129,6 +135,7 @@ export class LinksStateService {
         next: (l) => {
           this.links.set(l);
           setKnownSlugs(new Set(l.map((x) => x.slug)));
+          setKnownNames(new Map(l.map((x) => [x.slug, x.name])));
           this.loaded.set(true);
           this.unavailable.set(false);
         },

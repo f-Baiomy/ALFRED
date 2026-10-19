@@ -137,9 +137,12 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
       @if (cycleId(); as id) {
         @if (taskBoard()) {
           <app-stage-strip [stage]="stage()" [phase]="phase()" />
-          <app-next-step-card [project]="project()" [boardId]="id" [boardName]="cycleName()" [stage]="stage()" [terminalOn]="terminalOn()"
-                              [cycles]="boardCycles()" [editable]="editable()" (askClaude)="claude?.runAfterStart($event)" />
-          <app-record-line [boardId]="id" [cycles]="boardCycles()" [editable]="editable()" (changed)="reloadSummary()" />
+          <!-- the next step and recording are the owner's on another Alfred's board -->
+          @if (!remote()) {
+            <app-next-step-card [project]="project()" [boardId]="id" [boardName]="cycleName()" [stage]="stage()" [terminalOn]="terminalOn()"
+                                [cycles]="boardCycles()" [editable]="editable()" (askClaude)="claude?.runAfterStart($event)" />
+            <app-record-line [boardId]="id" [cycles]="boardCycles()" [editable]="editable()" (changed)="reloadSummary()" />
+          }
         }
         <app-task-view [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" [nested]="true"
                        [showTask]="tab() === 'task'" (taskAsked)="setTab('task')" (cardOpened)="setTab('cards')" (phaseChange)="phase.set($event)">

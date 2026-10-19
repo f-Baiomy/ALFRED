@@ -32,13 +32,16 @@ export class CommentsApiService {
     const split = splitRef(newComment.callId);
     if (split) {
       const links = this.injector.get(LinksStateService);
-      const stream = this.injector.get(RemoteContextService).streamForCall(newComment.callId);
+      const context = this.injector.get(RemoteContextService);
+      const stream = context.streamForCall(newComment.callId);
+      const cycleId = context.cycleForCall(newComment.callId);
       if (!stream) {
         return new Observable<Comment>((s) => s.error({ error: 'NOT_STREAMED', message: 'No stream from ' + links.nameOf(split.slug) + ' carries this call' }));
       }
       const owner = links.nameOf(split.slug);
       return links.send({ via: split.slug, streamId: stream.id, kind: 'CALL_NOTE', target: split.inner, targetLabel: newComment.lineText?.slice(0, 120) || undefined,
-        text: newComment.comment, extra: JSON.stringify({ block: newComment.block, lineIndex: newComment.lineIndex, lineText: newComment.lineText }) })
+        text: newComment.comment,
+        extra: JSON.stringify({ block: newComment.block, lineIndex: newComment.lineIndex, lineText: newComment.lineText, ...(cycleId ? { cycleId } : {}) }) })
         .pipe(map((r) => ({ id: r?.id ?? 'draft', callId: newComment.callId, block: newComment.block, lineIndex: newComment.lineIndex,
           lineText: newComment.lineText, createdAt: new Date().toISOString(),
           comment: r?.state === 'ACCEPTED' ? newComment.comment : `⇄ waiting for ${owner}: ${newComment.comment}` })));

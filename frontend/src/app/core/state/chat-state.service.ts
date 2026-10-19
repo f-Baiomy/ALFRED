@@ -13,6 +13,7 @@ import { messageOf } from './board-state.service';
 import { unreadOf } from '../../shared/utils/chat-queue';
 import { chatScopeFor, withChip, withoutChip } from '../../shared/utils/chat-context';
 import { BarRow, ChatMute, barRows, totalUnread } from '../../shared/utils/chat-bar';
+import { streamedNames } from '../links/remote-ref';
 
 /** The newest page of one chat, oldest first, and whether older messages wait behind it. */
 export interface ChatThread {
@@ -95,7 +96,7 @@ export class ChatStateService {
   });
   /** Chat names by scope: a board chat's scope is its board id (specs/027), an older one a cycle id. */
   private readonly boardNames = signal<ReadonlyMap<string, string>>(new Map());
-  readonly cycleNames = computed(() => new Map([...this.cycles().map((c) => [c.id, c.name] as const), ...this.boardNames()]));
+  readonly cycleNames = computed(() => new Map([...this.cycles().map((c) => [c.id, c.name] as const), ...this.boardNames(), ...streamedNames()]));
   readonly rows = computed<BarRow[]>(() => {
     this.draftsVersion();
     return barRows({ project: this.project(), summaries: this.summaries(), inView: this.cycleInView(), seen: this.seen(), mute: this.prefs().mute,

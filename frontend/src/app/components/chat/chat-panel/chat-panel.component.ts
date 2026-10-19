@@ -1,4 +1,4 @@
-import { splitRef } from '../../../core/links/remote-ref';
+import { splitRef, userLabel } from '../../../core/links/remote-ref';
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { WriteBundle } from '../../../core/team/team.models';
 import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
@@ -440,7 +440,7 @@ export class ChatPanelComponent implements AfterViewChecked {
       error: () => undefined,
     });
   }
-  readonly howToEdit = computed(() => this.remoteChat() ? "this chat is its own Alfred's, streamed with its board - write on the cards instead" : this.heldBy() ? `held by ${this.heldBy()!.user} - ask them for the board` : this.access().howToEdit || 'open Alfred on its own machine to write');
+  readonly howToEdit = computed(() => this.remoteChat() ? `this chat is ${userLabel(this.scope())}'s, streamed with its board - a comment on one of its cards reaches them, when the stream lets you comment` : this.heldBy() ? `held by ${this.heldBy()!.user} - ask them for the board` : this.access().howToEdit || 'open Alfred on its own machine to write');
   readonly settings = signal<ChatSettings>(DEFAULT_CHAT_SETTINGS);
   readonly mute = computed<ChatMute>(() => this.state.prefs().mute[`${this.state.project()}/${this.scope()}`] ?? 'all');
 

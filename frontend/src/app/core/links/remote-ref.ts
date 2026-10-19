@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 /**
  * Refs to another Alfred's things (specs/035 R1): the owner's own id, then `@<slug>` of the link it is reached through -
  * `8f1c…@stg-83`. Read through a second link, a ref gets a second suffix; the outermost is the link used here. A slug is
@@ -43,6 +44,25 @@ export function setKnownSlugs(slugs: ReadonlySet<string>): void {
 
 export function isKnownSlug(slug: string): boolean {
   return known.has(slug);
+}
+
+let names: ReadonlyMap<string, string> = new Map();
+
+/** The names of the things other Alfreds stream here (ref -> name), kept current by LinksStateService. */
+export const streamedNames = signal<ReadonlyMap<string, string>>(new Map());
+
+/** The names this Alfred gave its links (slug -> name), kept current by LinksStateService. */
+export function setKnownNames(byslug: ReadonlyMap<string, string>): void {
+  names = byslug;
+}
+
+/**
+ * Who "the user" is in the history of a thing: this browser's user ("You") for this Alfred's own, the owning Alfred's
+ * name for another Alfred's card, board or brief - its people wrote it, not you.
+ */
+export function userLabel(ownerRef: string | null | undefined): string {
+  const s = splitRef(ownerRef);
+  return s && known.has(s.slug) ? names.get(s.slug) ?? s.slug : 'You';
 }
 
 export function withOrigin(id: string, slug: string): string {

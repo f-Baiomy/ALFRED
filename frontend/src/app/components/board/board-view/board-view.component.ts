@@ -254,12 +254,11 @@ export class BoardViewComponent {
       untracked(() => {
         this.state.show(project, cycleId);
         this.retest.show(project);
-        if (cycleId) {
-          this.api.boards(null).subscribe({
-            next: (all) => this.boardNames.set(new Map(all.map((b) => [b.board.id, b.board.name]))),
-            error: () => undefined,
-          });
-        }
+        // a board names its cards' other boards; All cards names each card's own (its chip)
+        this.api.boards(null).subscribe({
+          next: (all) => this.boardNames.set(new Map(all.map((b) => [b.board.id, b.board.name]))),
+          error: () => undefined,
+        });
       });
     });
     effect(() => {

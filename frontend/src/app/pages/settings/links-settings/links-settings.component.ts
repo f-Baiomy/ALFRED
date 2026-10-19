@@ -35,13 +35,13 @@ import { requestVerb } from '../../../components/links/links-tray/links-tray.com
             <button type="button" class="bulk-btn" [disabled]="!selfName().trim()" (click)="saveSelf()">Save</button>
             <button type="button" class="board-link" (click)="editingSelf.set(false)">Cancel</button>
           } @else {
-            <b>{{ me.name }}</b> <span class="board-dim">Alfred {{ me.version }} · id {{ me.alfredId.slice(0, 8) }}</span>
+            <b>{{ me.name }}</b><span class="board-dim"> Alfred {{ me.version }} · id {{ me.alfredId.slice(0, 8) }}</span>
             <button type="button" class="board-link" (click)="selfName.set(me.name); editingSelf.set(true)">Rename</button>
           }
         </div>
         <label class="lk-check">
           <input type="checkbox" [checked]="me.announce" (change)="setAnnounce($any($event.target).checked)" />
-          Announce this Alfred on the LAN as <b>"{{ me.name }}"</b> <span class="board-dim">(name, address and version only; it never links by itself)</span>
+          Announce this Alfred on the LAN as <b>"{{ me.name }}"</b><span class="board-dim"> (name, address and version only; it never links by itself)</span>
         </label>
       }
 
@@ -87,9 +87,9 @@ import { requestVerb } from '../../../components/links/links-tray/links-tray.com
 
       @for (p of openPairings(); track p.id) {
         <div class="lk-line lk-pairing">
-          <span>Linking <b>{{ p.name }}</b> <span class="board-dim">{{ p.address }}</span></span>
+          <span>Linking <b>{{ p.name }}</b><span class="board-dim"> {{ p.address }}</span></span>
           @if (p.state === 'WAITING') {
-            <span class="lk-small">waiting for someone there to accept - check it shows</span> <span class="lk-code">{{ p.code }}</span>
+            <span class="lk-small">waiting for someone there to accept - check it shows</span>&nbsp;<span class="lk-code">{{ p.code }}</span>
             <span class="lk-sp"></span>
             <button type="button" class="board-link" (click)="cancelPairing(p)">Cancel</button>
           } @else {

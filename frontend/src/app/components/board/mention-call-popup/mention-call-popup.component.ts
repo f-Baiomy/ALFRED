@@ -1,5 +1,6 @@
 import { Component, HostListener, Injectable, computed, effect, forwardRef, inject, signal, untracked } from '@angular/core';
 import { Observable, catchError, map, of } from 'rxjs';
+import { userLabel } from '../../../core/links/remote-ref';
 import { CallBadge, STATUS_LABELS } from '../../../core/models/board.models';
 import { CallDetail, CallDetailPart, CallEndpointSource, CallRecord } from '../../../core/models/call.model';
 import { BoardApiService } from '../../../core/services/board-api.service';
@@ -110,7 +111,7 @@ class PopupCallOrigin implements CallOrigin {
                 } @placeholder { <div class="board-dim">Loading the call…</div> }
               }
             } @else if (gone()) {
-              <div class="board-call-pop-gone">Removed - this is the label it was saved with: <b>{{ t.label }}</b></div>
+              <div class="board-call-pop-gone">{{ goneWhy() }} - this is the label it was saved with: <b>{{ t.label }}</b></div>
             } @else {
               <div class="board-dim">Loading the call…</div>
             }
@@ -138,6 +139,8 @@ export class MentionCallPopupComponent {
   readonly target = this.mentions.callToShow;
   readonly call = signal<CallRecord | null>(null);
   readonly gone = signal(false);
+  /** Why it cannot be shown: removed here, or - another Alfred's call (specs/035) - gone there, offline, or not streamed. */
+  readonly goneWhy = signal('Removed');
   readonly cards = signal<readonly CallBadge[]>([]);
   readonly openParts = POPUP_OPEN_PARTS;
   readonly statusLabels = STATUS_LABELS;
@@ -180,9 +183,21 @@ export class MentionCallPopupComponent {
             requestId: t.callId }, source).pipe(map((page) => page.calls.map((c) => c.call).find((c) => c.id === t.callId) ?? null))
         : this.calls.getSummary(t.callId, source);
       let family: { unsubscribe(): void } | null = null;
-      const sub = call$.pipe(catchError(() => of(null))).subscribe((c) => {
+      let why = 'Removed';
+      const owner = userLabel(t.callId);
+      if (owner !== 'You') why = `Gone on ${owner}`;
+      const sub = call$.pipe(catchError((e: { status?: number; error?: { error?: string } }) => {
+        if (owner !== 'You') {
+          const code = e?.error?.error;
+          why = code === 'NOT_STREAMED' ? `${owner} no longer streams it here`
+            : code === 'NOT_PASSED_ON' ? `${owner} does not pass it on`
+            : e?.status === 404 ? `Gone on ${owner}` : `${owner} cannot be reached - try again when it is back`;
+        }
+        return of(null);
+      })).subscribe((c) => {
         this.call.set(c);
         this.gone.set(!c);
+        this.goneWhy.set(why);
         // specs/021: a statement, log line or Redis chip - its call here, and the database window at that part
         if (c && t.part) this.dbWindow.openCall(c, t.part, t.cycleId, t.seq ?? null);
         if (c) {
