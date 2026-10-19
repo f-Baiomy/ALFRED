@@ -488,16 +488,16 @@ alfred helper token set     # the Azure DevOps token, from stdin: kept on this P
     turn, so the messages sent while Claude was paused are read in the same command (specs/032 D8), and reports
     `lastChatSeq`. START and RESUME both take `thenRun` (`{command, prompt}`): the Next card's step, queued as a skill
     run once the session answers.
-  - **RELEASE** = ↩ Hand back (specs/032 D5): with `note`, Claude writes a "Handover note" card (a failed note is said in
+  - **RELEASE** = ↩ Hand back (specs/032 D5): with `note`, the session itself is asked for a "Handover note" card (a failed note is said in
     the result and the board is still handed back), then the runner stops, the session is reported STOPPED and the board
     released (`POST /board/holders/release`).
   - A command the helper took but never finished (it restarted) goes back to QUEUED when the helper starts again.
-  - The runner a START or RESUME starts is `/alfred-live start --chat <session> --cycle <board> --headless`: no terminal reads
-    a helper session's chat log, so the runner answers the board chat in a copy of the session (`--resume <session>
-    --fork-session`, then that copy is continued), answers card changes itself, and runs each ▶ run in a fresh copy with
-    the skill's slash command (`headlessRun`), ending the run DONE / FAILED with what it said. Without `--headless`
-    (a terminal that ran `/alfred-live`) everything goes to the chat log for that terminal, as before. Before 1.7.1 the
-    helper started it without the flag, and every message showed "waiting for your terminal to be free" for ever.
+  - A START opens the board's session where the user sees it - a Claude Desktop chat (below), else a terminal (`claude
+    --session-id <id> "<first message>"`) - and that session runs `/alfred-live` itself: it answers the board chat, the
+    card changes and the ▶ runs, visibly. A RESUME starts the runner again (`/alfred-live start --chat <session>`, never
+    `--headless`) and brings the session up when nothing has it open. SYNC, RELEASE and HANDOVER ask the session itself
+    (a `✉ from Alfred` line in its chat log, else the session opened with the prompt). The helper never runs `claude -p`
+    into a session and no runner answers in a copy of one (2026-10-19).
   - **With Claude Desktop (open in DESKTOP, the default) a board starts as a Desktop chat** (helper 1.8.0, specs/032 D13):
     the helper opens `claude://code/new?q=<first message>&folder=<board folder>` - Desktop makes the chat and sends the
     message at once (asking to trust a new folder first). The message asks the chat to run `/alfred-resume` and then
@@ -506,7 +506,8 @@ alfred helper token set     # the Azure DevOps token, from stdin: kept on this P
     writes (`findDesktopChat`: Desktop's own record, in that folder, made after the link - waited for on the folder's
     change events, 3 minutes), takes the board for it and never writes into it. The message never starts with "/"
     (Desktop's link check refuses that). Pause stops only the runner; the chat's watch stays on, so Resume starts the
-    runner again without `--headless` on the same chat log. Without Desktop, a project chat, BOTH or TERMINAL: as above.
+    runner again on the same chat log. Without Desktop, or TERMINAL: a terminal, the same way; the project chat: its own
+    session, the same way (`/alfred-live <project>`).
 - It passes the user's key to what it starts (`ALFRED_KEY`, and `ALFRED_VIA` = the session id): the `/alfred-live` and
   `/alfred-listen` runners and the MCP server they start send it, so their writes count as the holder's.
 

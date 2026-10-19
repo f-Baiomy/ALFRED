@@ -447,23 +447,36 @@ export function desktopChatUrl({ cwd, prompt }) {
 
 const samePath = (a, b) => resolve(String(a ?? '')).toLowerCase() === resolve(String(b ?? '')).toLowerCase();
 
-/** The Desktop record of a chat Desktop made itself (not one the helper wrote) in this folder since a time, or null. */
-export function findDesktopChat({ cwd, since, cliSessionId }, dir = desktopAccountDir()) {
+/**
+ * The Desktop record of a chat Desktop made itself (not one the helper wrote): by its session id; else made since a time
+ * whose first message carries `marker` (wherever Desktop opened it - a scratch folder too); else made since then in `cwd`.
+ */
+export function findDesktopChat({ cwd, since, cliSessionId, marker }, dir = desktopAccountDir(), home = homedir()) {
   if (!dir || !existsSync(dir)) return null;
+  let inFolder = null;
   for (const f of readdirSync(dir)) {
     if (!/^local_.*\.json$/.test(f)) continue;
     let rec;
     try { rec = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; } // being written
     if (!rec?.cliSessionId || rec.adoptedFromOtherSurface) continue;
-    if (cliSessionId ? rec.cliSessionId === cliSessionId : (samePath(rec.cwd, cwd) && Number(rec.createdAt ?? 0) >= since)) return rec;
+    if (cliSessionId) {
+      if (rec.cliSessionId === cliSessionId) return rec;
+      continue;
+    }
+    if (Number(rec.createdAt ?? 0) < since) continue;
+    if (marker) {
+      const t = transcriptOf(rec.cliSessionId, home);
+      try { if (t && readFileSync(t, 'utf8').includes(marker)) return rec; } catch { /* being written */ }
+    }
+    if (!inFolder && samePath(rec.cwd, cwd)) inFolder = rec;
   }
-  return null;
+  return marker ? null : inFolder;
 }
 
 /** Waits (on the folder's change events, never a poll) for the chat Desktop makes after a claude://code/new link. */
-export function waitForDesktopChat({ cwd, since, timeoutMs = 180_000 }, dir = desktopAccountDir()) {
+export function waitForDesktopChat({ cwd, since, marker, timeoutMs = 180_000 }, dir = desktopAccountDir()) {
   return new Promise((done) => {
-    const found = () => findDesktopChat({ cwd, since }, dir);
+    const found = () => findDesktopChat({ cwd, since, marker }, dir);
     const now = found();
     if (now || !dir) return done(now);
     let watcher = null;
@@ -486,6 +499,47 @@ export function boardChatPrompt({ boardRef, boardId, project, server }) {
   return `Alfred board ${boardRef} (project ${project}, board id ${boardId}, Alfred MCP server ${server}). `
     + `Read the task with /alfred-resume ${boardRef}, then run /alfred-live ${project} ${boardId} so this chat answers `
     + 'the board\'s chat and cards here, live.';
+}
+
+/**
+ * The line a Desktop chat's first message ends with: the folder it must work in, and a marker the helper finds the chat
+ * by. Claude Desktop may open a `claude://code/new` chat in a scratch workspace instead of the folder it was given
+ * (2026-10-19): that chat then runs nothing, and the helper starts the board in a terminal in the right folder.
+ */
+export function folderGuard({ folder, marker }) {
+  return ` This chat must work in ${folder} (Alfred start ${marker}). If your working folder is another one, run nothing `
+    + `and answer only: "Opened in the wrong folder - Alfred starts the board in a terminal in ${folder} instead."`;
+}
+
+/** The first message of a project's own session: it answers the project chat itself, visibly (never a copy). */
+export function projectChatPrompt({ project, server }) {
+  return `Alfred project ${project} (Alfred MCP server ${server}). Read the project with task_context, then run `
+    + `/alfred-live ${project} so this chat answers the project's board chat here, live.`;
+}
+
+/** What the user sends in a board's session to make it answer the board again (after a restart, a Pause, a stopped watch). */
+export function listenCommand({ project, boardId }) {
+  return String(boardId ?? '').startsWith('default:') || !boardId ? `/alfred-live ${project}` : `/alfred-live ${project} ${boardId}`;
+}
+
+/** The chat log a session watches: the one its /alfred-live runner writes, from the runner's pid file on this PC. */
+export function chatLogOf(cliSessionId, dir = join(tmpdir(), 'alfred-live')) {
+  if (!cliSessionId || !existsSync(dir)) return null;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.pid.json')) continue;
+    try {
+      const r = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      if (r?.chatId === cliSessionId && r.chat) return r.chat;
+    } catch { /* being written */ }
+  }
+  return null;
+}
+
+/** What a leaving session is asked to write before the board goes back or over. */
+export function handoverPrompt(lead) {
+  return `${lead} Write a handover note for the next session: the stage, what is done and verified, what is fixed but not re-tested, `
+    + 'what is open and why, and the one next step. Add it with board_add as ONE note card titled "Handover note" (kind NOTE), with the '
+    + 'cards it is about as mentions. Then stop answering the board.';
 }
 
 /** The transcript of a Claude Code session on this PC, if it is here. */
@@ -566,8 +620,14 @@ async function restartDesktop(desktopId) {
   openUrl(desktopId ? `claude://claude.ai/epitaxy/${desktopId}` : 'claude://');
 }
 
-function openTerminal(cwd, cliSessionId, claude = 'claude') {
-  const cmd = `${/\s/.test(claude) ? `"${claude}"` : claude} --resume ${cliSessionId}`;
+/**
+ * A terminal running Claude Code interactively in a folder: the session itself, never `-p`. `resume` opens an existing
+ * session, `sessionId` names a new one; `prompt` is sent as its first message (the session runs it visibly).
+ */
+function openTerminal(cwd, cliSessionId, claude = 'claude', { sessionId = null, prompt = null } = {}) {
+  const quoteArg = (v) => (WINDOWS ? `"${String(v).replace(/"/g, "'")}"` : `'${String(v).replace(/'/g, `'\\''`)}'`);
+  const cmd = [/\s/.test(claude) ? `"${claude}"` : claude, ...(cliSessionId ? ['--resume', cliSessionId] : ['--session-id', sessionId]),
+    ...(prompt ? [quoteArg(prompt)] : [])].join(' ');
   if (WINDOWS) {
     const wt = spawnSync('where', ['wt.exe'], { encoding: 'utf8' }).status === 0;
     if (wt) spawn('wt.exe', ['-d', cwd, 'cmd', '/k', cmd], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
@@ -878,12 +938,10 @@ export class Helper {
     const s = this.sessions.get(cliSessionId);
     const runner = this.liveRunner();
     if (!runner || !this.mcp) return 'the board is not answered yet: ' + (!runner ? 'install the Alfred skills (alfred skill install)' : `register Alfred's MCP server (claude mcp add ... ${this.server}/mcp)`);
-    // a Desktop chat (specs/032 D13) watches the runner's chat log itself and answers there, visibly - after a Pause its
-    // watch is still on, so the runner only starts again. Otherwise --headless: no terminal reads the chat log, so the
-    // runner answers the chat, the cards and the ▶ runs itself, in copies of the session (without it every message
-    // waited "for your terminal to be free" for ever)
-    const inChat = s.chat ?? this.desktop.isChat?.(cliSessionId) ?? false;
-    const args = [runner, 'start', '--server', this.mcp, '--project', s.project, '--chat', cliSessionId, '--cwd', s.cwd, ...(inChat ? [] : ['--headless'])];
+    // the session watches the runner's chat log itself and answers there, visibly - after a Pause its watch is still on,
+    // so the runner only starts again; a session that does not watch it (a restart ended the watch) is told on the board
+    // to run /alfred-live, and its messages wait for it. Never a headless runner answering in copies (2026-10-19).
+    const args = [runner, 'start', '--server', this.mcp, '--project', s.project, '--chat', cliSessionId, '--cwd', s.cwd];
     if (s.boardId && !s.boardId.startsWith('default:')) args.push('--cycle', s.boardId);
     if (s.model) args.push('--model', s.model);
     const r = spawnSync(process.execPath, args, { cwd: s.cwd, encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...this.env(cliSessionId) } });
@@ -904,20 +962,44 @@ export class Helper {
     return { ALFRED_KEY: this.api.key, ALFRED_VIA: cliSessionId, ALFRED_URL: this.server };
   }
 
-  /** One headless turn in the session - only while it is not open anywhere (one writer, spike S2). */
-  turn(cliSessionId, prompt, { create = false, model, cwd, readOnly = true } = {}) {
-    if (!create && openInteractively(cliSessionId)) throw new Error('The session is open in Claude Desktop or a terminal - it answers there; nothing was written into it');
-    const args = ['-p', create ? '--session-id' : '--resume', cliSessionId];
-    if (model) args.push('--model', model);
-    // Claude Code allows a wildcard only after a named server (mcp__<server>__*), never a bare mcp__*
-    if (readOnly) args.push('--allowedTools', ...(this.mcp ? [`mcp__${this.mcp}__*`] : []), 'Read', 'Grep', 'Glob');
-    const run = claudeInvocation(this.claude, args);
-    // the prompt goes on stdin: --allowedTools takes a list and swallowed a prompt given after it ("Input must be
-    // provided"), and on Windows a cmd shell would re-read a prompt's quotes and characters
-    const r = spawnSync(run.command, run.args, { cwd, input: prompt, encoding: 'utf8', timeout: 15 * 60_000,
-      env: { ...process.env, ...this.env(cliSessionId) }, shell: run.shell });
-    if (r.status !== 0) throw new Error(`claude exited ${r.status}: ${(r.stderr || r.stdout || '').trim().slice(0, 300)}`);
-    return r.stdout.trim();
+  /**
+   * Asks the board's session itself to do something - never a headless turn, never a copy (2026-10-19). Open and
+   * watching its chat log: one line there, which it acts on. Open in Desktop but not watching: the chat is brought up and
+   * the user sends the prompt. Not open: a terminal resumes it with the prompt as its first message. Returns what happened.
+   */
+  async askSession(s, prompt) {
+    const log = chatLogOf(s.cliSessionId);
+    if (log && openInteractively(s.cliSessionId)) {
+      appendFileSync(log, `✉ from Alfred: ${prompt.replace(/\s*\n\s*/g, ' ')}\n`);
+      return 'asked in the session';
+    }
+    const own = this.desktop.findChat?.(s.cliSessionId);
+    if (own?.sessionId) {
+      this.desktop.open(`claude://claude.ai/epitaxy/${own.sessionId}`);
+      return `opened the session in Claude Desktop - send there: ${prompt}`;
+    }
+    this.desktop.terminal(s.cwd, s.cliSessionId, this.claude, { prompt });
+    this.track(s).openIn = 'TERMINAL';
+    return 'opened the session in a terminal with it';
+  }
+
+  /**
+   * Brings the session up so it can run /alfred-live (Resume): its Desktop chat is opened (the user sends the command -
+   * Desktop takes no typed text from outside), a session nothing has open is resumed in a terminal with the command, and
+   * one open in a terminal is left to the user. Its watch may still be on: then nothing needs sending.
+   */
+  async wake(s, listen) {
+    const own = this.desktop.findChat?.(s.cliSessionId);
+    if (own?.sessionId) {
+      this.desktop.open(`claude://claude.ai/epitaxy/${own.sessionId}`);
+      return `Opened its Claude Desktop chat - if the board says it is not listening, send ${listen} there`;
+    }
+    if (!openInteractively(s.cliSessionId)) {
+      this.desktop.terminal(s.cwd, s.cliSessionId, this.claude, { prompt: listen });
+      this.track(s).openIn = 'TERMINAL';
+      return `Opened it in a terminal running ${listen}`;
+    }
+    return `It is open in a terminal - if the board says it is not listening, send ${listen} there`;
   }
 
   async handle(c) {
@@ -985,10 +1067,9 @@ export class Helper {
       case 'SYNC': {
         const s = await this.known(c, args);
         this.track(s);
-        const settings = await this.settings();
-        this.turn(s.cliSessionId, `/alfred-resume ${args.boardRef ?? s.boardId}`, { cwd: s.cwd, model: modelFor(settings, 'chat') });
-        await this.report(s.cliSessionId, { state: 'IDLE', lastChatSeq: args.chatSeq ?? null });
-        return 'Synced: the session read what changed on the board since it last saw it.';
+        const how = await this.askSession(s, `/alfred-resume ${args.boardRef ?? s.boardId}`);
+        await this.report(s.cliSessionId, { lastChatSeq: args.chatSeq ?? null });
+        return `Sync: ${how} - the session reads what changed on the board since it last saw it.`;
       }
       case 'LISTEN': {
         // /alfred-listen as a background lane of the board's session, on this PC: it judges in forks, never in the session
@@ -1023,19 +1104,11 @@ export class Helper {
         this.track(s);
         let wrote = 'no note';
         if (args.note) {
-          if (openInteractively(s.cliSessionId)) {
-            wrote = 'no note (the session is open in Claude Desktop or a terminal - write it there)';
-          } else {
-            try {
-              const settings = await this.settings();
-              this.turn(s.cliSessionId, `You are handing this board (${args.boardRef ?? s.boardId}) back; someone may continue it later. `
-                + 'Write a handover note for the next session: the stage, what is done and verified, what is fixed but not re-tested, what is open and '
-                + 'why, and the one next step. Add it with board_add as ONE note card titled "Handover note" (kind NOTE), with the cards it is about as '
-                + 'mentions. Then stop.', { cwd: s.cwd, model: modelFor(settings, 'setup'), readOnly: false });
-              wrote = 'a Handover note card is on the board';
-            } catch (e) {
-              wrote = `no note (${String(e.message).split('\n')[0].slice(0, 160)})`;
-            }
+          // the session writes its own note, in the open (never a headless turn into it)
+          try {
+            wrote = `the note: ${await this.askSession(s, handoverPrompt(`You are handing this board (${args.boardRef ?? s.boardId}) back - someone may continue it later.`))}`;
+          } catch (e) {
+            wrote = `no note (${String(e.message).split('\n')[0].slice(0, 160)})`;
           }
         }
         this.stopRunner(s.cliSessionId);
@@ -1047,15 +1120,8 @@ export class Helper {
         // the leaving session writes where things stand, then the board goes to the requester and this session stops
         const s = await this.known(c, args);
         this.track(s);
-        let wrote = 'no handover note (the session is open in Desktop or a terminal - write it there)';
-        if (!openInteractively(s.cliSessionId)) {
-          const settings = await this.settings();
-          this.turn(s.cliSessionId, `You are handing this board (${args.boardRef ?? s.boardId}) over to ${args.to ?? 'another user'}. `
-            + 'Write a handover note for the next session: the stage, what is done and verified, what is fixed but not re-tested, what is open and '
-            + 'why, and the one next step. Add it with board_add as ONE note card titled "Handover note" (kind NOTE), with the cards it is about as '
-            + 'mentions. Then stop.', { cwd: s.cwd, model: modelFor(settings, 'setup'), readOnly: false });
-          wrote = 'handover note written on the board';
-        }
+        const wrote = `the handover note: ${await this.askSession(s,
+          handoverPrompt(`You are handing this board (${args.boardRef ?? s.boardId}) over to ${args.to ?? 'another user'}.`)).catch((e) => `not asked (${e.message})`)}`;
         await this.api.call('POST', '/board/holders/answer', { body: { boardId: s.boardId, answer: 'HAND_OVER' } });
         this.stopRunner(s.cliSessionId);
         await this.report(s.cliSessionId, { state: 'STOPPED' });
@@ -1113,51 +1179,46 @@ export class Helper {
     // a board of another Alfred gets its own worktree even when its name matches one of the primary Alfred's boards
     const tag = this.primary ? '' : `${mcpDefaultName(this.server).replace(/^alfred-/, '')} `;
     const cliSessionId = randomUUID();
-    // the first turn reads the whole task (the setup model); the board's answers afterwards are chat work (the chat model)
-    const model = modelFor(settings, isProject ? 'chat' : 'setup');
     const s = { boardId: c.boardId, project: c.project, cwd: where.folder, title, model: modelFor(settings, 'chat'), openIn: where.openIn };
     this.sessions.set(cliSessionId, s);
     // specs/032: the board's button says what is happening ("Making the worktree") while it starts
     const step = (progress) => this.report(cliSessionId, { state: 'STARTING', progress }).catch(() => {});
     await this.report(cliSessionId, { state: 'STARTING', openIn: 'NONE', makeCurrent: true, progress: where.worktrees && !isProject ? 'Making the worktree' : 'Getting ready' });
+    // 2026-10-19: the board (or the project) gets a Claude session the user sees - a Claude Desktop chat, else a terminal -
+    // and that session runs /alfred-live itself: everything on the board goes through it. Never a headless turn into it,
+    // never a runner answering in copies of it.
+    const prompt = isProject ? projectChatPrompt({ project: c.project, server: this.mcp })
+      : boardChatPrompt({ boardRef: args.boardRef || c.boardId, boardId: c.boardId, project: c.project, server: this.mcp });
     let place;
     try {
       place = where.worktrees && !isProject ? boardWorktree(where.folder, tag + (args.worktreeName || title)) : { cwd: where.folder };
       s.cwd = place.cwd;
-      // specs/032 D11: a board opens as a Claude Desktop chat that runs it itself - every answer visible there
-      if (where.openIn === 'DESKTOP' && !isProject && !args.firstPrompt && this.desktop.chat && (this.desktop.available?.() ?? !!desktopAccountDir())) {
-        return await this.startInDesktopChat(c, args, { placeholder: cliSessionId, s, place, title });
+      if (where.openIn !== 'TERMINAL' && this.desktop.chat && (this.desktop.available?.() ?? !!desktopAccountDir())) {
+        return await this.startInDesktopChat(c, args, { placeholder: cliSessionId, s, place, title, prompt });
       }
-      await this.api.call('POST', '/board/holders/take', { body: { boardId: c.boardId, project: c.project, sessionId: cliSessionId } });
-      const first = args.firstPrompt || (isProject ? `You are the Alfred project chat session for ${c.project}. Read the project with task_context and wait.`
-        : `/alfred-resume ${args.boardRef || c.boardId}`);
-      await step('Reading the task');
-      this.turn(cliSessionId, first, { create: true, cwd: place.cwd, model });
+      return await this.startInTerminal(c, args, { cliSessionId, s, place, title, prompt, isProject });
     } catch (e) {
-      // a session whose first turn failed never existed: GONE, so the board is not "Starting…" for ever and ▶ starts afresh
+      // a session that did not open never existed: GONE, so the board is not "Starting…" for ever and ▶ starts afresh
       await this.report(cliSessionId, { state: 'GONE' }).catch(() => {});
       this.sessions.delete(cliSessionId);
       throw e;
     }
-    await step('Starting to answer the board');
-    const problem = this.startRunner(cliSessionId);
-    let desktopId = null;
-    let desktopLater = false;
-    if (where.openIn === 'DESKTOP' || where.openIn === 'BOTH') {
-      await step('Opening in Claude Desktop');
-      desktopId = this.desktop.record({ cliSessionId, cwd: place.cwd, title, model });
-      // Desktop shows a session it has not read only after a restart - never a link to "couldn't be found"
-      if (desktopId && (!this.desktop.has || this.desktop.has(desktopId))) this.desktop.open(`claude://claude.ai/epitaxy/${desktopId}`);
-      else if (desktopId) desktopLater = true;
-    }
-    if (where.openIn === 'TERMINAL' || where.openIn === 'BOTH') this.desktop.terminal(place.cwd, cliSessionId);
-    await this.report(cliSessionId, { state: problem ? 'IDLE' : 'ANSWERING', desktopId, tokensToday: tokensToday(transcriptOf(cliSessionId)) });
+  }
+
+  /** The board's session in a terminal: `claude --session-id <id> "<first message>"` in the board's folder. */
+  async startInTerminal(c, args, { cliSessionId, s, place, title, prompt, isProject, note = '' }) {
+    const step = (progress) => this.report(cliSessionId, { state: 'STARTING', progress }).catch(() => {});
+    this.sessions.set(cliSessionId, s);
+    await this.api.call('POST', '/board/holders/take', { body: { boardId: c.boardId, project: c.project, sessionId: cliSessionId } });
+    await step('Opening a terminal');
+    this.desktop.terminal(place.cwd, null, this.claude, { sessionId: cliSessionId, prompt });
+    this.sessions.set(cliSessionId, { ...s, cwd: place.cwd, openIn: 'TERMINAL', runner: true });
+    await this.report(cliSessionId, { state: 'ANSWERING', openIn: 'TERMINAL' });
     // ▶ on a board with no session: the run the user pressed follows, queued for the session that now answers the board
-    if (!problem && args.thenRun?.command && !isProject) await this.queueRun(c, args.thenRun);
-    this.notify('Alfred', `Session for ${title} is ready${desktopId ? ' - in Claude Desktop' : ''}`);
-    return [`Started ${cliSessionId} in ${place.cwd}${place.branch ? ` (branch ${place.branch})` : ''}.`,
-      desktopLater ? DESKTOP_RESTART : desktopId ? 'Shown in Claude Desktop - Desktop asks you to trust the folder the first time.' : null,
-      problem].filter(Boolean).join(' ');
+    if (args.thenRun?.command && !isProject) await this.queueRun(c, args.thenRun);
+    this.notify('Alfred', `${title} is open in a terminal - it reads the task, then answers the board there`);
+    return `${note}Started ${cliSessionId} in a terminal in ${place.cwd}${place.branch ? ` (branch ${place.branch})` : ''}: `
+      + 'it reads the task and answers the board there - every answer shows in that terminal.';
   }
 
   /**
@@ -1166,13 +1227,23 @@ export class Helper {
    * visibly, with its whole context - as when the user typed /alfred-live. The helper only learns the chat's id from the
    * record Desktop writes, and never writes into the chat.
    */
-  async startInDesktopChat(c, args, { placeholder, s, place, title }) {
+  async startInDesktopChat(c, args, { placeholder, s, place, title, prompt }) {
     const step = (progress) => this.report(placeholder, { state: 'STARTING', progress }).catch(() => {});
     await step('Opening a chat in Claude Desktop');
     const since = Date.now();
-    this.desktop.chat({ cwd: place.cwd, prompt: boardChatPrompt({ boardRef: args.boardRef || c.boardId, boardId: c.boardId, project: c.project, server: this.mcp }) });
+    const marker = placeholder.slice(0, 8);
+    const first = prompt ?? boardChatPrompt({ boardRef: args.boardRef || c.boardId, boardId: c.boardId, project: c.project, server: this.mcp });
+    this.desktop.chat({ cwd: place.cwd, prompt: first + folderGuard({ folder: place.cwd, marker }) });
     await step('Waiting for Claude Desktop (press Trust if it asks about the folder)');
-    const rec = await this.desktop.waitChat({ cwd: place.cwd, since });
+    const rec = await this.desktop.waitChat({ cwd: place.cwd, since, marker: `Alfred start ${marker}` });
+    if (rec && !samePath(rec.cwd, place.cwd)) {
+      // Desktop opened it somewhere else (a scratch workspace): that chat runs nothing (its first message says so), and
+      // the board's session starts in a terminal in its own folder - never a session that cannot see the repo
+      log(`Claude Desktop opened the chat in ${rec.cwd}, not ${place.cwd} - starting the board in a terminal instead`);
+      return this.startInTerminal(c, args, { cliSessionId: placeholder, s, place, title, prompt: first,
+        isProject: String(c.boardId ?? '').startsWith('default:'),
+        note: `Claude Desktop opened the chat in another folder (${rec.cwd}), not ${place.cwd} - so the board runs in a terminal. ` });
+    }
     // the placeholder row only said "starting": the chat is the board's session from here
     await this.report(placeholder, { state: 'GONE' }).catch(() => {});
     this.sessions.delete(placeholder);
@@ -1181,7 +1252,7 @@ export class Helper {
     this.sessions.set(id, { ...s, cwd: place.cwd, openIn: 'DESKTOP', chat: true, runner: true });
     await this.api.call('POST', '/board/holders/take', { body: { boardId: c.boardId, project: c.project, sessionId: id } });
     await this.report(id, { state: 'ANSWERING', openIn: 'DESKTOP', desktopId: rec.sessionId, makeCurrent: true });
-    if (args.thenRun?.command) await this.queueRun(c, args.thenRun);
+    if (args.thenRun?.command && !String(c.boardId ?? '').startsWith('default:')) await this.queueRun(c, args.thenRun);
     this.notify('Alfred', `${title} is open in Claude Desktop - it reads the task, then answers the board there`);
     return `Started a Claude Desktop chat for ${title} in ${place.cwd}${place.branch ? ` (branch ${place.branch})` : ''}: `
       + 'it reads the task and answers the board there - every answer shows in that chat.';
@@ -1207,19 +1278,16 @@ export class Helper {
       this.track(s);
     }
     await this.api.call('POST', '/board/holders/take', { body: { boardId: s.boardId, project: s.project, sessionId: s.cliSessionId } });
-    // specs/032 D8: messages sent while it was paused are read first, in the same command - no separate "Sync"
-    let caughtUp = '';
-    if (Number(args.unread) > 0 && !openInteractively(s.cliSessionId)) {
-      const settings = await this.settings();
-      this.turn(s.cliSessionId, `/alfred-resume ${args.boardRef ?? s.boardId}`, { cwd: s.cwd, model: modelFor(settings, 'chat') });
-      caughtUp = ` It read the ${args.unread} message(s) sent while it was paused.`;
-    }
+    // the runner starts again; the session itself answers - the messages that waited are handed to it (none is answered
+    // in a copy or a headless turn). A session nothing has open, or whose watch ended, is asked to run /alfred-live.
     const problem = this.startRunner(s.cliSessionId);
-    await this.report(s.cliSessionId, { state: problem ? 'IDLE' : 'ANSWERING', ...(args.makeCurrent ? { makeCurrent: true } : {}),
-      ...(caughtUp && args.chatSeq != null ? { lastChatSeq: args.chatSeq } : {}) });
+    await this.report(s.cliSessionId, { state: problem ? 'IDLE' : 'ANSWERING', ...(args.makeCurrent ? { makeCurrent: true } : {}) });
+    if (problem) return problem;
+    const listen = listenCommand({ project: s.project, boardId: s.boardId });
+    const opened = ` ${await this.wake(s, listen)}.`;
     // "Resume Claude and <step>" (specs/032 T045): the step follows, queued for the session that answers again
-    if (!problem && args.thenRun?.command) await this.queueRun(c, args.thenRun);
-    return problem ?? `Answering ${s.boardId} again with session ${s.cliSessionId.slice(0, 8)}.${caughtUp}`;
+    if (args.thenRun?.command) await this.queueRun(c, args.thenRun);
+    return `Answering ${s.boardId} again with session ${s.cliSessionId.slice(0, 8)}.${opened}`;
   }
 
   /** A transcript's working folder (its first line that says). */

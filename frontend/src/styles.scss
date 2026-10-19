@@ -12351,6 +12351,10 @@ html.chat-fullscreen .board-drawer { z-index: 940; }
 .chat-who { flex: 1; min-width: 0; line-height: 1.3; }
 .chat-who b { display: block; font-size: .9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-who small { display: block; font-size: .72rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 2026-10-19: a chat whose session does not listen names the command that wakes it, with a copy button */
+.chat-who small code { font-size: .68rem; }
+.chat-copy-cmd { border: 0; background: none; color: var(--text-dim); cursor: pointer; padding: 0 .2rem; font-size: .72rem; }
+.chat-copy-cmd:hover { color: var(--text); }
 .chat-who .on { color: var(--green); }
 .chat-who .busy { color: var(--purple-light); }
 .chat-menu { width: 270px; right: 0; top: 2.1rem; padding: .3rem; }

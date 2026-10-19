@@ -25,9 +25,9 @@ no task; it is never written until something writes to it (reads use `readDefaul
   board's requirements; `GET /board/cycles/{id}/home` says where a finding goes (the board whose requirement the call
   shows, else the only open board, else ask) - `FindingHomeUseCase` / `ListenHomeResolver`.
 - **Board activity** keeps 2000 rows per board, each of Claude's changes with Undo (claimed once, `markUndone`).
-- **Board chats**: a board's chat is answered by the terminal holding that board, else the project's live runner, else
-  it waits (R6). Remove later: the `/board/cycle-chat` alias of `/board/board-chat`, `cycleId` on `/board/live-runner`
-  (now `boardId`), and the runner's `REMOVE-LATER(027)` fork path in `chat.mjs`.
+- **Board chats**: a board's chat is answered only by the board's own session; with none listening it waits (R6,
+  2026-10-19 - the project runner no longer answers board chats, and the fork path in `chat.mjs` is gone). Remove later:
+  the `/board/cycle-chat` alias of `/board/board-chat`, `cycleId` on `/board/live-runner` (now `boardId`).
 - **Deleting a cycle** keeps the calls board texts mention: the cycle is kept, renamed "kept from <name>", trimmed to
   the mentioned calls and paused (`DeleteOutcome.KEPT`, `200 {kept: true}`; research R7 amendment). Its cards stay.
 - **A board opened from a work item** shows it on the Task tab (`WorkItemStripComponent`): the item chip, "<tracker>
@@ -870,27 +870,28 @@ send). Dragged across the middle, the pill moves to the other side. Views: the w
 expanded, full screen (Esc / Ctrl+Shift+F) and a separate window (`/chat?project=&scope=`); the view, width and side
 are this browser's own (localStorage, try/catch). On a cycle's page the chats follow that cycle's project.
 
-- **Who answers.** A cycle chat - and every comment on a card of that cycle - is answered by the terminal session that
-  ran `/alfred-live` for it: that session itself, never a fork or a copy (specs/022 plan-terminal-answers.md). The
-  runner (`skills/alfred-live/chat.mjs`) takes the message for that session's id and writes one `✉ board chat #N` line
-  (a card: `✉ #N`) into the session's own chat log (`<board>.<session>.chat.log`), which the session follows with the
-  Monitor tool; the session answers with `chat_reply` / `board_reply` when its turn is free. Alfred stores only the
-  user's messages, the final answers, what needs the user (questions, proposals, confirmations) and records - never the
-  steps between. A decision needed mid-task is an ordinary reply that asks it; the job waits for the answer. The
-  session marker (`chatSessionId` = `forkedFrom` = the terminal's id) says so: the header shows "Answered by your
-  terminal", there is nothing to catch up and nothing is mirrored back. **A terminal that does not hear the chat log is
-  never waited on** (2026-10-19): the runner learns which background task delivers the ✉ lines and follows the
-  session's transcript from its start; when that task ends (Pause, a Claude Desktop restart, a compact, a stopped
-  Monitor) or a handed message is neither taken up nor queued within 90 s (`ACK_MS`, checked on the heartbeat), the
-  session is deaf - what it was handed is answered in a copy of it (never the session itself: one writer), the chat
-  says "↪ Your terminal stopped listening", and new messages go to copies until the session watches the chat log again
-  (it runs `/alfred-live`), when its chat is its own again. Before this a Desktop restart left every later message at
-  "Claude has it" for ever. Pause writes `⏸ paused` into the log so the watch stays for ▶ Resume. A busy terminal: messages wait. A closed one:
-  "Terminal offline - messages wait" - Alfred never starts or resumes a session itself, except when the user presses
-  ▶ Start Claude (its own button, through their helper - "Board sessions" below). The newest `/alfred-live` for a
-  cycle takes it over: the old session gets `↪ handed over` in its log and stops listening, the messages it held are
-  queued again for the new one, which starts from the chat's summary and the brief. Cards of other cycles and the
-  project chat stay with the project's live runner, answered as before (a fork, below, still applies to an older runner).
+- **Who answers: the board's own session, and nothing else** (2026-10-19). A board's chat - and every change on its
+  cards - is answered by the Claude session that ran `/alfred-live` for the board (the session ▶ Start Claude opens, in
+  Claude Desktop or a terminal): that session itself, **never a fork, a copy or a headless `claude -p` run of it**, and
+  never the project's runner. The runner (`skills/alfred-live/chat.mjs`) takes the message for that session's id and
+  writes one `✉ board chat #N` line (a card: `✉ #N`) into the session's own chat log (`<board>.<session>.chat.log`),
+  which the session follows with the Monitor tool; the session answers with `chat_reply` / `board_reply` when its turn
+  is free, visibly. Alfred stores only the user's messages, the final answers, what needs the user (questions, proposals,
+  confirmations) and records - never the steps between. A decision needed mid-task is an ordinary reply that asks it;
+  the job waits for the answer. The header says "Answered by the board's session". The project chat is answered the
+  same way by the project's own session (`/alfred-live <project>`, ▶ Start Claude on the project).
+- **Not listening.** The runner learns which background task delivers the ✉ lines and follows the session's transcript
+  from its start; when that task ends (a Claude Desktop restart, a compact, a stopped Monitor) or a handed message is
+  neither taken up nor queued within 90 s (`ACK_MS`, checked on the heartbeat), the session is deaf: what it was handed
+  goes back to waiting (`release`, not failed), nothing new is taken, card changes are held, the runner's heartbeat says
+  `chatAlive: false` (so the chat's `claudeOn` is false and the Claude button says ▶ Resume Claude), and the chat gets
+  "↪ Your session stopped listening ... Open the session and send /alfred-live". The header says "○ Not listening -
+  messages wait. Send `/alfred-live <project> <board>` in the board's session" with ⧉ to copy it. When the session
+  watches the log again (it ran `/alfred-live`) everything that waited is read again and handed to it. A board chat with
+  no session at all waits the same way - Alfred refuses a take by anything but the board's session (`take`: "No session
+  answers this board"). Before this a deaf session's messages were answered in a copy that said it was the session
+  (2026-10-19: "I wrote it there too", which nothing had). The newest `/alfred-live` for a board takes it over: the old
+  session gets `↪ handed over` in its log and stops listening, the messages it held are queued again for the new one.
 - **States.** A user's message is WAITING -> TAKEN (compare-and-swap, `taken_by`) -> ANSWERED / STOPPED / CANCELLED. It
   can be edited or cancelled only while waiting; "⚡ answer first" puts it ahead of everything waiting, after the step
   Claude is on. A waiting message shows its place in line, counting a card Claude is answering ("busy on #N"). A runner
@@ -906,15 +907,14 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   references (`chat_read`). It is written to the runner's chat log at the terminal's next turn (`💬 board chat ...`);
   urgent items (`⚡ board chat: ...` - a decision that contradicts the terminal's step, files the chat changed,
   `@terminal`) at once. An item is held while no session holds the cycle and handed to the next one; Undo while unread.
-- **Catch-up** (FR-052/055): the runner learns of the terminal's turns from `fs.watch` events on its transcript, never a
-  timer; before answering it adds only the terminal's new transcript entries (delta), and re-forks after a compact there.
+- **Following the session** (FR-052): the runner learns of the session's turns from `fs.watch` events on its
+  transcript, never a timer - its progress under each message, and whether it still hears the chat log.
 - **Compact** (FR-014/015): ⇊ or auto after 100 messages since the last summary (per chat, 20-1000, 0 = off) queues a
   task; Claude writes a SUMMARY covering everything before the first message still in flight. Nothing is deleted: older
   messages fold under it, stay searchable and are exported.
-- **Memory and meter** (FR-056/059): two pills - the Claude session (the chat's copy, on the runner's machine) and Alfred
-  (summary, decisions, records); the meter shows the last run's tokens. "Continue in terminal" gives
-  `claude --resume <chat session>` and names the machine. A new conversation taking over (another machine, another
-  terminal session) is marked with a system line (FR-016).
+- **Memory and meter** (FR-056/059): two pills - the Claude session (the board's session itself, or "no session
+  listening") and Alfred (summary, decisions, records). A new session taking over (another machine, another terminal
+  session) is marked with a system line (FR-016).
 - **Card comments** on a cycle's cards that need an investigation are answered by that cycle chat's session, on the card
   (FR-060); the chat shows "↳ answered your comment on #N".
 - **Unread and notifications**: an unread line "- N new -", ↓ Latest, drafts per chat, the Board tab's 💬 count, and per
@@ -1058,15 +1058,16 @@ board can always be asked for. A board nobody holds is written exactly as before
 
 **The session.** ▶ queues a `START` command for the PC (`POST /board/helper-commands`, only the user's own PCs); the
 helper claims it (a long poll woken by the queueing, never polling), makes the board's git worktree
-(`<repo>/.alfred-worktrees/<board>` on branch `alfred/<board>`, excluded in `.git/info/exclude`), creates the session with
-one turn (`claude -p --session-id <new id> "/alfred-resume <board>"`, read-only tools), takes the board, starts the
-`/alfred-live` runner for it (`--chat <session id>`: answers in forks of the session) and reports the session
-(`PUT /board/sessions`). With "open in Claude Desktop" it writes the record the official `/desktop` command writes
-(`local_<id>`, adopted from another surface): **Desktop shows it after a restart** and asks once to trust each folder
-(spikes S1-S3, plan.md). While it starts, the helper
-reports what it does (`progress`: Making the worktree, Reading the task, Starting to answer the board, Opening in Claude
-Desktop) as the button's tooltip; a start that fails is reported GONE and the button says "⚠ Claude didn't start" with
-the reason in plain words (`failure-line.ts`) and ↻ Try again.
+(`<repo>/.alfred-worktrees/<board>` on branch `alfred/<board>`, excluded in `.git/info/exclude`) and opens the board's
+session where the user sees it: a **Claude Desktop chat** in that folder (the default, Desktop's `claude://code/new`
+link), else a **terminal** running `claude --session-id <new id> "<first message>"`. The first message asks it to read
+the task (`/alfred-resume <board>`) and run `/alfred-live <project> <board>` - so the session starts its own runner and
+answers everything on the board itself, visibly. The helper never writes a turn into a session and never starts a
+headless runner (2026-10-19). It takes the board for that session and reports it (`PUT /board/sessions`). While it
+starts, the helper reports what it does (`progress`: Making the worktree, Opening a chat in Claude Desktop / Opening a
+terminal) as the button's tooltip; a start that fails is reported GONE and the button says "⚠ Claude didn't start" with
+the reason in plain words (`failure-line.ts`) and ↻ Try again. ▶ Start Claude on the project chat opens the project's own
+session the same way (`/alfred-live <project>`).
 
 **The Claude button** (specs/032 D4, `claudeView` in `shared/utils/claude-mode.ts` - the Next card reads the same one):
 ▶ Start Claude · ◌ Starting Claude… / Resuming… / Pausing… / Handing back… / Waiting for your PC… · ● Claude on ·
@@ -1074,21 +1075,30 @@ the reason in plain words (`failure-line.ts`) and ↻ Try again.
 panel, which closes on an outside click or Escape, never on mouseleave. On: ⏸ Pause Claude and ↩ Hand the board back on
 top, then See the conversation (Open in Claude Desktop - with "Restart Desktop" when it is not in Desktop's list - and
 Open in a terminal), While you test (Watch a recording / Stop watching), This session (Start fresh, Earlier sessions),
-and Who did what, Copy session id, My settings. Paused: Resume and catch up on N messages (RESUME reads them first with
-`/alfred-resume` - no separate sync), Hand back, Start fresh, Read it in Claude Desktop. Start, with no folder for the
+and Who did what, Copy session id, My settings. Paused: Resume and catch up on N messages (the runner starts again and
+hands the waiting messages to the session; a session nothing has open is resumed in a terminal running `/alfred-live`,
+a Desktop chat is brought up - no headless catch-up), Hand back, Start fresh, Read it in Claude Desktop. Not listening
+(the session's watch ended): the same panel, "⚠ Claude stopped answering", with the `/alfred-live …` to send and copy. Start, with no folder for the
 project on this PC: the folder (Browse… opens a folder window on the PC), where to show the conversation, asked once.
 
 **Pause and Hand back** (D5/D6). ⏸ Pause = `STOP`: the button says Pausing… at once; a PC still busy after 4 s gets
 "Waiting for your PC to pause Claude"; then the banner says "Claude is paused" with Resume now. With the PC offline the
 STOP waits there and the banner says so, offering Hand back instead. ↩ Hand back asks first (what happens, and "Leave a
-note for whoever continues", on by default) and sends `RELEASE` to the PC: Claude writes a **Handover note** card, the
-runner stops, the session is reported STOPPED and the board is released - one action. With the PC offline Alfred
+note for whoever continues", on by default) and sends `RELEASE` to the PC: the session itself is asked for a
+**Handover note** card (`✉ from Alfred: …` in its chat log, or the session opened with it), the runner stops, the session
+is reported STOPPED and the board is released - one action. With the PC offline Alfred
 releases the board itself ("Handed back without a note"). Every refusal shows the server's message - never a silent
 `error: () => undefined`.
 
-**One writer per session.** While a session is open in Desktop or a terminal (a `claude` process naming it, not `-p`),
-the helper never writes a turn into it - two writers fork the transcript. Board answers then come from the runner's
-forks as always, and the user can run `/alfred-live` in that window to answer there.
+**One writer per session - and it is the session.** Nothing but the session itself writes into it: no headless turn,
+no fork, no copy (two writers fork the transcript, spike S2). What Alfred needs from it - catch up, a Handover note, run
+/alfred-live again - is asked of the session (`askSession` / `wake` in the helper): a `✉ from Alfred` line in the chat log
+it watches, else its Desktop chat brought up (the user sends the command), else a terminal resuming it with the prompt.
+
+**"Claude on" means the session listens.** The helper reports a session ANSWERING from its own memory; a session that
+stopped hearing its chat log does not change that. So the Claude button and the Next card say "● Claude on" only while
+the board's chat has its session listening (the chat summary's `claudeOn`: the board's runner registered with
+`chatAlive`); an ANSWERING session without it shows "▶ Resume Claude" ("Claude stopped answering") (`claudeView`).
 
 **Somewhere else.** A board whose session lives on another PC shows "Claude on WORK-PC"; its popup offers: resume it
 there (that PC's helper is online), **continue here from Alfred's copy** (a new session started with `/alfred-resume`,

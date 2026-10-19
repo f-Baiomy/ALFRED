@@ -1,10 +1,8 @@
-// The board chat lane of /alfred-live (specs/022, docs/board.md "Chat"). A cycle's chat is answered by the cycle's own
-// REMOVE-LATER(027): the fork path below predates boards; a board's chat is answered by its own terminal or the project
-// runner, and this fork is kept only until docs/board.md "Board chat" drops it.
-// Claude session: the first answer forks the terminal session (`--resume <terminal> --fork-session`) so the chat starts
-// knowing everything the terminal did, and later answers continue that fork (`--resume <fork>`). The terminal session
-// itself is never written to - what the chat did reaches it as lines in this runner's chat log, which the terminal
-// already follows. The project chat is answered the same way by the project's live runner, from Alfred's context only.
+// The board chat lane of /alfred-live (specs/022, docs/board.md "Chat"). A chat is answered by the Claude session that ran
+// /alfred-live for it - a board's chat by the board's session, the project chat by the project's - and by nothing else:
+// each message becomes one line in this runner's chat log, which that session watches, and it answers with chat_reply.
+// No fork, no copy, no headless run of the session (2026-10-19): while the session does not hear the log, its messages
+// wait and the board says how to wake it (run /alfred-live there).
 //
 // Nothing here polls: messages arrive with the board's changes (board_wait), the terminal's transcript is watched with
 // fs.watch events. Every line written to the chat log is already masked by the MCP server (chat_reply / chat_mirror).
@@ -12,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
-import { LIVE_TOOLS, Reporter, summaryOf, failureOf } from './alfred-live.mjs';
+import { LIVE_TOOLS, Reporter } from './alfred-live.mjs';
 
 /**
  * The tools a chat run loads: the live ones plus the chat's own. A function: this module and alfred-live.mjs import each
@@ -37,21 +35,13 @@ export const TEAM_TOOLS = ['team_search', 'team_saved', 'team_query', 'team_item
 /** The tools whose call answers a chat message. */
 export const CHAT_WRITES = /(^|__)chat_(reply|summary)$/;
 
-/** A delta of terminal work larger than this re-forks instead of being passed as text (FR-055a). */
-export const MAX_DELTA_CHARS = 24_000;
-
-/**
- * The fixed head of every chat prompt - kept word for word the same so the model's prompt cache reuses it (FR-055e):
- * rules first, then Alfred's context, the summary, the terminal's new work, and the message last.
- */
+/** The chat's rules, written next to the chat log for the session that answers it (chat-rules.md). */
 export const CHAT_RULES = `You are the Claude of an Alfred board chat. You answer the user's chat messages below, each once, with chat_reply.
 - Answer in plain words, in the user's language; evidence as mentions (@[call:in:<id>|label], #47, AC8 - shorthand becomes chips).
 - Look things up first when the answer needs it (Alfred tools, the code in this folder); independent lookups in one turn. Change no file unless the user asks.
 - Record what another session needs to continue (records on chat_reply): a decision -> DECISION; a new problem -> CARD; a new acceptance condition -> ITEM (the user accepts it); a code change you made -> board_fix on its card first (changed files as code mentions, the short diff, the re-test plan: expect + steps), then FIX; a question left open -> NEXT. Plain explanation and Q&A: no record.
-- toTerminal.urgent only for: a decision that contradicts what the terminal session is doing, a change to files the terminal edited, a message the user addressed to the terminal ("@terminal"). The exchange itself reaches the terminal without you.
 - Several messages waiting: answer each with its own chat_reply (messageId), oldest first, urgent first.
 - A task "Compact this chat": write the summary with chat_summary (coversTo as the task says), then chat_reply to the task with one line.
-- A task "Refresh from the terminal session": you were just re-copied from it; chat_reply to the task with one line saying so.
 - A task "Watch while I test": check the new calls as one batch (wait_for_calls sinceCallId + settleSec, then check_calls); findings -> one chat_reply to the task (a later batch is a new task); nothing found -> chat_reply with extra {"quiet": true}.
 - "Tell me when ..." -> chat_watch (it posts once and ends). Two calls side by side -> diff_calls; a long report -> board_page_put on the cycle and a mention of it.
 - Graphs, dashboards, diagrams, reports: follow VISUALS below. The answer opens with its one-line finding in words; the visual backs it up.
@@ -88,21 +78,6 @@ export function transcriptPath(cwd, sessionId, home = homedir()) {
   return join(home, '.claude', 'projects', String(cwd).replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
 }
 
-/**
- * How a chat run starts (research R3, FR-057/058): continue the chat's own session when it lives on this machine; else
- * fork the terminal session when its transcript is here; else a session of its own, started from Alfred's context.
- */
-export function chatSessionArgs({ session = null, terminalId = null, transcriptExists = false, host = hostname(), refork = false } = {}) {
-  if (!refork && session?.chatSessionId && (!session.host || session.host === host)) {
-    return { args: ['--resume', session.chatSessionId], forked: false, continued: true, note: null };
-  }
-  if (terminalId && transcriptExists) {
-    return { args: ['--resume', terminalId, '--fork-session'], forked: true, continued: false, note: null };
-  }
-  const note = terminalId ? `the terminal session is not on ${host} - this chat starts from Alfred's context only` : null;
-  return { args: [], forked: false, continued: false, note };
-}
-
 /** The session id a stream-json run announces in its init event. */
 export function sessionIdOf(msg) {
   return msg?.type === 'system' && msg?.subtype === 'init' && typeof msg.session_id === 'string' ? msg.session_id : null;
@@ -114,37 +89,13 @@ export function orderChats(chats) {
 }
 
 /**
- * Which of the board's waiting chat messages this runner answers (specs/027 R6). A terminal bound to a board
- * (`/alfred-live <board>`, `cycleId` holding the board id) answers that board's chat. The project's runner answers the
- * project chat and every board chat of its project that no terminal holds - Alfred refuses its take when one does.
+ * Which of the board's waiting chat messages this runner answers (specs/027 R6). A session bound to a board
+ * (`/alfred-live <board>`, `cycleId` holding the board id) answers that board's chat; the project's session answers the
+ * project chat. A board chat with no session of its own waits for one - never answered from another session or a copy.
  */
 export function mineOf(chats, { cycleId = null, project = null, kind = 'live' } = {}) {
   if (kind === 'listen') return [];
-  return (chats ?? []).filter((c) => (cycleId ? c.scope === cycleId : project == null ? c.scope === 'project' : c.project === project));
-}
-
-/**
- * The prompt of one chat run, in the order that keeps its head cached: rules, Alfred's context, the latest summary, the
- * terminal's work since the copy (when the session continues), then the messages.
- */
-export function chatPrompt({ server, project, scope, taken, context = null, delta = null, note = null, alreadyInSession = false }) {
-  const parts = [CHAT_RULES, `\nThe Alfred tools are mcp__${server}__* (e.g. mcp__${server}__chat_reply). Project "${project}", chat "${scope}".`];
-  if (context && !alreadyInSession) parts.push(`\nALFRED CONTEXT:\n${context}`);
-  if (alreadyInSession) parts.push('\n(The earlier chat, its summary and Alfred\'s context are already in your session - only what is new follows.)');
-  if (note) parts.push(`\nNOTE: ${note}`);
-  if (delta) parts.push(`\nTHE TERMINAL SESSION SINCE YOUR COPY (its significant work, newest last):\n${delta}`);
-  parts.push('\nMESSAGES TO ANSWER:');
-  for (const t of taken) {
-    parts.push(`- messageId ${t.messageId}: ${t.take}${t.thread?.length ? `\n  thread:\n  ${t.thread.join('\n  ')}` : ''}`);
-    const skill = skillOf(t.origin);
-    if (skill) {
-      parts.push(`  (the user picked /${skill} from the chat's "/" list: load it with the Skill tool and run it here, in your session, as far as`
-        + ' your tools allow; answer with its result through chat_reply - what needs a tool you do not have, say, and give the command to run in'
-        + ' the terminal.)');
-    }
-  }
-  parts.push('\nAnswer them now.');
-  return parts.join('\n');
+  return (chats ?? []).filter((c) => (cycleId ? c.scope === cycleId : c.scope === 'project' && (project == null || c.project === project)));
 }
 
 /** The skills the chat's "/" list offers (FR-022): every shipped one except the two that run the chat. */
@@ -206,16 +157,6 @@ export function deltaOf(lines, since = 0) {
   return { text: out.join('\n'), at, entries: out.length };
 }
 
-/** Whether the transcript shows the terminal compacted itself after `since` (then a copy must be made again). */
-export function compactedSince(lines, since = 0) {
-  return lines.some((line) => {
-    try {
-      const e = JSON.parse(line);
-      return (Date.parse(e.timestamp ?? '') || 0) > since && (e.type === 'summary' || e.isCompactSummary === true || e.subtype === 'compact_boundary');
-    } catch { return false; }
-  });
-}
-
 const base = (p) => String(p ?? '').split(/[\\/]/).pop();
 const short = (v, n = 70) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
 
@@ -269,7 +210,7 @@ export function taskIdsOf(raw) {
   return [...String(raw).matchAll(/<task-id>([^<\\]+)<\\?\/task-id>/g)].map((m) => m[1].trim()).filter((id) => id && !id.startsWith('__'));
 }
 
-/** How long a handed message may go without the terminal taking it up before the runner answers it in a copy. */
+/** How long a handed message may go without the session taking it up before the board is told it does not listen. */
 export const ACK_MS = 90_000;
 
 /**
@@ -320,14 +261,13 @@ export class TranscriptWatch {
 }
 
 /**
- * The chat lane of a runner: takes this runner's waiting chat messages, answers each chat's in one run (FR-055c), keeps
- * the chat's session, reports live steps under the message, and writes what the chat sent the terminal to the chat log.
+ * The chat lane of a runner: takes this runner's waiting chat messages, hands each to the session as a chat-log line and
+ * reports its live steps under the message from the session's transcript - nothing is answered here.
  */
 export class ChatLane {
-  /** @param runner the Runner (its options, MCP client, Alfred client, logs) @param pool a ClaudePool that keeps sessions */
-  constructor(runner, pool) {
+  /** @param runner the Runner (its options, MCP client, Alfred client, logs) */
+  constructor(runner) {
     this.r = runner;
-    this.pool = pool;
     this.chains = new Map();
     this.host = runner.o.host ?? hostname();
     this.terminalAt = null;
@@ -338,9 +278,9 @@ export class ChatLane {
     /** The terminal's background tasks seen delivering ✉ lines - when one of them ends, nobody hears the chat log. */
     this.listeners = new Set();
     /**
-     * Since when the terminal does not hear the chat log (its watch ended, or a handed message was not taken up within
-     * ACK_MS): its chat is answered in a copy until it watches the log again. Before this, a message handed to a deaf
-     * terminal said "Claude has it" for ever (2026-10-19: a Desktop restart ended the watch).
+     * Since when the session does not hear the chat log (its watch ended, or a handed message was not taken up within
+     * ACK_MS): its messages wait, and the board says so, until it watches the log again. Before this, a message handed to
+     * a deaf session said "Claude has it" for ever (2026-10-19: a Desktop restart ended the watch).
      */
     this.deafSince = null;
   }
@@ -349,21 +289,28 @@ export class ChatLane {
     return this.r.o.chatId ?? `alfred-live:${this.host}:${this.r.o.project ?? ''}`;
   }
 
-  /** Starts watching the terminal's transcript (cycle chats only); its newest work rides the heartbeat as terminalAt. */
+  /** The chat this lane answers: the runner's board, else the project chat. */
+  get scope() {
+    return this.r.o.cycleId ?? 'project';
+  }
+
   /**
-   * A cycle chat is answered by the terminal session itself (plan-terminal-answers.md): Alfred is told so - the chat's
-   * session IS the terminal (chatSessionId = forkedFrom = the terminal's id) - and there is no copy to keep in step, so
-   * the terminal's transcript is not watched.
+   * The chat is answered by the session that ran /alfred-live (plan-terminal-answers.md): its transcript is followed from
+   * the start, so a watch that ends is seen even while nothing is pending, and Alfred is told the session answers.
    */
   async start() {
-    // a headless board session (started by the Alfred helper) is not a terminal: its chat answers in copies of it
-    if (!this.r.o.chatId || !this.r.o.cycleId || this.r.o.headless) return;
-    this.followTerminal(); // from the start, so a watch that ends is seen even while nothing is pending
-    if (this.deafSince) return; // its watch ended before this runner started: the chat is answered in copies for now
+    if (!this.r.o.chatId) return;
+    this.followTerminal();
+    if (this.deafSince) {
+      // its watch ended before this runner started: the board says so once, and its messages wait for it
+      if (!this.toldDeaf) this.tellDeaf(this.deafWhy ?? 'its watch on the chat log ended');
+      return;
+    }
+    if (!this.r.o.cycleId) return; // the project chat: no board chat session to name
     await this.r.o.alfred.call('PUT', `/board/chats/${encodeURIComponent(this.r.o.cycleId)}/session`, {
       query: { project: this.r.o.project ?? '' }, headers: { 'X-Alfred-Actor': 'claude' },
       body: { chatSessionId: this.r.o.chatId, forkedFrom: this.r.o.chatId, host: this.host, forkedAt: null, seenUpTo: null },
-    }).catch((error) => this.r.o.log(`  (could not tell Alfred the terminal answers the chat: ${error.message})`));
+    }).catch((error) => this.r.o.log(`  (could not tell Alfred the session answers the chat: ${error.message})`));
   }
 
   stop() {
@@ -406,39 +353,58 @@ export class ChatLane {
   }
 
   /**
-   * The terminal stopped hearing the chat log: what it was handed and has not taken up is answered in a copy now, the
-   * board says so, and every new message goes to a copy until the terminal watches the log again ({@link hear}).
+   * The session stopped hearing the chat log: what it was handed and has not taken up goes back to waiting, the board
+   * says how to wake it, and nothing is answered until it watches the log again ({@link hear}) - never in a copy.
    */
   goDeaf(why) {
-    if (this.deafSince || !this.r.o.chatId || !this.r.o.cycleId || this.r.o.headless) return;
+    if (this.deafSince || !this.r.o.chatId) return;
     this.deafSince = Date.now();
-    if (this.replaying) {
-      this.r.o.log(`  ⚠ your terminal is not listening (${why}) - its chat is answered in a copy until it watches the chat log again`);
-      return;
+    this.deafWhy = why;
+    this.toldDeaf = false;
+    this.r.o.log(`  ⚠ your session is not listening (${why}) - its messages wait until it runs /alfred-live again`);
+    this.r.beat?.(); // the board shows "not listening" now, not at the next heartbeat
+    // replaying the transcript at start: start() tells the board once the replay is over (it may still hear again)
+    if (this.replaying) return;
+    this.tellDeaf(why);
+    for (const p of [...this.pending.values()].filter((x) => x.item && !x.seen)) {
+      this.untrack(p.key, { state: 'DONE', outcome: 'your session is not listening - the message waits for it' });
+      this.r.o.alfred.call('POST', `/board/chats/messages/${p.item.t.messageId}/release`, { headers: { 'X-Alfred-Actor': 'claude' },
+        body: { failed: false } }).catch(() => null);
     }
-    const scope = this.r.o.cycleId;
-    const project = this.r.o.project ?? '';
-    this.r.o.log(`  ⚠ your terminal is not listening (${why}) - its chat is answered in a copy until it watches the chat log again`);
-    this.r.o.chat?.(`⚠ this session stopped hearing the board (${why}) - Alfred answers in a copy of it meanwhile. To answer here again, `
-      + 'run the watch again (`/alfred-live`).');
-    this.r.o.alfred.call('POST', `/board/chats/${encodeURIComponent(scope)}/system`, { query: { project },
-      body: { text: `↪ Your terminal stopped listening (${why}) - Claude answers in a copy of it until /alfred-live runs there again.` } }).catch(() => null);
-    const late = [...this.pending.values()].filter((p) => p.item && !p.seen);
-    for (const p of late) this.untrack(p.key, { state: 'DONE', outcome: 'your terminal was not listening - answered in a copy' });
-    if (!late.length) return;
-    const prev = this.chains.get(scope) ?? Promise.resolve();
-    const next = prev.then(() => this.viaCopy(scope, late[0].item.project, late.map((p) => p.item.t)))
-      .catch((error) => this.r.say(`  ⚠ chat ${scope}: ${error.message}`));
-    this.chains.set(scope, next);
   }
 
-  /** The terminal watches the chat log again: its chat is handed to it again, and Alfred is told it answers. */
+  /** Says on the board and in the session's chat log that the session does not hear the chat - once per deaf spell. */
+  tellDeaf(why) {
+    this.toldDeaf = true;
+    const project = this.r.o.project ?? '';
+    this.r.o.chat?.(`⚠ this session stopped hearing the board (${why}) - its messages wait. To answer them, run /alfred-live here again.`);
+    this.r.o.alfred.call('POST', `/board/chats/${encodeURIComponent(this.scope)}/system`, { query: { project },
+      body: { text: `↪ Your session stopped listening (${why}) - your messages wait for it. Open the session and send /alfred-live to answer them.` } })
+      .catch(() => null);
+  }
+
+  /** The session watches the chat log again: Alfred is told it answers, and what waited is handed to it now. */
   hear() {
     if (!this.deafSince) return;
     this.deafSince = null;
     if (this.replaying) return;
-    this.r.o.log('  ✓ your terminal watches the chat log again - its chat is answered there');
+    this.r.o.log('  ✓ your session watches the chat log again - its messages go to it');
+    this.r.beat?.();
     this.start().catch(() => null);
+    this.r.rereadChats?.();
+  }
+
+  /** A card change that waits while the session does not hear the chat log: handed to it when it watches again. */
+  hold(key, hand) {
+    (this.held ??= new Map()).set(key, hand);
+  }
+
+  /** Hands the held card changes to the session, which hears the chat log again. */
+  flushHeld() {
+    if (this.deafSince || !this.held?.size) return;
+    const held = [...this.held.values()];
+    this.held.clear();
+    for (const hand of held) hand();
   }
 
   untrack(key, end) {
@@ -548,102 +514,18 @@ export class ChatLane {
 
   async answer(scope, list) {
     const project = list[0].project;
+    // only the session that ran /alfred-live answers: with none, or while it does not hear the log, the messages wait
+    if (!this.r.o.chatId || !this.r.o.chat) {
+      if (!this.toldNoSession) {
+        this.toldNoSession = true;
+        this.r.o.log('  ⚠ no Claude session follows this runner - chat messages wait; run /alfred-live in a Claude session to answer them');
+      }
+      return;
+    }
+    if (this.deafSince) return;
     const taken = (await Promise.all(list.map((c) => this.take(c)))).filter(Boolean);
     if (!taken.length) return; // FR-055h: nothing to answer, no run
-    // a terminal that ran /alfred-live answers its chat itself - while it hears the chat log; a headless board session
-    // (the helper's, specs/032) or a deaf terminal has nobody reading the log: the runner answers in a copy instead
-    if (scope !== 'project' && this.r.o.chatId && !this.r.o.headless && !this.deafSince) return this.toTerminal(scope, project, list, taken);
-    return this.viaCopy(scope, project, taken);
-  }
-
-  /** Answers taken messages in one run of a copy of the session (never the terminal's session itself - one writer). */
-  async viaCopy(scope, project, taken) {
-    const { alfred } = this.r.o;
-    const ctx = await alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/context`, { query: { project } }).catch(() => null);
-    const refork = taken.some((t) => t.task && /^Refresh from the terminal/.test(t.text ?? ''));
-    const isCycle = scope !== 'project';
-    const terminalId = isCycle ? this.r.o.chatId ?? null : null;
-    const path = terminalId ? transcriptPath(this.r.o.cwd ?? process.cwd(), terminalId) : null;
-    const lines = path && existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [];
-    const stored = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
-      ? { chatSessionId: ctx.session.chatSessionId, host: ctx.session.host === 'null' ? null : ctx.session.host } : null;
-    // headless or deaf: never continue the board's session itself (it is open in Claude Desktop - one writer), only a copy
-    const session = (this.r.o.headless || this.deafSince) && stored?.chatSessionId === terminalId ? null : stored;
-    // what the copy has read of the terminal: this runner's own memory, else Alfred's (a restarted runner)
-    const seenUpTo = this.seenUpTo?.get(scope) ?? (Date.parse(ctx?.session?.seenUpTo ?? '') || 0);
-    const delta = session && path ? deltaOf(lines, seenUpTo) : { text: '', at: seenUpTo, entries: 0 };
-    // re-fork only after the terminal compacted itself or when the delta is too large (FR-055a)
-    const mustRefork = refork || (session && path && (compactedSince(lines, seenUpTo) || delta.text.length > MAX_DELTA_CHARS));
-    const how = chatSessionArgs({ session, terminalId, transcriptExists: !!path && existsSync(path), host: this.host, refork: mustRefork });
-    const summary = taken.find((t) => t.summary)?.summary ?? null;
-    const prompt = chatPrompt({
-      server: this.r.o.server, project, scope, taken,
-      context: [summary ? `Latest summary: ${summary}` : null, ctx?.decisions?.length ? `Decisions: ${ctx.decisions.map((d) => d.text).join(' | ')}` : null]
-        .filter(Boolean).join('\n') || null,
-      delta: how.continued && delta.entries ? delta.text : null,
-      note: how.note,
-      alreadyInSession: how.continued,
-    });
-    if (how.continued && delta.entries) {
-      this.r.o.log(`  ↻ chat ${scope}: caught up (+${delta.entries} new entries from the terminal)`);
-      await alfred.call('POST', `/board/chats/${encodeURIComponent(scope)}/system`, { query: { project },
-        body: { text: `↻ caught up with the terminal session (+${delta.entries} new entries)` } }).catch(() => null);
-    } else if (how.forked && session) {
-      await alfred.call('POST', `/board/chats/${encodeURIComponent(scope)}/system`, { query: { project },
-        body: { text: '↻ re-copied the terminal session' } }).catch(() => null);
-    }
-    if (how.forked) this.r.o.log(`  ⑂ chat ${scope}: copying the terminal session ${terminalId}`);
-
-    const id = randomUUID();
-    const reporter = new Reporter(alfred, { id, project, cardNumber: 0, chatMessageId: taken[0].messageId, head: 'answering in the chat' },
-      { every: this.r.o.reportEveryMs ?? 250, onError: (error) => this.r.o.log(`  (live-work report failed: ${error.message})`) });
-    reporter.report({ steps: [], state: 'WORKING' });
-    const p = this.pool.acquire(how.args);
-    let replied = 0;
-    const handle = this.pool.run(p, prompt, {
-      timeoutMs: this.r.o.runTimeoutMs ?? 10 * 60_000, draftEveryMs: this.r.o.draftEveryMs,
-      onStep: async (step, steps, draft) => {
-        if (step) this.r.o.log(`    · ${step}`);
-        reporter.report({ steps, state: 'WORKING' }); // the answer arrives as its own message: no draft to stream
-        return reporter.stop;
-      },
-      onToolResult: (_id, isError, _text, name) => { if (!isError && CHAT_WRITES.test(name)) replied++; },
-    });
-    this.r.handles.add(handle);
-    reporter.onStop = () => handle.kill();
-    const { steps, result, stderr, stopAsked, sessionId, usage } = await handle.done;
-    this.r.handles.delete(handle);
-
-    if (sessionId && (how.forked || !how.continued || sessionId !== session?.chatSessionId)) {
-      await alfred.call('PUT', `/board/chats/${encodeURIComponent(scope)}/session`, { query: { project }, headers: { 'X-Alfred-Actor': 'claude' },
-        body: { chatSessionId: sessionId, forkedFrom: how.forked ? terminalId : null, host: this.host, forkedAt: new Date().toISOString(),
-          seenUpTo: new Date().toISOString() } }).catch((error) => this.r.o.log(`  (chat session not stored: ${error.message})`));
-    }
-    (this.seenUpTo ??= new Map()).set(scope, Math.max(delta.at, Date.now()));
-    if (sessionId && how.continued && !how.forked && sessionId === session?.chatSessionId && delta.entries) {
-      // caught up: Alfred keeps how far the copy has read, so the header stops saying "terminal moved on"
-      await alfred.call('PUT', `/board/chats/${encodeURIComponent(scope)}/session`, { query: { project }, headers: { 'X-Alfred-Actor': 'claude' },
-        body: { chatSessionId: sessionId, forkedFrom: null, host: this.host, forkedAt: null, seenUpTo: new Date(Math.max(delta.at, Date.now())).toISOString() } })
-        .catch((error) => this.r.o.log(`  (chat session not stored: ${error.message})`));
-    }
-    if (stopAsked || this.r.stopped) {
-      await reporter.end({ steps, state: 'STOPPED', outcome: 'stopped by you' });
-    } else if (!result || result.error || replied < taken.length) {
-      const why = !result || result.error ? failureOf(result, stderr) : `answered ${replied} of ${taken.length}`;
-      await reporter.end({ steps, state: replied ? 'DONE' : 'FAILED', outcome: why });
-      // what was taken and not answered goes back with a line saying why (the user can ask again)
-      if (!replied) {
-        for (const t of taken) {
-          await alfred.call('POST', `/board/chats/messages/${t.messageId}/release`, { headers: { 'X-Alfred-Actor': 'claude' }, body: { failed: true, why } })
-            .catch(() => null);
-        }
-      }
-      this.r.say(`  ⚠ chat ${scope}: ${why}`);
-    } else {
-      await reporter.end({ steps, state: 'DONE', outcome: summaryOf(result?.text) ?? 'answered in the chat', ...(usage ? { usage } : {}) });
-      this.r.o.log(`  → 💬 chat ${scope}: answered ${replied}`);
-    }
-    if (isCycle) await this.flushTerminal(scope, project);
+    return this.toTerminal(scope, project, list, taken);
   }
 
   /**
@@ -672,17 +554,5 @@ export class ChatLane {
       this.r.o.chat(chatLine({ ...t, urgent: urgent.has(t.messageId) }, { project, scope }));
     }
     this.r.o.log(`  → 💬 chat ${scope}: ${taken.length} message${taken.length === 1 ? '' : 's'} handed to the terminal session`);
-  }
-
-  /** What the chat sent the terminal, written to the chat log the terminal follows - then reported delivered. */
-  async flushTerminal(scope, project) {
-    const items = await this.r.o.alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/terminal`, { query: { project } }).catch(() => []);
-    const open = (items ?? []).filter((t) => t.state === 'SENT' || t.state === 'WAITING' || t.state === 'QUEUED');
-    if (!open.length) return 0;
-    // urgent first; one write per item - the watch batches lines that arrive together into one turn
-    for (const t of [...open].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.id - b.id)) this.r.o.chat?.(terminalLine(t));
-    await this.r.o.alfred.call('POST', '/board/chats/terminal/delivered', { headers: { 'X-Alfred-Actor': 'claude' }, body: { ids: open.map((t) => t.id), read: false } })
-      .catch(() => null);
-    return open.length;
   }
 }

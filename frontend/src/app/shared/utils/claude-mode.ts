@@ -79,6 +79,13 @@ export function claudeView(i: ClaudeInputs): ClaudeView {
   if (s.state === 'STOPPED' || s.state === 'IDLE') {
     return { ...base, mode: 'paused', label: '▶ Resume Claude', tooltip: 'Claude is paused - Resume continues the same conversation' };
   }
+  // The helper reports ANSWERING from its own memory; whether anything still answers is the chat's listener (its runner
+  // or a terminal /alfred-live). A runner that died (a PC restart, a Desktop restart, a killed node) left the button
+  // saying "Claude on" while every message waited (2026-10-19) - Resume starts the runner again.
+  if (s.state === 'ANSWERING' && !i.terminalOn) {
+    return { ...base, mode: 'paused', label: '▶ Resume Claude',
+      tooltip: `Claude stopped answering this board on ${s.machine} - nothing listens to its chat. Resume starts it again` };
+  }
   const extra = s.state === 'WAITING_LIMIT' ? ' · usage limit' : s.state === 'WAITING_BUDGET' ? ' · budget reached' : '';
   return { ...base, mode: 'on', label: `● Claude on${extra}`, tooltip: `Claude answers this board on ${s.machine}` };
 }

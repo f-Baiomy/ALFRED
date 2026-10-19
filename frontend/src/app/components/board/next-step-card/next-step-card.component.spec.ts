@@ -84,7 +84,7 @@ describe('NextStepCardComponent (specs/032 T045)', () => {
   it('Claude on: ▶ Ask Claude to <verb> queues the run in the board session', () => {
     sessions.sessions.set([SESSION]);
     runs.chat.and.returnValue({ host: 'PC', chatAlive: true } as never);
-    const { primary, asks } = render(step('TRIAGE', 'CLAUDE', 'alfred-triage', 4));
+    const { primary, asks } = render(step('TRIAGE', 'CLAUDE', 'alfred-triage', 4), { terminalOn: true });
     expect(primary().textContent).toBe('▶ Ask Claude to triage with me');
     primary().click();
     expect(runs.run).toHaveBeenCalledWith(jasmine.objectContaining({ cycleId: 'b1', command: '/alfred-triage AB#59851' }));

@@ -172,7 +172,7 @@ describe('ChatPanelComponent - the window', () => {
   it('says who answers in one header row and keeps the rest in the ⋯ menu', () => {
     const f = render();
     const head: HTMLElement = f.nativeElement.querySelector('.chat-head');
-    expect(head.querySelector('.chat-who small')?.textContent).toContain('Answered by the project runner');
+    expect(head.querySelector('.chat-who small')?.textContent).toContain("Answered by the board's session");
     expect(head.querySelector('.chat-who small')?.textContent).toContain('1 waiting');
     expect(f.nativeElement.querySelector('.chat-menu')).toBeNull();
     (head.querySelector('.chat-icon[aria-label="More"]') as HTMLElement).click();
@@ -183,13 +183,12 @@ describe('ChatPanelComponent - the window', () => {
     f.nativeElement.remove();
   });
 
-  it('a cycle chat the terminal answers itself says so, and offers no copy to catch up or continue', () => {
+  it("a board chat its session answers says so, and offers no copy to catch up or continue (2026-10-19)", () => {
     const terminal = { open: true, forkAt: null, seenUpTo: null, terminalAt: '2026-10-16T10:00:00Z', host: 'pc', chatSessionId: 't1', forkedFrom: 't1',
       answeredByTerminal: true };
     const f = render({ terminal });
     const head: HTMLElement = f.nativeElement.querySelector('.chat-head');
-    expect(head.querySelector('.chat-who small')?.textContent).toContain('Answered by your terminal');
-    expect(f.componentInstance.movedOn()).toBeFalse();
+    expect(head.querySelector('.chat-who small')?.textContent).toContain("Answered by the board's session");
     (head.querySelector('.chat-icon[aria-label="More"]') as HTMLElement).click();
     f.detectChanges();
     const menu = f.nativeElement.querySelector('.chat-menu')?.textContent ?? '';
@@ -198,9 +197,14 @@ describe('ChatPanelComponent - the window', () => {
     f.nativeElement.remove();
   });
 
-  it('a cycle chat with no terminal says the messages wait - Alfred starts nothing itself', () => {
+  it('a board chat whose session does not listen says the messages wait and what to send there - never a copy (2026-10-19)', () => {
     const f = render({ claudeOn: false });
-    expect(f.nativeElement.querySelector('.chat-who small')?.textContent).toContain('No terminal and no project runner - messages wait');
+    const small = f.nativeElement.querySelector('.chat-who small')?.textContent ?? '';
+    expect(small).toContain('Not listening - messages wait');
+    expect(small).toContain('/alfred-live p c1');
+    expect(small).toContain("the board's session");
+    expect(f.nativeElement.querySelector('.chat-copy-cmd')).not.toBeNull();
+    (f.nativeElement.querySelector('.chat-menu') as HTMLElement | null)?.remove();
     f.nativeElement.remove();
   });
 

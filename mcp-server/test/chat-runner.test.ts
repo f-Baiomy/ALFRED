@@ -7,8 +7,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { world } from './harness.ts';
 
 /**
- * specs/022: the board chat lane of the /alfred-live runner - the session it forks or continues, the order it answers in,
- * what it sends the terminal - and its pure helpers.
+ * specs/022: the board chat lane of the /alfred-live runner - which messages it hands to its session, in what order, how it
+ * follows the session's work, what happens when the session stops hearing the chat log - and its pure helpers. Since
+ * 2026-10-19 nothing is answered in a fork, a copy or a headless run: only the session that ran /alfred-live answers.
  */
 
 const FAKE = fileURLToPath(new URL('./fake-claude.mjs', import.meta.url));
@@ -16,21 +17,13 @@ const live: any = await import(pathToFileURL(fileURLToPath(new URL('../../skills
 const chatLane: any = await import(pathToFileURL(fileURLToPath(new URL('../../skills/alfred-live/chat.mjs', import.meta.url))).href);
 const CHAT_SRC = readFileSync(fileURLToPath(new URL('../../skills/alfred-live/chat.mjs', import.meta.url)), 'utf8');
 
-test('a chat forks the terminal once, then continues its own session; another machine starts from Alfred only', () => {
-  const fork = chatLane.chatSessionArgs({ terminalId: 'term-1', transcriptExists: true, host: 'pc' });
-  assert.deepEqual(fork.args, ['--resume', 'term-1', '--fork-session']);
-  assert.equal(fork.forked, true);
-  const cont = chatLane.chatSessionArgs({ session: { chatSessionId: 'fork-9', host: 'pc' }, terminalId: 'term-1', transcriptExists: true, host: 'pc' });
-  assert.deepEqual(cont.args, ['--resume', 'fork-9']);
-  assert.equal(cont.continued, true);
-  const refork = chatLane.chatSessionArgs({ session: { chatSessionId: 'fork-9', host: 'pc' }, terminalId: 'term-1', transcriptExists: true, host: 'pc', refork: true });
-  assert.deepEqual(refork.args, ['--resume', 'term-1', '--fork-session']);
-  const elsewhere = chatLane.chatSessionArgs({ session: { chatSessionId: 'fork-9', host: 'laptop' }, terminalId: 'term-1', transcriptExists: false, host: 'pc' });
-  assert.deepEqual(elsewhere.args, []);
-  assert.match(elsewhere.note, /not on pc - this chat starts from Alfred's context only/);
-  assert.deepEqual(chatLane.chatSessionArgs({}).args, []);
+test('the lane never forks, copies or runs Claude itself - the session that ran /alfred-live answers (2026-10-19)', () => {
+  assert.doesNotMatch(CHAT_SRC, /--fork-session|viaCopy|chatSessionArgs|pool\.(acquire|run)/);
+  assert.equal(chatLane.chatSessionArgs, undefined);
   assert.equal(chatLane.sessionIdOf({ type: 'system', subtype: 'init', session_id: 's-1' }), 's-1');
   assert.equal(chatLane.sessionIdOf({ type: 'assistant' }), null);
+  const LIVE_SRC = readFileSync(fileURLToPath(new URL('../../skills/alfred-live/alfred-live.mjs', import.meta.url)), 'utf8');
+  assert.doesNotMatch(LIVE_SRC, /--headless|runHeadless|headlessRun/);
 });
 
 test('messages go urgent first, then in waiting order; a runner answers only its own chats', () => {
@@ -38,38 +31,22 @@ test('messages go urgent first, then in waiting order; a runner answers only its
     { messageId: 3, seq: 3, scope: 'project', project: 'p' }, { messageId: 4, seq: 4, scope: 'cy2', project: 'p' }];
   assert.deepEqual(chatLane.orderChats(chats).map((c: any) => c.messageId), [2, 1, 3, 4]);
   assert.deepEqual(chatLane.mineOf(chats, { cycleId: 'cy1' }).map((c: any) => c.messageId), [1, 2]);
-  // specs/027 R6: the project runner also answers board chats no terminal holds (Alfred refuses its take when one does)
-  assert.deepEqual(chatLane.mineOf(chats, { project: 'p' }).map((c: any) => c.messageId), [1, 2, 3, 4]);
+  // the project's session answers the project chat only: a board chat waits for its own session (2026-10-19)
+  assert.deepEqual(chatLane.mineOf(chats, { project: 'p' }).map((c: any) => c.messageId), [3]);
   assert.deepEqual(chatLane.mineOf(chats, {}).map((c: any) => c.messageId), [3]);
   assert.deepEqual(chatLane.mineOf(chats, { project: 'q' }), []);
   assert.deepEqual(chatLane.mineOf(chats, { cycleId: 'cy1', kind: 'listen' }), []);
 });
 
-test('a skill picked from the chat "/" list is run with the Skill tool; one it does not offer is an ordinary message', () => {
+test('a skill picked from the chat "/" list is named in its line; one it does not offer is an ordinary message', () => {
   assert.equal(chatLane.skillOf('skill:alfred-fix'), 'alfred-fix');
   assert.equal(chatLane.skillOf('skill:alfred-live'), null);
   assert.equal(chatLane.skillOf('typed'), null);
-  const p = chatLane.chatPrompt({ server: 'alfred', project: 'p', scope: 'cy1',
-    taken: [{ messageId: 9, take: '#9 user: /alfred-status', thread: [], origin: 'skill:alfred-status' }] });
-  assert.match(p, /picked \/alfred-status/);
-  assert.match(p, /Skill tool/);
-  const plain = chatLane.chatPrompt({ server: 'alfred', project: 'p', scope: 'cy1', taken: [{ messageId: 9, take: '#9 user: hi', thread: [] }] });
-  assert.doesNotMatch(plain, /Skill tool/);
+  assert.match(chatLane.chatLine({ messageId: 9, text: '/alfred-status', origin: 'skill:alfred-status' }, { project: 'p', scope: 'cy1' }), /picked \/alfred-status/);
+  assert.doesNotMatch(chatLane.chatLine({ messageId: 9, text: 'hi', origin: 'typed' }, { project: 'p', scope: 'cy1' }), /picked/);
 });
 
-test('the prompt keeps its head the same and puts the new things last; a continued session gets only what is new', () => {
-  const taken = [{ messageId: 7, take: '#7 user: why?', thread: [] }];
-  const first = chatLane.chatPrompt({ server: 'alfred', project: 'p', scope: 'cy1', taken, context: 'Latest summary: X' });
-  const again = chatLane.chatPrompt({ server: 'alfred', project: 'p', scope: 'cy1', taken, context: 'Latest summary: X', delta: 'user: fix it', alreadyInSession: true });
-  assert.ok(first.startsWith(chatLane.CHAT_RULES) && again.startsWith(chatLane.CHAT_RULES), 'same cached head');
-  assert.ok(first.indexOf('ALFRED CONTEXT') < first.indexOf('MESSAGES TO ANSWER'));
-  assert.doesNotMatch(again, /ALFRED CONTEXT/);
-  assert.match(again, /already in your session/);
-  assert.ok(again.indexOf('THE TERMINAL SESSION SINCE YOUR COPY') < again.indexOf('MESSAGES TO ANSWER'));
-  assert.match(again, /messageId 7: #7 user: why\?/);
-});
-
-test('the terminal\'s significant work is read from its transcript; a compact there means a new copy', () => {
+test("the session's significant work is read from its transcript", () => {
   const lines = [
     JSON.stringify({ type: 'user', timestamp: '2026-10-15T10:00:00Z', message: { content: 'fix the search' } }),
     JSON.stringify({ type: 'assistant', timestamp: '2026-10-15T10:01:00Z', message: { content: [{ type: 'text', text: 'Fixed.' },
@@ -82,8 +59,6 @@ test('the terminal\'s significant work is read from its transcript; a compact th
   assert.match(d.text, /user: fix the search\nclaude: Fixed\.\nclaude edited src\/Search\.java/);
   assert.equal(d.at, Date.parse('2026-10-15T10:01:00Z'));
   assert.equal(chatLane.deltaOf(lines, Date.parse('2026-10-15T10:01:00Z')).entries, 0);
-  assert.equal(chatLane.compactedSince(lines, 0), false);
-  assert.equal(chatLane.compactedSince([...lines, JSON.stringify({ type: 'summary', timestamp: '2026-10-15T11:00:00Z' })], 0), true);
   assert.equal(chatLane.terminalLine({ urgent: true, text: 'contradicts\nyour step' }), '⚡ board chat: contradicts your step');
   assert.equal(chatLane.terminalLine({ urgent: false, text: '💬 board chat #3 - you asked' }), '💬 board chat #3 - you asked');
 });
@@ -131,7 +106,7 @@ async function chatWorld(chats: any[]) {
     claude: process.execPath, claudeArgs: [FAKE], mcpConfigFile: join(dir, 'mcp.json'), host: 'pc', parallel: 1, warm: false,
     log: (l: string) => lines.push(l), chat: (l: string) => chat.push(l), settleMs: 0, waitSeconds: 1, draftEveryMs: 0, reportEveryMs: 5,
   });
-  const close = async () => { runner.pool.close(); runner.chatPool?.close(); await w.close(); };
+  const close = async () => { runner.pool.close(); await w.close(); };
   return { w, runner, lines, chat, promptFile, dir, close };
 }
 
@@ -141,29 +116,33 @@ const waiting = (c: any, id: number, scope: string, text: string, extra: any = {
   return { messageId: id, project: 'p', scope, kind: 'TEXT', urgent: !!extra.urgent, parentId: null, origin: 'typed', text, at: 't', seq: id };
 };
 
-test('the project runner answers the project chat\'s waiting messages in one run, with live steps under the message', async () => {
-  // cy1 is held by a terminal: the project runner's take of its message is refused (specs/027 R6)
-  const store = { messages: [] as any[], holder: { cy1: 'term-x' }, terminal: [] as any[], watches: [], nextId: 50 };
+test("the project's session answers the project chat: its messages become ✉ lines, urgent first - a board chat is not its", async () => {
+  const store = { messages: [] as any[], holder: {} as Record<string, string>, terminal: [] as any[], watches: [], nextId: 50 };
   const changes = [waiting(store, 1, 'project', 'first'), waiting(store, 2, 'project', 'second', { urgent: true }), waiting(store, 3, 'cy1', 'not mine')];
-  const { w, runner, promptFile, close } = await chatWorld(changes);
+  const { w, runner, chat, promptFile, close } = await chatWorld(changes);
+  w.fake.board.chats = store;
+  try {
+    runner.o.chatId = 'proj-sess';
+    await runner.once('0.0.0');
+    await Promise.all([...runner.chatLane.chains.values()]);
+    assert.throws(() => readFileSync(promptFile, 'utf8'), 'no Claude run was started');
+    const lines = chat.filter((l: string) => l.startsWith('✉ board chat #'));
+    assert.deepEqual(lines.map((l: string) => l.slice(0, 15)), ['✉ board chat #2', '✉ board chat #1'], chat.join(' | '));
+    assert.equal(w.fake.log.some((l) => l.path === '/board/chats/messages/3/take'), false, "a board chat waits for the board's own session");
+  } finally { await close(); }
+});
+
+test('a runner with no session to hand them to leaves the messages waiting - never answered in a run of its own', async () => {
+  const store = { messages: [] as any[], holder: {} as Record<string, string>, terminal: [] as any[], watches: [], nextId: 50 };
+  const { w, runner, lines, promptFile, close } = await chatWorld([waiting(store, 5, 'project', 'hello')]);
   w.fake.board.chats = store;
   try {
     await runner.once('0.0.0');
     await Promise.all([...runner.chatLane.chains.values()]);
-    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
-    assert.ok(sent.prompt.indexOf('messageId 2') < sent.prompt.indexOf('messageId 1'), 'urgent first');
-    assert.doesNotMatch(sent.prompt, /messageId 3/);
-    assert.ok(!sent.args.includes('--no-session-persistence'), 'a chat keeps its session');
-    assert.ok(!sent.args.includes('--fork-session'), 'the project chat has no terminal to copy');
-    assert.equal(store.messages.find((m) => m.id === 3).state, 'WAITING');
-    const reports = w.fake.board.liveWork;
-    assert.ok(reports.length && reports.every((r: any) => r.chatMessageId === 2 && r.cardNumber === 0), JSON.stringify(reports));
-    assert.equal(reports.at(-1).state, 'DONE');
-    assert.equal(reports.at(-1).usage.cacheRead, 9000);
-    const session = w.fake.log.find((l) => l.method === 'PUT' && l.path === '/board/chats/project/session');
-    assert.ok(session, 'the new session is stored');
-    assert.equal(session!.body.forkedFrom, null);
-    assert.equal(session!.body.host, 'pc');
+    assert.throws(() => readFileSync(promptFile, 'utf8'), 'no Claude run was started');
+    assert.equal(w.fake.log.some((l) => l.path === '/board/chats/messages/5/take'), false, 'not taken');
+    assert.equal(store.messages.find((m) => m.id === 5).state, 'WAITING');
+    assert.ok(lines.some((l) => /no Claude session follows this runner/.test(l)));
   } finally { await close(); }
 });
 
@@ -187,42 +166,6 @@ test('a cycle chat is answered by the terminal session itself: the message becom
     assert.ok(took, 'the message is taken for the terminal');
     assert.equal(w.fake.log.some((l) => l.path === '/board/chats/messages/4/release'), false, 'and not given back');
   } finally { await close(); }
-});
-
-test('a headless board session (the helper session) answers its chat itself in a copy - no ✉ line nobody reads (specs/032)', async () => {
-  const store = { messages: [] as any[], holder: {} as Record<string, string>, terminal: [] as any[], watches: [], nextId: 50 };
-  const changes = [waiting(store, 4, 'cy1', 'can you hear me?')];
-  const { w, runner, chat, promptFile, close } = await chatWorld(changes);
-  w.fake.board.chats = store;
-  try {
-    runner.o.chatId = 'sess-1';
-    runner.o.cycleId = 'cy1';
-    runner.o.headless = true;
-    await runner.chatLane.start();
-    assert.equal(w.fake.log.some((l) => l.method === 'PUT' && l.path === '/board/chats/cy1/session'), false, 'no "the terminal answers" claim');
-    await runner.once('0.0.0');
-    await Promise.all([...runner.chatLane.chains.values()]);
-    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
-    assert.match(sent.prompt, /can you hear me\?/);
-    assert.ok(!sent.args.includes('sess-1') || sent.args.includes('--fork-session'), 'never the board session itself - only a copy');
-    assert.equal(chat.some((l: string) => l.startsWith('✉ board chat #4')), false);
-  } finally { await close(); }
-});
-
-test('a headless ▶ run is run by the runner and ended with what it said; a failure says why (specs/032)', async () => {
-  const puts: any[] = [];
-  const self: any = { o: { alfred: { call: async (_m: string, path: string, o: any) => { puts.push({ path, body: o.body }); return { state: o.body.state }; } },
-    log: () => {}, chatId: 'sess-1', server: 'alfred', cwd: '.', mcpConfigFile: 'm.json',
-    runHeadless: async (a: any) => { assert.equal(a.sessionId, 'sess-1'); assert.equal(a.prompt, 'P'); return { ok: true, text: '## Drafted the brief\nmore' }; } } };
-  await live.Runner.prototype.runHeadless.call(self, { id: 'r1', command: '/alfred-setup AB#1', prompt: 'P' });
-  assert.deepEqual(puts.map((p) => p.body.state), ['RUNNING', 'DONE']);
-  assert.equal(puts[1].body.outcome, 'Drafted the brief');
-  self.o.runHeadless = async () => ({ ok: false, text: '', error: "You've hit your weekly limit" });
-  puts.length = 0;
-  await live.Runner.prototype.runHeadless.call(self, { id: 'r2', command: '/alfred-fix AB#1', prompt: 'P' });
-  assert.deepEqual(puts.map((p) => p.body.state), ['RUNNING', 'FAILED']);
-  assert.match(puts[1].body.outcome, /weekly limit/);
-  assert.ok(live.HEADLESS_TOOLS.includes('Skill'));
 });
 
 test('a message handed to the terminal shows its progress from the transcript: queued, on it, each step, then answered', () => {
@@ -299,21 +242,6 @@ test('the ✉ line says urgent, and the runner tells Alfred the terminal answers
   assert.equal(put.body.forkedFrom, 'term-1');
 });
 
-test('a run that answers nothing gives the messages back with why', async () => {
-  const store = { messages: [] as any[], holder: {}, terminal: [] as any[], watches: [], nextId: 50 };
-  const { w, runner, close } = await chatWorld([waiting(store, 5, 'project', 'hello')]);
-  w.fake.board.chats = store;
-  process.env['FAKE_CLAUDE_MODE'] = 'text-only';
-  try {
-    await runner.once('0.0.0');
-    await Promise.all([...runner.chatLane.chains.values()]);
-    const released = w.fake.log.find((l) => l.path === '/board/chats/messages/5/release');
-    assert.ok(released, 'released');
-    assert.equal(released!.body.failed, true);
-    assert.equal(w.fake.board.liveWork.at(-1).state, 'FAILED');
-  } finally { await close(); }
-});
-
 test('a runner reads the waiting chat messages from the start: those sent before it started are not skipped', () => {
   assert.equal(live.chatsFromStart('12.345.67'), '12.345.0');
   assert.equal(live.chatsFromStart('now'), 'now');
@@ -357,12 +285,14 @@ function deafWorld(extra: Record<string, unknown> = {}) {
   const runner: any = { o: { chatId: 'term-1', cycleId: 'cy1', project: 'p', chatPath: 'C:/tmp/alfred-live/x.term1.chat.log', log: (l: string) => logs.push(l),
     chat: (l: string) => chatLines.push(l), alfred: { call: async (method: string, path: string, o: any) => { calls.push({ method, path, body: o?.body }); return null; } },
     ...extra }, say: (l: string) => logs.push(l) };
-  const lane = new chatLane.ChatLane(runner, {});
-  const copied: number[][] = [];
-  lane.viaCopy = async (_scope: string, _project: string, taken: any[]) => { copied.push(taken.map((t) => t.messageId)); };
+  let beats = 0;
+  let rereads = 0;
+  runner.beat = () => { beats++; };
+  runner.rereadChats = () => { rereads++; };
+  const lane = new chatLane.ChatLane(runner);
   const ended: any[] = [];
   const reporter = () => ({ report: () => {}, end: async (b: any) => { ended.push(b); } });
-  return { lane, logs, chatLines, calls, copied, ended, reporter };
+  return { lane, logs, chatLines, calls, ended, reporter, beats: () => beats, rereads: () => rereads };
 }
 const jl = (o: any) => JSON.stringify(o);
 const delivered = (id: number, task = 'b4aunys0m') => jl({ type: 'user', message: { content:
@@ -370,8 +300,8 @@ const delivered = (id: number, task = 'b4aunys0m') => jl({ type: 'user', message
 const stopped = (task = 'b4aunys0m') => jl({ type: 'user', message: { content:
   `<task-notification> <task-id>b7wdn4i4l</task-id> <task-id>${task}</task-id> <status>stopped</status> <summary>3 background shell command tasks didn't finish</summary>` } });
 
-test('a terminal whose chat-log watch ended is deaf: what it was handed is answered in a copy and the board is told (2026-10-19)', async () => {
-  const { lane, logs, chatLines, calls, copied, ended, reporter } = deafWorld();
+test('a session whose chat-log watch ended is deaf: what it was handed waits again, and the board says how to wake it (2026-10-19)', async () => {
+  const { lane, logs, chatLines, calls, ended, reporter, beats } = deafWorld();
   lane.onTerminal(delivered(3)); // learns which background task delivers the ✉ lines
   assert.ok(lane.listeners.has('b4aunys0m'));
   lane.track({ key: 'm:9', marker: '✉ board chat #9', reporter: reporter(), done: () => false });
@@ -380,45 +310,57 @@ test('a terminal whose chat-log watch ended is deaf: what it was handed is answe
   assert.equal(lane.deafSince, null, 'another task ending changes nothing');
   lane.onTerminal(stopped());
   assert.ok(lane.deafSince, 'the watch that delivered the ✉ lines ended: deaf');
-  await Promise.all([...lane.chains.values()]);
-  assert.deepEqual(copied, [[9]], 'the message it never took up is answered in a copy');
-  assert.equal(ended[0].outcome, 'your terminal was not listening - answered in a copy');
-  assert.ok(calls.some((c) => c.path === '/board/chats/cy1/system' && /stopped listening/.test(c.body.text)), 'the board says so');
+  const back = calls.find((c) => c.path === '/board/chats/messages/9/release');
+  assert.ok(back, 'the message it never took up goes back to waiting');
+  assert.equal(back!.body.failed, false, 'waiting, not failed');
+  assert.equal(ended[0].outcome, 'your session is not listening - the message waits for it');
+  const told = calls.find((c) => c.path === '/board/chats/cy1/system');
+  assert.match(told!.body.text, /stopped listening/);
+  assert.match(told!.body.text, /send \/alfred-live/);
+  assert.doesNotMatch(told!.body.text, /copy/);
   assert.ok(chatLines.some((l) => /stopped hearing the board/.test(l)), 'and the session, if it comes back');
   assert.ok(logs.some((l) => /not listening/.test(l)));
+  assert.ok(beats() >= 1, 'the board hears it now, not at the next heartbeat');
 });
 
-test('a handed message nobody takes up within the deadline (checked on the heartbeat) makes the terminal deaf - never "Claude has it" for ever', async () => {
-  const { lane, copied } = deafWorld({ ackMs: 30 });
+test('a handed message nobody takes up within the deadline (checked on the heartbeat) makes the session deaf - never "Claude has it" for ever', async () => {
+  const { lane, calls } = deafWorld({ ackMs: 30 });
   lane.r.o.chat = () => {};
   await lane.toTerminal('cy1', 'p', [{ messageId: 11, urgent: false }], [{ messageId: 11, take: '#11 user: you hear me?' }]);
   lane.checkDeadlines(Date.now() + 10);
   assert.equal(lane.deafSince, null, 'not before the deadline');
   lane.checkDeadlines(Date.now() + 60);
   assert.ok(lane.deafSince);
-  await Promise.all([...lane.chains.values()]);
-  assert.deepEqual(copied, [[11]]);
+  assert.ok(calls.some((c) => c.path === '/board/chats/messages/11/release'), 'it waits again');
   const { lane: busy } = deafWorld({ ackMs: 30 });
   busy.r.o.chat = () => {};
   await busy.toTerminal('cy1', 'p', [{ messageId: 12, urgent: false }], [{ messageId: 12, take: '#12' }]);
   busy.onTerminal(jl({ type: 'queue-operation', operation: 'enqueue', content: '<event>✉ board chat #12: "x"</event>' }));
   busy.checkDeadlines(Date.now() + 60);
-  assert.equal(busy.deafSince, null, 'queued in a busy terminal is delivered - it answers after its current step');
+  assert.equal(busy.deafSince, null, 'queued in a busy session is delivered - it answers after its current step');
 });
 
-test('while deaf new messages go to a copy; the terminal watching the chat log again takes its chat back', async () => {
-  const { lane, calls } = deafWorld();
+test('while deaf nothing is taken or answered; the session watching the chat log again gets what waited', async () => {
+  const { lane, calls, rereads } = deafWorld();
   lane.goDeaf('test');
-  const routed: string[] = [];
-  lane.take = async (c: any) => ({ messageId: c.messageId });
-  lane.toTerminal = async () => { routed.push('terminal'); };
-  lane.viaCopy = async () => { routed.push('copy'); };
+  const routed: number[] = [];
+  let takes = 0;
+  lane.take = async (c: any) => { takes++; return { messageId: c.messageId }; };
+  lane.toTerminal = async (_s: string, _p: string, _l: any, taken: any[]) => { routed.push(...taken.map((t) => t.messageId)); };
   await lane.answer('cy1', [{ messageId: 20, project: 'p' }]);
+  assert.equal(takes, 0, 'not even taken: it stays waiting for the session');
+  const handed: string[] = [];
+  lane.hold('c:5', () => handed.push('#5'));
+  lane.flushHeld();
+  assert.deepEqual(handed, [], 'a card change waits too');
   lane.onTerminal(jl({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Monitor', input: { command: 'tail -n 0 -F "C:/tmp/alfred-live/x.term1.chat.log"' } }] } }));
   assert.equal(lane.deafSince, null, 'it ran the watch again');
-  assert.ok(calls.some((c) => c.method === 'PUT' && c.path === '/board/chats/cy1/session'), 'Alfred is told the terminal answers again');
+  assert.ok(calls.some((c) => c.method === 'PUT' && c.path === '/board/chats/cy1/session'), 'Alfred is told the session answers again');
+  assert.equal(rereads(), 1, 'what waited is read again and handed to it');
+  lane.flushHeld();
+  assert.deepEqual(handed, ['#5']);
   await lane.answer('cy1', [{ messageId: 21, project: 'p' }]);
-  assert.deepEqual(routed, ['copy', 'terminal']);
+  assert.deepEqual(routed, [21]);
 });
 
 test('a runner started after the watch ended knows it at once from the transcript, quietly', () => {
@@ -438,6 +380,20 @@ test('a runner started after the watch ended knows it at once from the transcrip
   };
   lane.followTerminal();
   assert.ok(lane.deafSince);
-  assert.equal(calls.length, 0, 'nothing posted for what happened before it started');
+  assert.equal(calls.length, 0, 'nothing posted while the transcript is replayed - it may still hear again further on');
   assert.equal(typeof orig, 'function');
+});
+
+test('a runner that starts deaf says so on the board once, and never claims the chat for the terminal', async () => {
+  const { lane, calls, chatLines } = deafWorld();
+  lane.followTerminal = function () {
+    this.replaying = true;
+    this.onTerminal([delivered(1), stopped()].join('\n'));
+    this.replaying = false;
+  };
+  await lane.start();
+  const told = calls.filter((c) => c.path === '/board/chats/cy1/system' && /stopped listening/.test(c.body.text));
+  assert.equal(told.length, 1, 'the board says the terminal does not hear it (2026-10-19: the user saw answers and believed their session wrote them)');
+  assert.ok(!calls.some((c) => c.method === 'PUT' && c.path === '/board/chats/cy1/session'), 'Alfred is not told the terminal answers');
+  assert.ok(chatLines.some((l) => /stopped hearing the board/.test(l)));
 });

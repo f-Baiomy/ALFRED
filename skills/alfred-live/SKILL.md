@@ -12,14 +12,16 @@ the answering (docs/mcp.md "Live answers"):
 **Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board") - `task_context` resolves it; the runner takes the cycle id `task_context` gives. A bare `#n` is a card.
 
 **Board sessions** (specs/031, specs/032): the board's **Claude button** (▶ Start Claude) does all of this for the user -
-their Alfred helper starts the board's session on their PC and this runner with it; the button then says **● Claude on**,
-and its panel has **⏸ Pause Claude** (stops this runner, keeps the session - ▶ Resume Claude continues it) and **↩ Hand
-the board back** (a Handover note card, then stop and release). Started from a terminal instead, the button says
-**● Claude on · terminal** and tells the user to stop it with `/alfred-live stop`. With Claude Desktop (the default), ▶
-Start Claude opens a **Desktop chat** in the board's folder whose first message asks it to read the task and run this
-skill - that chat is the board's session and answers everything here, visibly. **⏸ Pause** from the board stops only
-the runner: keep the Monitor watch on (no reply), because ▶ Resume starts the runner again on the same chat log. A board another user holds refuses
-writes (HELD, with who holds it): say so and that the user can ask for it from the 🔒 button - never retry.
+their Alfred helper opens the board's session on their PC - a **Claude Desktop chat** in the board's folder (the
+default), else a **terminal** - whose first message asks it to read the task and run this skill. **That session is the
+board's Claude: everything on the board goes through it, visibly - never a fork, a copy or a headless run of it**
+(2026-10-19). The button says **● Claude on** only while the session hears its chat log; **⏸ Pause Claude** stops the
+runner and writes `⏸ paused` into the log (keep the Monitor watch on, reply nothing); **▶ Resume Claude** starts the
+runner again on the same log, and opens the session when nothing has it open; **↩ Hand the board back** asks this
+session for a Handover note card, then stops and releases. When the session stopped hearing the log (a Desktop restart,
+a stopped watch), the board says **not listening** and its messages wait: running `/alfred-live` here again picks them
+up. A board another user holds refuses writes (HELD, with who holds it): say so and that the user can ask for it from
+the 🔒 button - never retry.
 
 - The runner is `alfred-live.mjs` in this skill's folder. It runs **on this machine**, beside this session, the app's
   repo and Claude Code - whether Alfred runs here, in Docker, or on another machine (`alfred-lan-83` →
@@ -59,8 +61,8 @@ writes (HELD, with who holds it): say so and that the user can ask for it from t
    machine edit its board` (the board's owner adds this machine to Settings → Server's edit access,
    `ALFRED_SETTINGS_EDIT_FROM`); `older than /alfred-live needs`; `already answers this board from <machine>` (one
    answerer per board - stop it there, or `--force`); `This board already runs in a chat on <machine>` (one chat per
-   board - the user stops it in that chat first). Without `--cycle`, the runner also answers every board chat of the
-   project that no terminal holds.
+   board - the user stops it in that chat first). Without `--cycle`, this session answers the project chat (its `✉`
+   lines come here); a board's chat waits for the board's own session - it is never answered from another one.
 4. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the runner's
    short log for this session, not its full one), description "Alfred live · <project>", `timeout_ms` 3600000.
 5. Tell the user in two lines: Claude now answers on the board within seconds and shows each step on the card; stop
@@ -97,10 +99,14 @@ writes (HELD, with who holds it): say so and that the user can ask for it from t
     button): open it as rules.md "Board chat" says - `askedIn` = that message, the new board related back to this chat's
     board, never a second board for one item, and "not in the cache yet: Refresh the Team tab first" when it is missing.
   - `↪ handed over: …` - another terminal session answers the cycle now: stop the Monitor watch, answer nothing more.
+  - `⏸ paused from the board …` - the user paused Claude: answer nothing until a new `✉` line comes; keep the watch.
+  - `✉ from Alfred: …` - the user asked it from the board (a Handover note, `/alfred-resume` to catch up): do it here.
+  - `⚠ this session stopped hearing the board …` - it is shown when the watch comes back: run the start again (step 3)
+    and re-arm the watch (step 4); the messages that waited are handed to this session then.
   - After starting in a cycle that already has a chat: read the chat's summary and the brief (`chat_read`,
     `get_brief`) before the first answer - they are what this session did not see.
-- **Other board-chat lines** (the project chat, or an older Alfred): `⚡ board chat: …` - act on it before your next
-  step, or tell the user why not; `💬 board chat: …`, `↻`, `↳` - context only, write nothing.
+- **Other board-chat lines** (an older Alfred): `⚡ board chat: …` - act on it before your next step, or tell the user
+  why not; `💬 board chat: …`, `↻`, `↳` - context only, write nothing.
 - The watch expires after an hour: re-arm it with the same command, nothing else. A line starting `⚠` that repeats
   (the runner cannot reach Alfred or Claude) → tell the user once, with the line.
 - The user asks something about a live answer → answer from the board (`board_get`), not from the log.

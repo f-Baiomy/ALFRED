@@ -15,7 +15,7 @@ const none: ClaudeInputs = { held: null, pending: null, session: null, mine: fal
 describe('claudeView', () => {
   it('gives each mode its words', () => {
     expect(claudeView(none).label).toBe('▶ Start Claude');
-    expect(claudeView({ ...none, session: session('ANSWERING'), mine: true }).label).toBe('● Claude on');
+    expect(claudeView({ ...none, session: session('ANSWERING'), mine: true, terminalOn: true }).label).toBe('● Claude on');
     expect(claudeView({ ...none, session: session('STOPPED'), mine: true }).label).toBe('▶ Resume Claude');
     expect(claudeView({ ...none, session: session('ANSWERING'), mine: true, elsewhere: true }).label).toBe('Claude on LAPTOP-1');
     expect(claudeView({ ...none, terminalOn: true }).label).toBe('● Claude on · terminal');
@@ -30,12 +30,21 @@ describe('claudeView', () => {
     expect(claudeView({ ...none, pending: command('RELEASE', 'TAKEN') }).label).toBe('Handing back…');
     expect(claudeView({ ...none, pending: command('RESUME', 'QUEUED') }).label).toBe('Waiting for your PC…');
     // opening Desktop does not make the control busy
-    expect(claudeView({ ...none, pending: command('OPEN_DESKTOP', 'TAKEN'), session: session('ANSWERING'), mine: true }).mode).toBe('on');
+    expect(claudeView({ ...none, pending: command('OPEN_DESKTOP', 'TAKEN'), session: session('ANSWERING'), mine: true, terminalOn: true }).mode).toBe('on');
+  });
+
+  it('is not "on" when nothing listens to the chat, whatever the helper last reported', () => {
+    // the runner died (a PC or Desktop restart) - the session still says ANSWERING, the chat has no listener
+    const v = claudeView({ ...none, session: session('ANSWERING'), mine: true, terminalOn: false });
+    expect([v.mode, v.label]).toEqual(['paused', '▶ Resume Claude']);
+    expect(v.tooltip).toContain('nothing listens to its chat');
+    // a usage limit is the helper's own word: it stays
+    expect(claudeView({ ...none, session: session('WAITING_LIMIT'), mine: true }).label).toBe('● Claude on · usage limit');
   });
 
   it('forgets a failure once the session answered after it', () => {
     const failed = command('RESUME', 'FAILED', 'x');
-    expect(claudeView({ ...none, failed, session: session('ANSWERING', { lastActive: '2026-10-18T12:00:00Z' }), mine: true }).mode).toBe('on');
+    expect(claudeView({ ...none, failed, session: session('ANSWERING', { lastActive: '2026-10-18T12:00:00Z' }), mine: true, terminalOn: true }).mode).toBe('on');
     expect(claudeView({ ...none, failed, session: session('STOPPED'), mine: true }).mode).toBe('failed');
   });
 });

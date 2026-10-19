@@ -26,7 +26,9 @@ describe('BoardSessionButtonComponent (specs/031, specs/032)', () => {
     f.componentRef.setInput('project', 'odeysys');
     f.componentRef.setInput('boardId', 'b1');
     f.componentRef.setInput('ref', 'AB#1');
-    for (const [k, v] of Object.entries(inputs)) f.componentRef.setInput(k, v);
+    // an answering session's runner listens to the board chat - the page passes that as terminalOn
+    const listening = state.sessions().some((x) => x.state === 'ANSWERING');
+    for (const [k, v] of Object.entries({ ...(listening ? { terminalOn: true } : {}), ...inputs })) f.componentRef.setInput(k, v);
     f.detectChanges();
     return f;
   }
@@ -58,7 +60,15 @@ describe('BoardSessionButtonComponent (specs/031, specs/032)', () => {
 
     it('● Claude on while it answers', () => {
       state.sessions.set([SESSION]);
-      expect(main(render()).textContent).toContain('● Claude on');
+      // the board page passes whether anything listens to the chat: the session's runner does while it answers
+      expect(main(render({ terminalOn: true })).textContent).toContain('● Claude on');
+    });
+
+    it('▶ Resume Claude when the session says it answers but nothing listens to the chat (its runner died)', () => {
+      state.sessions.set([SESSION]);
+      const b = main(render({ terminalOn: false }));
+      expect(b.textContent).toContain('▶ Resume Claude');
+      expect(b.title).toContain('nothing listens to its chat');
     });
 
     it('▶ Resume Claude when paused - and Resume catches up on what waits', () => {

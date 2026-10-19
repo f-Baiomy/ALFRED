@@ -63,6 +63,8 @@ export const PAUSE_SLOW_MS = 4000;
     .ph { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
     .ph .t { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
     .ph .d { margin-top: 3px; color: var(--text-dim); font-size: 12.5px; }
+    .d.listen { margin: 10px 16px 0; color: var(--warning, #e0a040); font-size: 12.5px; }
+    .d.listen code { font-size: 11.5px; }
     .meter { height: 5px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--card-inner); }
     .meter i { display: block; height: 100%; background: var(--purple); }
     .grp { padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
@@ -149,9 +151,14 @@ export const PAUSE_SLOW_MS = 4000;
             @case ('paused') {
               @let s = session()!;
               <div class="ph">
-                <div class="t">⏸ Claude is paused</div>
+                <div class="t">{{ s.state === 'ANSWERING' ? '⚠ Claude stopped answering' : '⏸ Claude is paused' }}</div>
                 <div class="d">Last answered {{ s.lastActive | date:'short' }} on {{ s.machine }}@if (unread()) { · {{ unread() }} new chat message{{ unread() === 1 ? '' : 's' }} since }</div>
               </div>
+              @if (s.state === 'ANSWERING') {
+                <div class="d listen">Its session no longer hears the board (a Desktop restart, a stopped watch) - your messages wait for it, never
+                  answered in a copy. ▶ Resume brings the session up; send <code>{{ listenCmd() }}</code> there
+                  <button type="button" class="link-btn" (click)="copy(listenCmd())">{{ copied() === listenCmd() ? 'copied' : 'copy' }}</button></div>
+              }
               <div class="body">
                 <div class="acts" style="justify-content:flex-start;margin-top:0">
                   <button type="button" class="action-btn primary" (click)="resume()">▶ {{ unread() ? 'Resume and catch up on ' + unread() + ' message' + (unread() === 1 ? '' : 's') : 'Resume Claude' }}</button>
@@ -391,6 +398,8 @@ export const PAUSE_SLOW_MS = 4000;
 export class BoardSessionButtonComponent {
   readonly project = input.required<string>();
   readonly boardId = input.required<string>();
+  /** What makes the board's session answer again: /alfred-live run in it (2026-10-19). */
+  readonly listenCmd = computed(() => `/alfred-live ${this.project()} ${this.boardId()}`);
   readonly title = input<string | null>(null);
   /** How the board is named in commands and dialogs ("AB#59851"). */
   readonly ref = input<string | null>(null);

@@ -133,11 +133,16 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
         return out;
     }
 
-    /** Whether the Claude that answers this chat is running now. */
+    /**
+     * Whether the Claude that answers this chat is listening now. A board's chat is answered only by the board's own
+     * session - while its runner says that session hears the chat log ({@code chatAlive}: a Desktop restart or a stopped
+     * watch makes it false) - never by the project's runner or a copy (2026-10-19); the project chat by the project's.
+     */
     boolean claudeOn(ChatKey chat) {
-        // specs/027 R6: a board's chat is answered by the terminal holding the board, else by the project's live runner
-        return live.runner(chat.project(), LiveWorkUseCase.KIND_LIVE).isPresent()
-                || (!chat.isProject() && live.cycleChat(chat.cycleId()).filter(c -> c.project().equals(chat.project())).isPresent());
+        if (chat.isProject()) {
+            return live.runner(chat.project(), LiveWorkUseCase.KIND_LIVE).isPresent();
+        }
+        return live.cycleChat(chat.cycleId()).filter(c -> c.project().equals(chat.project()) && c.chatAlive()).isPresent();
     }
 
     @Override
@@ -624,7 +629,11 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
                 return Result.no(Outcome.CONFLICT, "This message is in the chat of cycle " + m.chat().cycleId() + " - its own chat answers it");
             }
             Optional<LiveWorkUseCase.CycleChat> holder = live.cycleChat(m.chat().cycleId());
-            if (holder.isPresent() && !holder.get().chatId().equals(chatId)) {
+            // only the board's own session answers its chat: with none, the message waits for one (2026-10-19)
+            if (holder.isEmpty()) {
+                return Result.no(Outcome.CONFLICT, "No session answers this board - its messages wait until /alfred-live runs in the board's session");
+            }
+            if (!holder.get().chatId().equals(chatId)) {
                 return Result.no(Outcome.CONFLICT, "Another chat (" + holder.get().chatId() + " on " + holder.get().host() + ") holds this cycle");
             }
         }

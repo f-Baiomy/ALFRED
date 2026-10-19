@@ -28,7 +28,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CHAT_RULES, ChatLane, chatTools, sessionIdOf } from './chat.mjs';
+import { CHAT_RULES, ChatLane, sessionIdOf } from './chat.mjs';
 
 // ------------------------------------------------------------------------------------------------- what the user did
 
@@ -967,13 +967,8 @@ export class Runner {
     this.warmLater = o.warm !== false && !o.pool;
     this.sleepers = new Set();
     this.lastChatAlive = true;
-    // specs/022: the board chat - its own pool, whose runs keep their session (a chat continues it)
-    this.chatPool = (o.kind ?? 'live') === 'listen' || o.chats === false ? null : o.chatPool ?? new ClaudePool({ size: 2, claude: o.claude, claudeArgs: o.claudeArgs,
-      cwd: o.cwd, server: o.server, mcpConfigFile: o.mcpConfigFile, model: o.model, systemPromptFile: o.systemPromptFile, warm: false, persist: true,
-      tools: ['Read', 'Grep', 'Glob', 'Bash', 'Skill'], allowed: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
-        'Bash(codegraph explore:*)', 'Skill'],
-      only: chatTools(), serverTools: o.serverTools });
-    this.chatLane = this.chatPool ? new ChatLane(this, this.chatPool) : null;
+    // specs/022: the board chat - handed to the session that ran /alfred-live, never answered in a run of its own
+    this.chatLane = (o.kind ?? 'live') === 'listen' || o.chats === false ? null : new ChatLane(this);
   }
 
   /** A pause that a stop ends at once. */
@@ -1006,7 +1001,6 @@ export class Runner {
           break;
         }
         for (const run of taken ?? []) {
-          if (this.o.headless) { await this.runHeadless(run); continue; }
           this.o.log(`▶ ${run.command} - from the board, sent to the chat${run.note ? ` (note: ${run.note.slice(0, 120)})` : ''}`);
           this.o.chat?.(boardRunLine(run));
         }
@@ -1017,32 +1011,6 @@ export class Runner {
         await this.sleep(5000);
       }
     }
-  }
-
-  /**
-   * A ▶ run on a headless board session (specs/032): nobody reads the chat log there, so the runner runs it - in a copy of
-   * the board's session (`--resume <session> --fork-session`: its whole context, and never a second writer into the session
-   * itself, which may be open in Claude Desktop), with the skill's slash command expanded, and ends the run with what it
-   * said. One at a time, in the order the board queued them.
-   */
-  async runHeadless(run) {
-    const alfred = this.o.alfred;
-    const put = (body) => alfred.call('PUT', `/board/skill-runs/${encodeURIComponent(run.id)}`, { body }).catch((error) => {
-      this.o.log(`  (run ${run.id} not updated: ${error.message})`);
-      return null;
-    });
-    const taken = await put({ state: 'RUNNING' });
-    if (taken && taken.state && taken.state !== 'RUNNING') { this.o.log(`▶ ${run.command}: ${String(taken.state).toLowerCase()} - not run`); return; }
-    this.o.log(`▶ ${run.command} - from the board, running in a copy of the board's session`);
-    const runner = this.o.runHeadless ?? headlessRun;
-    const r = await runner({ claude: this.o.claude, cwd: this.o.cwd, server: this.o.server, mcpConfigFile: this.o.mcpConfigFile, model: this.o.model,
-      sessionId: this.o.chatId, prompt: run.prompt || run.command, timeoutMs: this.o.runTimeoutMs ?? 30 * 60_000,
-      onChild: (child) => { this.headlessChild = child; } });
-    this.headlessChild = null;
-    if (this.stopped) { await put({ state: 'CANCELLED', outcome: 'the runner stopped' }); return; }
-    const outcome = r.ok ? (summaryOfRun(r.text) ?? 'done') : (r.error || 'it stopped without saying why');
-    await put({ state: r.ok ? 'DONE' : 'FAILED', outcome: outcome.slice(0, 300), result: r.text ? r.text.slice(0, 20_000) : null });
-    this.o.log(`  ${r.ok ? '✓' : '✕'} ${run.command}: ${outcome.slice(0, 200)}`);
   }
 
   /**
@@ -1060,12 +1028,14 @@ export class Runner {
   /** The heartbeat; with a chat it also says this chat handles the cycle and whether the chat is still open (its process runs). */
   beat(stopped = false) {
     this.chatLane?.checkDeadlines?.(); // a message handed to a terminal that does not hear the chat log goes to a copy
-    const chatAlive = this.o.chatPid ? alive(Number(this.o.chatPid)) : true;
-    if (!chatAlive && this.lastChatAlive) this.o.log('  ⚠ the chat that started this runner seems closed - the board says so; ▶ runs wait for it');
-    this.lastChatAlive = chatAlive;
+    const processAlive = this.o.chatPid ? alive(Number(this.o.chatPid)) : true;
+    // a session that stopped hearing the chat log answers nothing: the board says "not listening", never "Claude on"
+    const chatAlive = processAlive && !this.chatLane?.deafSince;
+    if (!processAlive && this.lastChatAlive) this.o.log('  ⚠ the chat that started this runner seems closed - the board says so; ▶ runs wait for it');
+    this.lastChatAlive = processAlive;
     // a runner whose chat stays closed ends: nobody reads its answers there, and the board kept saying "Answering you"
     // for a day after the terminal was gone
-    this.chatGoneAt = chatAlive ? null : this.chatGoneAt ?? Date.now();
+    this.chatGoneAt = processAlive ? null : this.chatGoneAt ?? Date.now();
     if (!stopped && !this.stopped && chatGone(this.chatGoneAt, this.o.chatGoneMs)) {
       this.say(`● The chat that started this runner has been closed for ${Math.round((Date.now() - this.chatGoneAt) / 60_000)} min - stopping.`
         + ' Run /alfred-live again from an open chat to answer the board.');
@@ -1120,7 +1090,6 @@ export class Runner {
     this.stopped = true;
     for (const wake of [...(this.sleepers ?? [])]) wake();
     for (const h of this.handles) h.kill();
-    if (this.headlessChild) killTree(this.headlessChild);
     const waiting = this.waiting;
     this.waiting = [];
     if (abort) this.o.alfred.abort?.();
@@ -1168,6 +1137,7 @@ export class Runner {
     while (!this.stopped) {
       try {
         cursor = await this.once(cursor);
+        this.cursor = cursor;
         this.saveCursor(cursor);
       } catch (error) {
         if (this.stopped) break;
@@ -1182,8 +1152,19 @@ export class Runner {
     await skills;
     await this.beat(true);
     if (this.ownPool) this.pool.close();
-    if (this.chatPool && !this.o.chatPool) this.chatPool.close();
     this.say('● Live stopped.');
+  }
+
+  /**
+   * The session watches the chat log again (it ran /alfred-live): the messages that waited meanwhile are read again from
+   * the start and handed to it - nothing else wakes them, they were never answered elsewhere.
+   */
+  async rereadChats() {
+    if (!this.chatLane) return;
+    const query = { project: this.o.project, cycleId: this.o.cycleId, actor: 'USER', cursor: chatsFromStart(this.cursor ?? 'now'), limit: 200 };
+    const fresh = await this.o.alfred.call('GET', '/board/changes', { query }).catch(() => null);
+    if (fresh?.chats?.length) this.chatLane.handle(fresh.chats);
+    this.chatLane.flushHeld();
   }
 
   /** The server's tool list (so the runs load only what they need) and the warm processes - once, at start. */
@@ -1193,7 +1174,6 @@ export class Runner {
       if (tools?.length) {
         this.pool.o.serverTools = tools;
         this.pool.o.only = LIVE_TOOLS;
-        if (this.chatPool) { this.chatPool.o.serverTools = tools; this.chatPool.o.only = chatTools(); }
       }
     }
     if (this.warmLater) { this.pool.size = this.o.parallel ?? 3; this.pool.warmSize = Math.min(this.pool.size, this.o.warmSize ?? 1); this.pool.fill(); this.warmLater = false; }
@@ -1374,18 +1354,28 @@ export class Runner {
       return;
     }
 
-    if (this.o.chatId && this.o.cycleId && this.o.chat && this.chatLane && attempt === 0 && !this.o.headless) {
-      // plan-terminal-answers.md: every change on a card of the cycle goes to the terminal session that answers the cycle -
-      // the same session as its chat, no copy and no run here; it answers on the card when its turn is free.
-      // its progress follows the terminal's transcript until the terminal's reply on the card
-      this.chatLane.track({ key: `c:${first.number}`, marker: `✉ #${first.number} `, reporter,
-        // any write the terminal makes on this card answers it - a reply, a comment, a move, a question, a fix
-        done: (name, input) => CARD_ANSWER_TOOLS.test(name) && Number(input.number) === first.number });
-      this.o.log(`  → ✉ ${label} handed to the terminal session`);
-      this.o.chat(cardLine(first, changes, head));
+    if (this.o.chatId && this.o.cycleId && this.o.chat && this.chatLane && attempt === 0) {
+      // plan-terminal-answers.md: every change on a card of the cycle goes to the session that answers the cycle - the
+      // same session as its chat, no copy and no run here; it answers on the card when its turn is free. Its progress
+      // follows the session's transcript until its reply on the card. While the session does not hear the chat log the
+      // change is held and handed to it when it watches again (a line written meanwhile would be read by nobody).
+      const hand = () => {
+        this.chatLane.track({ key: `c:${first.number}`, marker: `✉ #${first.number} `, reporter,
+          // any write the session makes on this card answers it - a reply, a comment, a move, a question, a fix
+          done: (name, input) => CARD_ANSWER_TOOLS.test(name) && Number(input.number) === first.number });
+        this.o.log(`  → ✉ ${label} handed to the session`);
+        this.o.chat(cardLine(first, changes, head));
+      };
+      if (this.chatLane.deafSince) {
+        this.chatLane.hold(`c:${first.number}`, hand);
+        reporter.report({ steps: [], state: 'WORKING', head: 'waiting - your session is not listening (run /alfred-live in it)' });
+        this.o.log(`  ⏸ ${label} waits - the session does not hear the chat log`);
+        return;
+      }
+      hand();
       return;
     }
-    if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes) && !this.o.headless) {
+    if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes)) {
       // Needs the code or an investigation: the chat that handles the cycle answers it, with what it already knows.
       await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to the chat that handles this cycle - it answers on the card' });
       this.o.log(`  → 💬 ${label} sent to the chat`);
@@ -1457,42 +1447,6 @@ export class Runner {
 export function summaryOfRun(text) {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find((l) => l && !/^#+\s*$/.test(l));
   return line ? line.replace(/^#+\s*/, '').slice(0, 300) : null;
-}
-
-/** The tools a ▶ run gets in a headless session: Alfred's, reading the code, git's read commands, and the skills. */
-export const HEADLESS_TOOLS = ['Read', 'Grep', 'Glob', 'Skill', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
-  'Bash(codegraph explore:*)'];
-
-/**
- * One `claude -p` turn in a copy of a session: the prompt on stdin (a variadic --allowedTools would take it as a tool
- * name), slash commands on so `/alfred-setup AB#1` runs its skill. Resolves { ok, text, error }.
- */
-export function headlessRun({ claude, cwd, server, mcpConfigFile, model, sessionId, prompt, timeoutMs = 30 * 60_000, onChild = () => {} }) {
-  const bin = findClaude(claude ?? 'claude');
-  const args = ['-p', '--resume', sessionId, '--fork-session', '--output-format', 'json', '--mcp-config', mcpConfigFile, '--strict-mcp-config',
-    '--allowedTools', `mcp__${server}__*`, ...HEADLESS_TOOLS, ...(model ? ['--model', model] : [])];
-  const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin);
-  const quote = (a) => (useShell && /[\s"*()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
-  return new Promise((resolveRun) => {
-    let out = '';
-    let err = '';
-    const child = spawn(useShell ? quote(bin) : bin, useShell ? args.map(quote) : args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: useShell });
-    onChild(child);
-    const timer = setTimeout(() => killTree(child), timeoutMs);
-    child.stdout.on('data', (d) => { out += d.toString(); });
-    child.stderr.on('data', (d) => { err = (err + d.toString()).slice(-3000); });
-    child.on('error', (error) => { clearTimeout(timer); resolveRun({ ok: false, text: '', error: error.message }); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      let json = null;
-      try { json = JSON.parse(out.trim().split('\n').filter(Boolean).at(-1) ?? ''); } catch { /* not json: an error printed instead */ }
-      const text = typeof json?.result === 'string' ? json.result : '';
-      const failed = code !== 0 || !json || json.is_error;
-      resolveRun({ ok: !failed, text, error: failed ? (text || err.trim() || out.trim() || `claude exited ${code}`).slice(0, 500) : null });
-    });
-    child.stdin.on('error', () => { /* it ended before reading */ });
-    child.stdin.end(prompt);
-  });
 }
 
 export function parseArgs(argv) {
@@ -1631,12 +1585,13 @@ export async function main(argv) {
     const chatRules = byChat ? join(f.dir, 'chat-rules.md') : null;
     if (chatRules) writeFileSync(chatRules, CHAT_RULES);
     const self = fileURLToPath(import.meta.url);
-    const chatArgs = byChat ? ['--chat', chatId, ...(chatPid ? ['--chat-pid', String(chatPid)] : [])] : [];
+    // the project chat is a session's too: the session that ran /alfred-live <project> answers it (never a copy)
+    const chatArgs = chatId ? ['--chat', chatId, ...(chatPid ? ['--chat-pid', String(chatPid)] : [])] : [];
     const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url, ...chatArgs], {
       cwd, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.unref();
-    const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, chatId: byChat ? chatId : null, model: args.model ?? null,
+    const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, chatId: chatId ?? null, model: args.model ?? null,
       parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
     print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"`,
@@ -1652,7 +1607,7 @@ export async function main(argv) {
     const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-live' });
     const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry, project, cycleId: args.cycle, model: args.model,
       cwd, ...claudeOf(args), log, chat, chatPath: f.chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live',
-      chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true', headless: args.headless === 'true' });
+      chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true' });
     host.onRestart = () => { mcp.entry = host.entry; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: host.entry } })); };
     const end = (why) => { if (!runner.stopped) log(`  ■ stopping: ${why}`); runner.stop(); };
     process.on('SIGTERM', () => end('SIGTERM'));

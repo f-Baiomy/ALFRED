@@ -50,11 +50,12 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             <b [title]="title()">{{ title() }}</b>
             <small>
               @if (answering()) { <span class="busy">● answering<span class="bar-typing"><i></i><i></i><i></i></span></span> }
-              @else if (claudeOn() && byTerminal()) { <span class="on" title="The terminal session that ran /alfred-live answers here itself">● Answered by your terminal</span> }
-              @else if (claudeOn() && !isProject()) { <span class="on" title="No terminal holds this board: the project's /alfred-live runner answers it">● Answered by the project runner</span> }
-              @else if (claudeOn()) { <span class="on">● Claude on</span> }
-              @else if (!isProject()) { <span title="Alfred never starts a terminal itself">○ No terminal and no project runner - messages wait until you run /alfred-live</span> }
-              @else { <span>○ Claude off - messages wait</span> }
+              @else if (claudeOn() && !isProject()) { <span class="on" title="The board's own Claude session answers here itself - everything goes through it, never a copy">● Answered by the board's session</span> }
+              @else if (claudeOn()) { <span class="on" title="The project's own Claude session answers here itself">● Answered by the project's session</span> }
+              @else {
+                <span class="chat-deaf" [title]="'Nothing answers until ' + listenCmd() + ' runs in ' + (isProject() ? 'a Claude session' : 'the board session') + ' - Alfred never answers in a copy'">○ Not listening - messages wait. Send <code>{{ listenCmd() }}</code> in {{ isProject() ? 'a Claude session' : "the board's session" }}</span>
+                <button type="button" class="chat-copy-cmd" title="Copy the command" (click)="copyListen()">⧉</button>
+              }
               @if (summary()?.terminal?.host; as h) { <span> · {{ h }}</span> }
               @if (waitingCount()) { <span> · {{ waitingCount() }} waiting</span> }
               @if (busyCards().length) { <span title="Claude finishes this card first; waiting messages come after it"> · busy on #{{ busyCards()[0] }}</span> }
@@ -72,11 +73,6 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                 }
                 <button type="button" [disabled]="!editable()" (click)="menu(compactFn)">⇊ Compact now</button>
                 <button type="button" (click)="menu(openMemory)">🧠 What it remembers</button>
-                @if (!isProject() && editable() && !byTerminal()) {
-                  <button type="button" (click)="menu(refreshFn)">↻ Catch up with the terminal now</button>
-                  <button type="button" (click)="menu(openTerminal)">📤 What the terminal got</button>
-                  <button type="button" (click)="menu(openContinue)">⇱ Continue in a terminal</button>
-                }
                 <button type="button" [class.on]="settingsOpen()" (click)="menu(toggleSettingsFn)">⚙ Settings &amp; notifications</button>
                 @if (!inWindow() && !second()) {
                   <div class="chat-menu-sec">View</div>
@@ -110,8 +106,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
         </div>
         @if (contextLine()) {
           <button type="button" class="chat-ctxline" [class.open]="ctxOpen()" (click)="ctxOpen.set(!ctxOpen())" title="What this chat knows and remembers">
-            @if (movedOn()) { <span class="dot"></span><span class="grow">Terminal moved on · next answer catches up</span> }
-            @else if (settings().watching) { <span class="dot green"></span><span class="grow">◉ Watching while you test</span> }
+            @if (settings().watching) { <span class="dot green"></span><span class="grow">◉ Watching while you test</span> }
             @else { <span class="grow">🔔 {{ watches().length }} watch{{ watches().length === 1 ? '' : 'es' }} set</span> }
             <span class="pill" title="Messages since the last summary / auto-compact at">{{ counter() }}</span><span class="chev">{{ ctxOpen() ? '▴' : '▾' }}</span>
           </button>
@@ -127,13 +122,6 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                 @for (w of watches(); track w.id) {
                   <span class="chat-chip">🔔 {{ w.label }}@if (editable()) {<button type="button" title="Remove this watch" (click)="cancelWatch(w.id)">✕</button>}</span>
                 }
-              </div>
-            }
-            @if (!isProject() && editable() && !byTerminal()) {
-              <div class="acts">
-                <button type="button" class="action-btn" (click)="refresh()">↻ Catch up now</button>
-                <button type="button" class="action-btn" (click)="terminalOpen.set(true)">What the terminal got</button>
-                <button type="button" class="action-btn" (click)="continueOpen.set(true)">Continue in a terminal</button>
               </div>
             }
           </div>
@@ -448,7 +436,7 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly menuOpen = signal(false);
   readonly ctxOpen = signal(false);
   /** The quiet context line shows only when something is worth knowing. */
-  readonly contextLine = computed(() => this.movedOn() || this.settings().watching || this.watches().length > 0);
+  readonly contextLine = computed(() => this.settings().watching || this.watches().length > 0);
   readonly avatar = computed(() => (this.isProject() ? 'PR' : initials(this.title())));
   /** Claude is answering in this chat right now (the bar's typing mark). */
   readonly answering = computed(() => this.state.rows().find((r) => r.scope === this.scope())?.typing ?? false);
@@ -497,12 +485,15 @@ export class ChatPanelComponent implements AfterViewChecked {
     return !!t?.terminalAt && (!t.seenUpTo || Date.parse(t.terminalAt) > Date.parse(t.seenUpTo));
   });
   readonly claudeMemory = computed(() => {
-    if (this.isProject()) return this.claudeOn() ? 'project session' : 'off';
-    const t = this.summary()?.terminal;
-    if (this.byTerminal()) return 'your terminal session itself';
-    if (!t?.chatSessionId) return 'no copy yet';
-    return t.forkedFrom ? `copy of the terminal · ${this.when(t.seenUpTo)}` : 'own session';
+    if (!this.claudeOn()) return 'no session listening';
+    return this.isProject() ? "the project's session itself" : "the board's session itself";
   });
+  /** What wakes the chat's session: /alfred-live run in it (the board's own session, or the project's). */
+  readonly listenCmd = computed(() => (this.isProject() ? `/alfred-live ${this.state.project()}` : `/alfred-live ${this.state.project()} ${this.scope() ?? ''}`.trim()));
+
+  copyListen(): void {
+    void copyToClipboard(this.listenCmd());
+  }
   readonly alfredMemory = computed(() => `${this.messages().length} msgs · ${this.summariesCount()} summ. · ${this.decisionsCount()} dec.`);
   readonly meter = computed(() => {
     const answers = this.messages().filter((m) => m.author === 'CLAUDE' && m.replyTo != null);

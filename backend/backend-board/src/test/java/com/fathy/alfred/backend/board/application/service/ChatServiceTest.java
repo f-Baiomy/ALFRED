@@ -78,6 +78,9 @@ class ChatServiceTest {
     }
 
     private ChatMessage takeAndAnswer(ChatMessage m, String text, List<RecordRequest> records) {
+        if (!m.chat().isProject() && f.live.cycleChat(m.chat().cycleId()).isEmpty()) {
+            holdCycle("chat-a"); // a board's message is taken only by the board's own session
+        }
         assertThat(f.chat.take(Actor.CLAUDE, m.id(), "chat-a", m.chat().isProject() ? null : m.chat().cycleId()).isOk()).isTrue();
         Result<ChatUseCase.Replied> r = f.chat.reply(Actor.CLAUDE, m.id(), new Reply(text, records, List.of(), null, null));
         assertThat(r.isOk()).as(r.message()).isTrue();
@@ -406,21 +409,25 @@ class ChatServiceTest {
     // ------------------------------------------------------------------------------------------------ specs/027 R6
 
     @Test
-    void aBoardChatIsAnsweredByItsTerminalElseTheProjectRunnerElseItWaits() {
+    void aBoardChatIsAnsweredOnlyByItsOwnSessionWhileItListensElseItWaits() {
         ChatMessage m = send(CYCLE, "why 500?");
-        // neither: nobody answers, the message waits
+        // no session: nobody answers, the message waits
         assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> !r.claudeOn());
 
-        // the project's live runner answers a board chat no terminal holds
+        // 2026-10-19: the project's live runner never answers a board chat - not even one no session holds
         f.live.beat("odeysys", "laptop", null, "live", false);
-        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> r.claudeOn());
-        assertThat(f.chat.take(Actor.CLAUDE, m.id(), "runner-1", "c-1").isOk()).isTrue();
+        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> !r.claudeOn());
+        assertThat(f.chat.take(Actor.CLAUDE, m.id(), "runner-1", "c-1").outcome()).isEqualTo(Outcome.CONFLICT);
 
-        // once a terminal holds the board, only it takes the board's messages
-        ChatMessage next = send(CYCLE, "and now?");
+        // the board's session holds it: only it takes the board's messages
         holdCycle("term-1");
-        assertThat(f.chat.take(Actor.CLAUDE, next.id(), "runner-1", "c-1").outcome()).isEqualTo(Outcome.CONFLICT);
-        assertThat(f.chat.take(Actor.CLAUDE, next.id(), "term-1", "c-1").isOk()).isTrue();
+        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> r.claudeOn());
+        assertThat(f.chat.take(Actor.CLAUDE, m.id(), "runner-1", "c-1").outcome()).isEqualTo(Outcome.CONFLICT);
+        assertThat(f.chat.take(Actor.CLAUDE, m.id(), "term-1", "c-1").isOk()).isTrue();
+
+        // its session stopped hearing the chat log (chatAlive false): not on - the board says "not listening"
+        f.live.chatBeat("odeysys", "c-1", "term-1", "laptop", "C:/work", "live", false, false);
+        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> !r.claudeOn());
     }
 
     @Test

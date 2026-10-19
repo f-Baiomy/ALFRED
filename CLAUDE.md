@@ -109,9 +109,9 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   exist fails `tests/python/test_alfred_skill.py` - rename a tool and the skills together.
 
 - **Board chats answer once and record what lasts** (specs/022, docs/board.md "Board chat"): one chat per project
-  (answered by the project's live runner) and per session cycle (answered by a fork of the terminal session that holds
-  it, made and continued by the runner on that machine - the terminal session is never written to; Alfred stores only
-  the text and the fork's ids, never a transcript). A message is WAITING -> TAKEN (compare-and-swap) -> ANSWERED; records
+  (answered by the project's own session) and per board (answered by the board's own Claude session - the one that ran
+  `/alfred-live` for it, in Claude Desktop or a terminal - **itself: never a fork, a copy or a headless `claude -p` run**,
+  2026-10-19; Alfred stores only the text, never a transcript). A message is WAITING -> TAKEN (compare-and-swap) -> ANSWERED; records
   (DECISION/NEXT/CARD/ITEM/FIX) carry Undo; each exchange is mirrored to the terminal masked through the runner's chat
   log (⚡ urgent, 💬 context) and the runner hears the terminal only through `fs.watch`. Compact never deletes. The
   changes cursor has a third part (`chatSeq`); exports carry `chat*` records written and read by `ChatTransfer`.
@@ -184,14 +184,18 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   comment; their chat messages wait in the holder's queue. The helper runs on the user's PC, connects OUT to Alfred (LAN or
   local), claims the commands the user queued for that PC (never a command line), starts `claude` in a per-board git
   worktree and shows the session in Claude Desktop by writing the record the official `/desktop` writes (Desktop reads it
-  on restart and needs the folder trusted). **One writer per session**: a session open in Desktop or a terminal is never
-  written to by the helper - two writers fork the transcript (spike S2). The helper, the runners and the MCP server pass
+  on restart and needs the folder trusted). **One writer per session, and it is the session**: the helper never writes a
+  turn into one (no `claude -p`) and no runner answers in a copy - what Alfred needs from a session (catch up, a Handover
+  note, /alfred-live again) is asked of it (`askSession`/`wake`): a `✉ from Alfred` line in its chat log, else the
+  session brought up with the prompt. ▶ Start opens a Desktop chat, else a terminal, that runs `/alfred-live` itself. The helper, the runners and the MCP server pass
   the user's key on (`ALFRED_KEY`/`ALFRED_VIA`, the MCP relay forwards `x-alfred-key`). Admin = whoever may change server
   settings: revoke a user, force-release a board. **One Claude control** (specs/032, `claude-mode.ts`): Pause = STOP (the session
   is kept), **Hand back = RELEASE** on the PC (Handover note card, stop, release) or a direct release when the PC is offline;
-  every outcome is said in the board banner, menus close on outside click / Escape, never on mouseleave. **A terminal that stopped
-  hearing the chat log is never waited on** (`ChatLane.goDeaf`: its watch task ended, or a handed message not taken up
-  in 90 s on the heartbeat) - its messages go to a copy until it watches the log again. Open in Desktop opens the chat
+  every outcome is said in the board banner, menus close on outside click / Escape, never on mouseleave. **A session that stopped
+  hearing the chat log is "not listening"** (`ChatLane.goDeaf`: its watch task ended, or a handed message not taken up
+  in 90 s on the heartbeat): its messages wait (never answered in a copy), the runner beats `chatAlive: false` so the
+  chat's `claudeOn` and the Claude button say so, and the board shows the `/alfred-live` to send in it; when it watches
+  the log again everything that waited is handed to it. Open in Desktop opens the chat
   Desktop made itself (`findDesktopChat`), never a second record beside it.
 
 - **Streams between Alfreds read live, store nothing, and never write across** (specs/035, docs/streams.md): another
