@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred Streams Mock</title>
+<style>
+  :root {
+    --bg: #141416; --surface: rgba(255,255,255,.05); --surface2: rgba(255,255,255,.035); --well: rgba(0,0,0,.2); --input: rgba(0,0,0,.3);
+    --line: rgba(255,255,255,.09); --line2: rgba(255,255,255,.18);
+    --text: #f2f2f5; --dim: #8b8b93; --faint: #5f5f68;
+    --blue: #5b8def; --blue-l: #8fb2f7; --blue-bg: rgba(91,141,239,.12);
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa; --violet-bg: rgba(167,139,250,.13);
+    --drawer: rgba(30,30,33,.94); --pop: #1e1e22;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+
+  /* ---- mock controls (not part of Alfred) ---- */
+  .sim { position: sticky; top: 0; z-index: 90; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 16px; background: repeating-linear-gradient(135deg, #2a2210 0 10px, #241d0d 10px 20px); border-bottom: 1px solid rgba(251,191,36,.35); font-size: 12px; color: #fde68a; min-height: 33px; }
+  .sim b { color: #fff; }
+  .sim .who { display: inline-flex; border: 1px solid rgba(251,191,36,.4); border-radius: 7px; overflow: hidden; }
+  .sim .who button { background: transparent; border: 0; border-right: 1px solid rgba(251,191,36,.3); padding: 3px 11px; cursor: pointer; color: #fde68a; }
+  .sim .who button:last-child { border-right: 0; }
+  .sim .who button.on { background: rgba(251,191,36,.25); color: #fff; font-weight: 700; }
+  .sim label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+  .sim input { accent-color: var(--amber); margin: 0; }
+  .sim .sbtn { background: rgba(0,0,0,.25); border: 1px solid rgba(251,191,36,.4); border-radius: 6px; padding: 2px 9px; cursor: pointer; color: #fde68a; }
+  .sp { flex: 1; }
+
+  /* ---- Alfred header ---- */
+  .hdr { display: flex; align-items: stretch; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 33px; z-index: 50; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: .08em; color: var(--blue-l); padding-right: 18px; margin-right: 6px; border-right: 1px solid var(--line); white-space: nowrap; }
+  .logo .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+  .logo .hat { font-size: 20px; }
+  .tabsx { display: flex; overflow-x: auto; }
+  .hdr .tab { display: flex; align-items: center; gap: 5px; padding: 14px 13px; color: var(--dim); font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; }
+  .hdr .tab.on { color: var(--blue-l); border-color: var(--blue-l); }
+  .hdr .tab:hover { color: var(--text); }
+  .new { font-size: 10px; font-weight: 700; background: var(--blue); color: #fff; border-radius: 99px; padding: 0 6px; }
+  .hdr .right { margin-left: auto; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+  .hbadge { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line2); background: var(--surface); border-radius: 99px; padding: 3px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .hbadge.warn { border-color: rgba(251,191,36,.5); color: var(--amber); background: rgba(251,191,36,.08); }
+  .hbadge.vio { border-color: rgba(167,139,250,.5); color: var(--violet); background: var(--violet-bg); }
+  .page { padding: 22px 26px 140px; max-width: 1500px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 700; }
+  .lead { color: var(--dim); margin: 0 0 16px; font-size: 13px; }
+
+  /* ---- common ---- */
+  .btn { display: inline-flex; align-items: center; gap: 5px; background: var(--surface); border: 1px solid var(--line2); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--text); }
+  .btn:hover { border-color: rgba(255,255,255,.3); }
+  .btn.p { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.r { color: var(--red); }
+  .btn:disabled { opacity: .38; cursor: not-allowed; }
+  .ab { display: inline-flex; align-items: center; gap: 4px; background: var(--blue-bg); color: var(--blue-l); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .ab.p { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .ab.r { color: var(--red); background: rgba(248,113,113,.08); }
+  .ab:disabled { opacity: .38; cursor: not-allowed; }
+  .pillf { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); background: var(--surface2); border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; cursor: pointer; white-space: nowrap; }
+  .pillf.on { color: var(--blue-l); border-color: var(--blue); background: var(--blue-bg); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line2); background: var(--surface); white-space: nowrap; }
+  .c-local { color: var(--dim); border-color: var(--line); }
+  .origin { color: var(--violet); border-color: rgba(167,139,250,.5); background: var(--violet-bg); cursor: pointer; font-weight: 600; }
+  .origin:hover { filter: brightness(1.2); }
+  .out { color: var(--blue-l); border-color: rgba(91,141,239,.5); background: var(--blue-bg); cursor: pointer; font-weight: 600; }
+  .c-off { color: var(--dim); border-style: dashed; background: transparent; }
+  .c-ok { color: var(--green); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.07); }
+  .c-bad { color: var(--red); border-color: rgba(248,113,113,.45); background: rgba(248,113,113,.07); }
+  .ok { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--amber); } .dim { color: var(--dim); } .faint { color: var(--faint); } .small { font-size: 12px; }
+  .in { background: var(--input); border: 1px solid var(--line2); border-radius: 8px; padding: 6px 11px; color: var(--text); }
+  .in:disabled { opacity: .5; }
+  .seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; border-right: 1px solid var(--line2); padding: 5px 12px; cursor: pointer; font-size: 13px; color: var(--dim); }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--blue); color: #fff; font-weight: 600; }
+  .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 18px 0 8px; font-weight: 600; }
+  .lbl .faint { text-transform: none; letter-spacing: 0; }
+  .panel { background: var(--surface2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .empty { color: var(--dim); padding: 18px; border: 1px dashed var(--line2); border-radius: 10px; text-align: center; font-size: 13px; }
+  code { background: rgba(0,0,0,.35); padding: 1px 5px; border-radius: 4px; font-size: 12px; font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: rgba(0,0,0,.35); padding: 10px 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 0 0 8px; white-space: pre-wrap; word-break: break-all; font-family: "Cascadia Code", Consolas, monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: rgba(255,255,255,.03); }
+  .m { font-size: 10.5px; font-weight: 700; border-radius: 4px; padding: 1px 6px; background: rgba(91,141,239,.18); color: var(--blue-l); font-family: Consolas, monospace; }
+  .st { font-size: 10.5px; font-weight: 700; border-radius: 4px; padding: 1px 6px; font-family: Consolas, monospace; }
+  .st.g { background: rgba(52,211,153,.15); color: var(--green); } .st.b { background: rgba(248,113,113,.15); color: var(--red); }
+
+  /* ---- board ---- */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .picker { position: relative; display: inline-block; }
+  .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: min(480px, calc(100vw - 32px)); background: var(--pop); border: 1px solid var(--line2); border-radius: 12px; padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.6); max-height: 72vh; overflow: auto; }
+  .menu .h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); padding: 10px 10px 4px; font-weight: 600; }
+  .menu .it { padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+  .menu .it:hover { background: var(--surface); }
+  .menu .it.on { background: rgba(167,139,250,.16); }
+  .menu .it .t { font-weight: 600; }
+  .claude { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid rgba(52,211,153,.45); }
+  .claude span { padding: 6px 12px; color: var(--green); font-weight: 600; background: rgba(52,211,153,.08); font-size: 13px; }
+  .claude span + span { border-left: 1px solid rgba(52,211,153,.45); padding: 6px 9px; }
+  .title { font-size: 20px; font-weight: 700; margin: 4px 0 2px; }
+  .meta { color: var(--dim); font-size: 13px; margin-bottom: 6px; }
+  .meta .flag { color: var(--amber); }
+  .stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; font-size: 13px; color: var(--dim); }
+  .stepper .s { display: inline-flex; align-items: center; gap: 6px; }
+  .stepper .n { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line2); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+  .stepper .done .n { border-color: var(--green); color: var(--green); }
+  .stepper .cur .n { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .stepper .cur { color: var(--text); font-weight: 600; }
+  .stepper .ln { width: 28px; height: 1px; background: var(--line2); }
+  .strip { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
+  .strip.out { border: 1px solid rgba(91,141,239,.4); background: rgba(91,141,239,.07); }
+  .strip.in { border: 1px solid rgba(167,139,250,.45); background: rgba(167,139,250,.07); }
+  .strip.warn { border: 1px solid rgba(251,191,36,.45); background: rgba(251,191,36,.07); }
+  .strip .ic { font-size: 16px; }
+  .rec { display: flex; gap: 10px; align-items: center; margin: 8px 0 12px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
+  .recbtn { color: var(--red); border: 1px solid rgba(248,113,113,.5); border-radius: 99px; padding: 3px 12px; background: rgba(248,113,113,.06); cursor: pointer; font-weight: 600; }
+  .recbtn:disabled { opacity: .4; cursor: not-allowed; }
+  .btabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; flex-wrap: wrap; background: var(--surface2); border-radius: 12px 12px 0 0; padding: 0 8px; }
+  .btabs a { padding: 11px 14px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; font-size: 14.4px; }
+  .btabs a.on { color: var(--text); border-color: var(--blue-l); }
+  .cnt { font-size: 11px; background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; margin-left: 4px; color: var(--dim); }
+  .cols { display: grid; grid-template-columns: repeat(5, minmax(230px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+  .col { background: var(--well); border: 1px solid var(--line); border-radius: 12px; padding: 8px; min-height: 220px; }
+  .col.over { border-color: var(--blue); background: rgba(91,141,239,.08); }
+  .col .ch { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px 10px; font-weight: 600; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; cursor: pointer; }
+  .tile:hover { border-color: var(--line2); }
+  .tile[draggable=true] { cursor: grab; }
+  .tile .top { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; flex-wrap: wrap; }
+  .num { font-size: 10.5px; font-weight: 700; border: 1px solid var(--line2); border-radius: 99px; padding: 0 6px; background: var(--surface); }
+  .kind { font-size: 9.6px; font-weight: 700; border-radius: 4px; padding: 1px 6px; }
+  .k-BUG { background: rgba(248,113,113,.16); color: var(--red); } .k-TASK { background: rgba(52,211,153,.15); color: var(--green); } .k-NOTE { background: rgba(143,178,247,.15); color: var(--blue-l); }
+  .tile .tt { font-weight: 600; font-size: 14px; line-height: 1.35; }
+  .tile .ft { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; font-size: 11.5px; color: var(--dim); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 11px 14px; background: var(--surface2); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+  .row.click { cursor: pointer; } .row.click:hover { border-color: var(--line2); }
+  .stats { display: flex; gap: 26px; align-items: flex-end; margin-bottom: 12px; flex-wrap: wrap; }
+  .stats div b { font-size: 20px; display: block; }
+  .stats div span { font-size: 10.5px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  .dotrec { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--amber); flex: none; }
+  .dotrec.live { background: var(--red); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* ---- drawers, chat, popovers ---- */
+  .drawer { position: fixed; top: 33px; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--drawer); backdrop-filter: blur(18px); border-left: 1px solid var(--line2); z-index: 70; display: flex; flex-direction: column; box-shadow: -12px 0 40px rgba(0,0,0,.5); }
+  .dh { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .dh .tt { font-weight: 700; font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .x { background: transparent; border: 0; color: var(--dim); font-size: 18px; cursor: pointer; padding: 0 4px; }
+  .dtabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .dtabs a { padding: 9px 12px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; font-size: 14px; }
+  .dtabs a.on { color: var(--text); border-color: var(--blue-l); }
+  .db { flex: 1; overflow: auto; padding: 14px 16px; }
+  .df { border-top: 1px solid var(--line); padding: 10px 16px 14px; }
+  .note { font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .cm { padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .cm .w { font-size: 12px; color: var(--dim); margin-bottom: 3px; }
+  .cm .w b { color: var(--text); }
+  .cm .tx { white-space: pre-wrap; }
+  .banner { border-radius: 10px; padding: 8px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .banner.vio { background: var(--violet-bg); border: 1px solid rgba(167,139,250,.4); }
+  .banner.amb { background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.4); }
+  .chatchip { position: fixed; right: 20px; bottom: 18px; z-index: 65; }
+  .chatchip .c { display: flex; gap: 10px; align-items: center; background: var(--pop); border: 1px solid var(--line2); border-radius: 14px; padding: 9px 14px; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.5); font-weight: 600; font-size: 13px; max-width: 340px; }
+  .av { width: 28px; height: 28px; border-radius: 50%; background: #1d3a37; color: #7fd1c4; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; position: relative; }
+  .av.vio { background: #2b2347; color: var(--violet); }
+  .av i { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--green); border: 2px solid var(--pop); }
+  .chat { position: fixed; right: 20px; bottom: 76px; z-index: 66; width: min(560px, calc(100vw - 24px)); height: min(600px, calc(100vh - 140px)); background: var(--pop); border: 1px solid var(--line2); border-radius: 14px; display: flex; flex-direction: column; box-shadow: 0 16px 50px rgba(0,0,0,.6); }
+  .chat .ch { display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .chat .msgs { flex: 1; overflow: auto; padding: 12px 14px; }
+  .msg { border-radius: 12px; padding: 9px 12px; margin-bottom: 10px; background: var(--surface); border: 1px solid var(--line); max-width: 92%; white-space: pre-wrap; font-size: 13.5px; }
+  .msg.u { margin-left: auto; background: var(--blue-bg); border-color: rgba(91,141,239,.35); }
+  .msg .w { font-size: 11.5px; color: var(--dim); margin-bottom: 3px; white-space: normal; }
+  .composer { margin: 0 12px 12px; border: 1px solid var(--line2); border-radius: 12px; padding: 8px 10px; background: var(--input); }
+  .composer textarea { width: 100%; border: 0; background: transparent; resize: none; outline: none; min-height: 40px; color: var(--text); }
+  .composer .bar { display: flex; gap: 12px; align-items: center; color: var(--dim); font-size: 13px; }
+  .send { margin-left: auto; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line2); background: var(--surface); cursor: pointer; color: var(--text); }
+  .send:disabled { opacity: .35; cursor: not-allowed; }
+  .popover { position: fixed; z-index: 85; width: min(400px, calc(100vw - 24px)); background: var(--pop); border: 1px solid rgba(167,139,250,.55); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 44px rgba(0,0,0,.65); font-size: 13px; max-height: calc(100vh - 80px); overflow: auto; }
+  .popover.outp { border-color: rgba(91,141,239,.55); }
+  .pv-t { font-weight: 700; margin-bottom: 8px; }
+  .pv-r { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+  .pv-sep { height: 1px; background: var(--line); margin: 8px 0; }
+  .pv-box { background: var(--surface2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .stack { position: fixed; right: 20px; bottom: 76px; z-index: 80; display: flex; flex-direction: column; gap: 10px; width: min(430px, calc(100vw - 24px)); }
+  .req { background: var(--pop); border: 1px solid rgba(251,191,36,.6); border-radius: 12px; padding: 12px 14px; box-shadow: 0 12px 34px rgba(0,0,0,.55); font-size: 13px; }
+  .req.link { border-color: rgba(91,141,239,.6); }
+  .diff { background: rgba(0,0,0,.35); border-radius: 6px; padding: 6px 10px; margin: 8px 0; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+  .del { color: var(--red); text-decoration: line-through; } .ins { color: var(--green); }
+  .toast { background: #1d2a25; border: 1px solid rgba(52,211,153,.45); border-radius: 10px; padding: 9px 12px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .toast.e { background: #2c1d20; border-color: rgba(248,113,113,.5); }
+  .tray { position: absolute; right: 0; top: calc(100% + 8px); width: min(480px, calc(100vw - 24px)); background: var(--pop); border: 1px solid var(--line2); border-radius: 12px; padding: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.6); z-index: 60; max-height: 70vh; overflow: auto; }
+  .code6 { font-family: Consolas, monospace; font-size: 22px; letter-spacing: .3em; background: rgba(0,0,0,.35); padding: 6px 14px; border-radius: 8px; display: inline-block; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 88; display: flex; align-items: flex-start; justify-content: center; padding: 60px 16px; overflow: auto; }
+  .dialog { width: 100%; max-width: 620px; background: var(--pop); border: 1px solid var(--line2); border-radius: 14px; padding: 18px 20px; }
+  .dialog h3 { margin: 0 0 14px; font-size: 16px; }
+  .field { margin-bottom: 14px; }
+  .field > .fl { font-size: 12px; color: var(--dim); margin-bottom: 6px; font-weight: 600; }
+  .settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 22px; }
+  .snav a { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--dim); font-weight: 600; font-size: 14px; border: 1px solid transparent; }
+  .snav a.on { background: var(--blue-bg); color: var(--text); border-color: rgba(91,141,239,.4); }
+  .grp { background: var(--surface2); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow-x: auto; }
+  .grp .gh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px; }
+  .help { position: fixed; left: 16px; bottom: 16px; z-index: 64; width: min(430px, calc(100vw - 32px)); background: #221c0c; border: 1px solid rgba(251,191,36,.45); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); color: #fde68a; }
+  .help .hd { padding: 8px 12px; display: flex; align-items: center; cursor: pointer; font-weight: 700; font-size: 13px; }
+  .help ol { margin: 0; padding: 0 14px 12px 30px; font-size: 12.5px; max-height: 46vh; overflow: auto; color: #f5e7b8; }
+  .help li { margin-bottom: 7px; }
+  .help li b { color: #fff; }
+  .help .who { font-size: 10.5px; border: 1px solid rgba(251,191,36,.45); border-radius: 99px; padding: 0 6px; margin-right: 4px; }
+  .tour-hl { outline: 3px solid #fbbf24 !important; outline-offset: 3px; border-radius: 8px; animation: tourglow 1.1s ease-in-out infinite; position: relative; z-index: 2; }
+  .seg button.tour-hl { outline: none !important; box-shadow: inset 0 0 0 3px #fbbf24; color: #fff; }
+  @keyframes tourglow { 50% { outline-color: rgba(251,191,36,.35); } }
+  .tourbox { position: fixed; z-index: 96; width: min(380px, calc(100vw - 24px)); background: #221c0c; border: 1px solid #fbbf24; border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 44px rgba(0,0,0,.7); color: #fde68a; font-size: 13px; }
+  .tourbox .tt { font-weight: 700; color: #fff; margin-bottom: 4px; font-size: 14px; }
+  .tourbox .part { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #fbbf24; margin-bottom: 4px; }
+  .tourbox .bar { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+  .tourbox .tb { background: rgba(0,0,0,.3); border: 1px solid rgba(251,191,36,.5); color: #fde68a; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .tourbox .tb.p { background: #fbbf24; color: #1a1300; border-color: #fbbf24; }
+  .tourbox .prog { height: 3px; background: rgba(251,191,36,.2); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+  .tourbox .prog i { display: block; height: 100%; background: #fbbf24; }
+  .sim .go { background: #fbbf24; color: #1a1300; border-color: #fbbf24; font-weight: 700; }
+  @media (max-width: 900px) {
+    .settings { grid-template-columns: 1fr; }
+    .page { padding: 16px 16px 160px; }
+    .hdr { padding: 0 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+/* ================= helpers ================= */
+const h = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clone = o => JSON.parse(JSON.stringify(o));
+let seq = 100;
+const uid = p => p + (++seq);
+const now = () => new Date().toTimeString().slice(0, 5);
+
+/* ================= the world (simulated) ================= */
+const AUTH = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJxYTEifQ.k3Y';
+const COOKIE = 'JSESSIONID=8F2A91C0D4E7; tenant=12';
+function call(t, m, p, st, ms, x = {}) {
+  return { id: uid('c'), t, m, p, st, ms,
+    headers: Object.assign({ Authorization: AUTH, Cookie: COOKIE, 'Content-Type': 'application/json' }, x.headers || {}),
+    req: x.req || '', res: x.res || (st >= 500 ? '{"error":"Internal Server Error"}' : '{"ok":true}'),
+    sql: x.sql || [], logs: x.logs || [], redis: x.redis || [], notes: [] };
+}
+const S = {
+  alfreds: {
+    pc1: { short: 'PC-1', addr: '192.168.1.20:3000', online: true, announce: true, says: 'PC-1 (fathy)', ver: '1.52.0' },
+    a83: { short: '83', addr: '192.168.1.83:3000', online: true, announce: true, says: 'QA server', ver: '1.52.0' },
+    a90: { short: '90', addr: '192.168.1.90:3000', online: true, announce: true, says: 'Batch server', ver: '1.52.0' },
+    a91: { short: '91', addr: '192.168.1.91:3000', online: true, announce: true, says: 'Smoke box', ver: '1.52.0' }
+  },
+  links: [
+    { ids: ['pc1', 'a83'], names: { pc1: '83', a83: 'PC-1' }, at: 'Oct 18' },
+    { ids: ['pc1', 'a90'], names: { pc1: '90', a90: 'PC-1' }, at: 'Oct 18' }
+  ],
+  pendingLink: null,
+  cycles: {
+    c1: { owner: 'pc1', name: 'AB#61813 · rec 10:11', project: 'odeysys', recording: false, created: 'Oct 19, 2026, 10:11 AM', ac: '2/4', calls: [
+      call('10:12:01', 'POST', '/odeysys/auth/login', 200, 210, { req: '{"user":"qa1","password":"***"}', sql: ['SELECT id, hash FROM users WHERE login = ?   -- 1 row'], logs: ['INFO  AuthService: login ok qa1'] }),
+      call('10:12:04', 'GET', '/odeysys/refunds?agency=ALL&branch=ALL', 200, 188, { headers: { 'X-Tenant': '12' }, sql: ['SELECT * FROM refund_request WHERE tenant_id = 12 LIMIT 25   -- 25 rows'], logs: ['INFO  RefundsController: page 1 size 25'] }),
+      call('10:12:09', 'GET', '/odeysys/refunds?branch=BRN11,BRN155', 500, 402, { sql: ['SELECT * FROM refund_request WHERE branch_id IN (?)   -- bind error'], logs: ['ERROR RefundsService: IN list bound as one value "BRN11,BRN155"'] })
+    ] },
+    c2: { owner: 'a83', name: 'happy path (QA server)', project: 'odeysys-qa', recording: true, created: 'Oct 19, 2026, 9:39 AM', ac: '3/4', calls: [
+      call('09:40:10', 'POST', '/odeysys/auth/login', 200, 230, { sql: ['SELECT id, hash FROM users WHERE login = ?   -- 1 row'] }),
+      call('09:40:12', 'GET', '/odeysys/refunds?agency=ALL&branch=ALL', 200, 175, { headers: { 'X-Tenant': '7' }, sql: ['SELECT * FROM refund_request WHERE tenant_id = 7 LIMIT 25   -- 25 rows'] }),
+      call('09:40:20', 'GET', '/odeysys/refunds/77', 200, 61, { redis: ['GET refund:77 -> (nil)', 'SET refund:77 {...} EX 300 -> OK'] })
+    ] },
+    c3: { owner: 'a83', name: 'error flow (QA server)', project: 'odeysys-qa', recording: false, created: 'Oct 19, 2026, 10:40 AM', ac: '1/4', calls: [
+      call('10:41:02', 'POST', '/odeysys/auth/login', 200, 212, { req: '{"user":"qa1@agency.com","password":"S3cret!"}' }),
+      call('10:41:05', 'GET', '/odeysys/refunds?agency=ALL', 500, 301, { sql: ['SELECT * FROM refund_request WHERE tenant_id = NULL LIMIT 25   -- 0 rows'], logs: ['WARN  TenantFilter: no tenant header', 'ERROR RefundsController: NullPointerException at RefundsService.java:118'] }),
+      call('10:41:09', 'GET', '/odeysys/refunds?agency=ALL&page=2', 200, 140, { headers: { 'X-Tenant': '7' } })
+    ] },
+    c5: { owner: 'a83', name: 'regression run 2 (QA server)', project: 'odeysys-qa', recording: false, created: 'Oct 19, 2026, 11:05 AM', ac: '2/4', calls: [
+      call('11:05:01', 'GET', '/odeysys/refunds?branch=BRN11&branch=BRN155', 200, 190, { headers: { 'X-Tenant': '7' }, sql: ['SELECT * FROM refund_request WHERE branch_id IN (?, ?)   -- 9 rows'] }),
+      call('11:05:04', 'GET', '/odeysys/refunds?agency=ALL', 500, 288, { sql: ['SELECT * FROM refund_request WHERE tenant_id = NULL LIMIT 25   -- 0 rows'], logs: ['WARN  TenantFilter: no tenant header'] })
+    ] },
+    c4: { owner: 'a90', name: 'night batch', project: 'odeysys', recording: false, created: 'Oct 19, 2026, 2:00 AM', ac: '-', calls: [
+      call('02:00:01', 'POST', '/odeysys/batch/close-day', 200, 5120, { sql: ['UPDATE refund_request SET closed = 1 WHERE day = ?   -- 312 rows'], logs: ['INFO  Batch: closed 312 refunds'] }),
+      call('02:00:07', 'GET', '/odeysys/reports/refunds-daily', 504, 30000, { logs: ['ERROR ReportJob: timeout after 30 s'] })
+    ] }
+  },
+  boards: {
+    b1: {
+      owner: 'pc1', key: 'AB#61813', name: 'Enhance Refunded Requests Filters – All Agencies, All Branches & Branch Multi-Select', project: 'odeysys', stage: 3,
+      brief: 'Refunded Requests gets three filters: All Agencies, All Branches and a multi-select of branches. Done when every acceptance item is met on PC-1 and on the QA server (83).',
+      reqs: [
+        { k: 'AC1', t: 'All Agencies returns refunds of every agency the user may see', v: 'met' },
+        { k: 'AC2', t: 'All Branches returns refunds of every branch of the agency', v: 'met' },
+        { k: 'AC3', t: 'Branch multi-select filters by every chosen branch', v: 'wrong' },
+        { k: 'AC4', t: 'The list loads for a user with no tenant header (QA proxy)', v: 'wrong' }
+      ],
+      steps: ['Log in as qa1', 'Open Refunded Requests', 'Pick All Agencies, then All Branches', 'Pick BRN11 and BRN155 together'],
+      briefComments: [],
+      cards: [
+        { n: 7, kind: 'BUG', title: 'Branch multi-select sends "BRN11,BRN155" as one value - 500', status: 'To do', comments: [{ by: 'fathy', at: '10:20', text: 'Repro on my PC: GET /refunds?branch=BRN11,BRN155 → 500.' }] },
+        { n: 9, kind: 'BUG', title: 'Refunds list 500 when the tenant header is missing (QA proxy)', status: 'In progress', remote: '83', comments: [{ by: 'Claude', at: '10:45', text: 'Found on 83\'s error flow: tenant_id = NULL in the SQL.' }] },
+        { n: 12, kind: 'TASK', title: 'Duplicate of #7?', status: 'Inbox', comments: [] },
+        { n: 4, kind: 'NOTE', title: 'All Agencies uses the agency list of the logged-in user', status: 'Fixed', comments: [] },
+        { n: 2, kind: 'TASK', title: 'Add the three filters to the request DTO', status: 'Verified', comments: [] }
+      ],
+      cycles: [{ o: 'pc1', id: 'c1' }, { o: 'a83', id: 'c2' }, { o: 'a83', id: 'c3' }, { o: 'a90', id: 'c4' }],
+      chat: [
+        { by: 'fathy', at: '10:18', text: 'Re-test #7 after the branch fix, here and on the QA server.' },
+        { by: 'Claude', at: '10:18', text: 'Planned: 3 checks on GET /refunds (status 200, IN list with 2 values, 25 rows).' }
+      ],
+      activity: [{ at: '10:45', by: 'Claude', text: 'moved #9 to In progress' }, { at: '10:20', by: 'fathy', text: 'opened #7' }],
+      azure: { id: 'AB#61813', type: 'Product Backlog Item', state: 'Active', title: 'Enhance Refunded Requests Filters', ac: 'All Agencies, All Branches, Branch multi-select.', synced: '10:30' }
+    },
+    b2: {
+      owner: 'a83', key: 'QA', name: 'QA regression - refunds', project: 'odeysys-qa', stage: 5,
+      brief: 'Weekly regression on the QA server.', reqs: [{ k: 'AC1', t: 'Every refunds endpoint answers 2xx', v: 'wrong' }], steps: ['Run the regression set'], briefComments: [],
+      cards: [{ n: 3, kind: 'BUG', title: 'Refunds 500 when tenant header missing', status: 'To do', comments: [] }],
+      cycles: [{ o: 'a83', id: 'c2' }, { o: 'a83', id: 'c3' }], chat: [{ by: 'sara', at: '09:00', text: 'Regression started.' }], activity: [], azure: null
+    },
+    b3: { owner: 'a90', key: 'BATCH', name: 'Batch jobs', project: 'odeysys', stage: 2, brief: 'Nightly jobs.', reqs: [], steps: [], briefComments: [], cards: [], cycles: [{ o: 'a90', id: 'c4' }], chat: [], activity: [], azure: null },
+    b4: { owner: 'a91', key: 'SMOKE', name: 'Smoke', project: 'odeysys', stage: 1, brief: '', reqs: [], steps: [], briefComments: [], cards: [], cycles: [], chat: [], activity: [], azure: null }
+  },
+  streams: [
+    { id: 's1', owner: 'a83', to: 'pc1', kind: 'cycle', target: 'c2', mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: '09:30' },
+    { id: 's2', owner: 'a83', to: 'pc1', kind: 'cycle', target: 'c3', mode: 'comment', auto: 'on', passOn: true, passMode: 'comment', unmasked: false, active: true, removed: false, at: '10:40' },
+    { id: 's3', owner: 'a90', to: 'pc1', kind: 'cycle', target: 'c4', mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: '08:00' },
+    { id: 's4', owner: 'pc1', to: 'a83', kind: 'board', target: 'b1', mode: 'comment', auto: 'on', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: '10:25' },
+    { id: 's5', owner: 'a83', to: 'pc1', kind: 'board', target: 'b2', mode: 'comment', auto: 'off', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: '09:00' }
+  ],
+  requests: [],
+  drafts: { pc1: [], a83: [], a90: [], a91: [] },
+  audit: { pc1: [], a83: [], a90: [], a91: [] },
+  reads: { pc1: [], a83: [], a90: [], a91: [] },           // D31: what readers opened, kept on the owner
+  presence: { a83: { board: 'b1', card: 7 } },             // D29: where each Alfred has a streamed board open (heartbeat, never stored)
+  health: { pc1: { ms: 4, ver: '1.52.0' }, a83: { ms: 11, ver: '1.52.0' }, a90: { ms: 23, ver: '1.52.0' }, a91: { ms: 9, ver: '1.52.0' } }
+};
+
+const S0 = clone(S);
+let V = 'pc1';
+const R = { pc1: { page: 'board', board: 'b1', tab: 'cards' }, a83: { page: 'board', board: 'b2', tab: 'cards' }, a90: { page: 'board', board: 'b3', tab: 'cards' }, a91: { page: 'board', board: 'b4', tab: 'cards' } };
+let ui = { sel: [], drawer: null, dialog: null, pop: null, menu: null, chat: false, toasts: [], help: false, rejecting: null, renaming: null, setSec: 'links', cycGroup: 'board', cycFilter: 'all', view: 'board', drag: null };
+
+/* ================= model ================= */
+const online = a => S.alfreds[a].online;
+const linkOf = (x, y) => S.links.find(l => l.ids.includes(x) && l.ids.includes(y));
+const nm = (viewer, a) => { if (a === viewer) return 'here'; const l = linkOf(viewer, a); return l ? l.names[viewer] : S.alfreds[a].short; };
+const activeStream = (owner, to, kind, target) => S.streams.find(s => s.owner === owner && s.to === to && s.kind === kind && s.target === target && s.active);
+const anyStream = (owner, to, kind, target) => S.streams.filter(s => s.owner === owner && s.to === to && s.kind === kind && s.target === target).pop();
+const cls = op => ['card.comment', 'call.note', 'brief.comment', 'card.question'].includes(op.type) ? 'comment' : 'edit';
+const waitingFor = a => S.requests.filter(r => r.owner === a && r.state === 'waiting');
+const hostBoards = () => Object.entries(S.boards).filter(([, b]) => b.owner === V);
+function audit(a, text) { S.audit[a].unshift({ at: now(), text }); }
+/** D27: the call's facts go into the card text, so the card still says why when the owner is offline or the call is gone. */
+function evidenceText(x, o) {
+  return `Evidence${o === V ? '' : ' (call lives on ' + nm(V, o) + ', ref ' + x.id + '@' + nm(V, o) + ')'}:\n${x.m} ${x.p} → ${x.st} in ${x.ms} ms`
+    + (x.sql.length ? `\nSQL: ${x.sql.join(' | ')}` : '') + (x.logs.length ? `\nLog: ${x.logs.filter(l => /ERROR|WARN/.test(l)).join(' | ') || x.logs[0]}` : '');
+}
+function readLog(owner, text) { if (owner !== V) S.reads[owner].unshift({ at: now(), by: V, text }); }
+function here(board, card) { S.presence[V] = board ? { board, card: card || null } : null; }
+function presenceOn(bid) {
+  return Object.entries(S.presence).filter(([a, p]) => a !== V && p && p.board === bid && online(a)).map(([a, p]) => `<span class="chip" style="color:var(--green);border-color:rgba(52,211,153,.4)" title="Open right now">👁 ${h(nm(V, a))}${p.card ? ' · #' + p.card : ''}</span>`).join(' ');
+}
+/** D28: the owner's redaction rules run before a body leaves it. */
+function redact(text) { return String(text).replace(/("password"\s*:\s*")[^"]*"/g, '$1••• (redacted)"').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '•••@••• (redacted)'); }
+
+/** What V may see/do on cycle (o, cid) inside board bid (or alone). */
+function access(o, cid, bid) {
+  if (o === V) return { state: 'local', mode: 'own', owner: o };
+  const b = bid ? S.boards[bid] : null;
+  let a;
+  if (b && b.owner !== V) {
+    const bs = activeStream(b.owner, V, 'board', bid);
+    if (!bs) return { state: 'ended', owner: o };
+    if (o === b.owner) a = { mode: bs.mode, stream: bs, owner: o };
+    else {
+      const ps = activeStream(o, b.owner, 'cycle', cid);
+      if (!ps || !ps.passOn) return { state: 'name', owner: o, via: b.owner };
+      a = { mode: ps.passMode, stream: ps, owner: o, via: b.owner };
+    }
+  } else {
+    const s = activeStream(o, V, 'cycle', cid);
+    if (!s) return { state: 'ended', owner: o };
+    a = { mode: s.mode, stream: s, owner: o };
+  }
+  a.state = (!online(o) || (a.via && !online(a.via))) ? 'offline' : 'ok';
+  return a;
+}
+function boardAccess(bid) {
+  const b = S.boards[bid];
+  if (b.owner === V) return { state: 'local', mode: 'own', owner: V };
+  const s = activeStream(b.owner, V, 'board', bid);
+  if (!s) return { state: 'ended', owner: b.owner };
+  return { state: online(b.owner) ? 'ok' : 'offline', mode: s.mode, stream: s, owner: b.owner };
+}
+const masked = a => a.state !== 'local' && !(a.stream && a.stream.unmasked);
+const live = a => a.state === 'local' || a.state === 'ok';
+
+/* ---- pills ---- */
+function pill(o, via, kind, id, bid) {
+  if (o === V && kind === 'cycle' && S.cycles[id] && S.cycles[id].copyOf) return `<span class="chip c-local" title="A copy kept here - not live">copy · from ${h(S.cycles[id].copyOf)}</span>`;
+  if (o === V) return '<span class="chip c-local">local</span>';
+  const label = via ? `${S.alfreds[o].short} via ${nm(V, via)}` : nm(V, o);
+  return `<span class="chip origin" data-a="pill" data-k="${kind}" data-x="${id}" data-o="${o}" data-v="${via || ''}" data-b="${bid || ''}" title="Lives on ${h(S.alfreds[o].addr)} - click for details">⇇ ${h(label)} ▾</span>`;
+}
+function outPills(kind, id) {
+  return S.streams.filter(s => s.owner === V && s.kind === kind && s.target === id && s.active)
+    .map(s => `<span class="chip out" data-a="pillOut" data-k="${kind}" data-x="${id}" title="Streamed live - click for details">⇉ ${h(nm(V, s.to))} · ${s.mode} ▾</span>`).join(' ');
+}
+function stateChip(a) {
+  if (a.state === 'offline') return '<span class="chip c-off">offline</span>';
+  if (a.state === 'ended') return '<span class="chip c-off">stream ended</span>';
+  if (a.state === 'name') return '<span class="chip c-off">not shared here</span>';
+  if (a.state === 'ok') return '<span class="chip c-ok">● live</span>';
+  return '';
+}
+
+/* ---- requests ---- */
+function fromLabel(r, viewer) { return r.via ? `${S.alfreds[r.from].short} via ${nm(viewer, r.via)}` : nm(viewer, r.from); }
+function describe(op) {
+  switch (op.type) {
+    case 'card.comment': return { what: `comment on #${op.n}`, diff: `+ "${op.text}"` };
+    case 'card.question': return { what: `question on #${op.n}`, diff: `? "${op.text}"` };
+    case 'brief.comment': return { what: 'comment on the brief', diff: `+ "${op.text}"` };
+    case 'call.note': return { what: `comment on ${op.call}`, diff: `+ "${op.text}"` };
+    case 'card.create': return { what: 'open a card', diff: `+ ${op.kind} "${op.title}"` };
+    case 'card.move': return { what: `move #${op.n}`, old: op.from, nw: op.to };
+    case 'card.close': return { what: `close #${op.n}` };
+    default: return { what: op.type };
+  }
+}
+const targetOf = op => op.board ? S.boards[op.board] : S.cycles[op.cycle];
+function apply(op, by) {
+  const t = targetOf(op);
+  const card = op.n != null && t.cards ? t.cards.find(c => c.n === op.n) : null;
+  switch (op.type) {
+    case 'card.comment': case 'card.question': card && card.comments.push({ by, at: now(), text: (op.type === 'card.question' ? '❓ ' : '') + op.text }); break;
+    case 'card.move': card && (card.status = op.to); break;
+    case 'card.create': t.cards.push({ n: Math.max(0, ...t.cards.map(c => c.n)) + 1, kind: op.kind, title: op.title, status: 'Inbox', remote: op.remote || null, comments: op.comment ? [{ by, at: now(), text: op.comment }] : [] }); break;
+    case 'card.close': card && (card.status = 'Verified'); break;
+    case 'brief.comment': t.briefComments.push({ by, at: now(), text: op.text }); break;
+    case 'call.note': { const c = t.calls.find(x => x.id === op.callId); c && c.notes.push({ by, at: now(), text: op.text }); break; }
+  }
+  if (t.activity) t.activity.unshift({ at: now(), by, text: describe(op).what });
+}
+function submit(req) {
+  req.id = uid('r'); req.state = 'waiting'; req.at = now();
+  S.requests.push(req);
+  const s = S.streams.find(x => x.id === req.streamId);
+  if (s && s.auto === 'on') {
+    req.before = clone(targetOf(req.op));
+    apply(req.op, fromLabel(req, req.owner));
+    req.state = 'auto';
+    audit(req.owner, `${fromLabel(req, req.owner)} · ${describe(req.op).what} - accepted automatically`);
+  }
+  return req;
+}
+function write(a, op) {
+  if (a.state === 'local') { apply(op, V === 'pc1' ? 'fathy' : 'you'); audit(V, `you · ${describe(op).what}`); return toast('Saved.'); }
+  if (a.state === 'ended' || a.state === 'name') return toast('Not available: the stream ended or is not shared here.', true);
+  if (cls(op) !== 'comment') return toast(`Only the host (${nm(V, a.owner)}) works this board: cards, states, brief, specs, listen, triage.`, true);
+  if (a.mode !== 'comment') return toast(`This stream is view only - ${nm(V, a.owner)} can switch it to comment.`, true);
+  const req = { owner: a.owner, from: V, via: a.via || null, streamId: a.stream.id, op };
+  if (a.state === 'offline') { S.drafts[V].push(req); return toast(`${nm(V, a.owner)} is offline - kept in this browser only, sent when it is back.`); }
+  const r = submit(req);
+  toast(r.state === 'auto' ? `Sent - ${nm(V, a.owner)} accepted it at once (auto on).` : `Sent - waiting for ${nm(V, a.owner)}.`);
+}
+function flushDrafts() {
+  for (const reader of Object.keys(S.drafts)) {
+    const keep = []; let sent = 0;
+    for (const d of S.drafts[reader]) {
+      const s = S.streams.find(x => x.id === d.streamId);
+      if (online(d.owner) && (!d.via || online(d.via)) && s && s.active) { submit(d); sent++; } else keep.push(d);
+    }
+    S.drafts[reader] = keep;
+    if (sent && reader === V) toast(`Back online: ${sent} kept comment${sent > 1 ? 's' : ''} sent and removed from this browser.`);
+  }
+}
+function toast(text, err) { const t = { id: uid('t'), text, err }; ui.toasts.push(t); setTimeout(() => { ui.toasts = ui.toasts.filter(x => x !== t); render(); }, 4200); render(); }
+
+/* ---- Claude (host only, simulated) ---- */
+function claudeAnswer(bid, text) {
+  const b = S.boards[bid];
+  const q = text.toLowerCase();
+  const cyc = b.cycles.map(r => ({ r, a: access(r.o, r.id, bid), c: S.cycles[r.id] }));
+  const reach = cyc.filter(x => live(x.a));
+  const away = cyc.filter(x => x.a.state === 'offline');
+  const where = x => x.a.state === 'local' ? 'local' : '⇇ ' + nm(V, x.r.o);
+  const fail = reach.flatMap(x => x.c.calls.filter(c => c.st >= 500).map(c => ({ x, c })));
+  let out;
+  if (/listen/.test(q)) {
+    const t = cyc.find(x => q.includes(x.c.name.split(' ')[0])) || reach.find(x => x.r.o !== V) || reach[0];
+    out = t ? `Listening to ${t.c.name} [${where(t)}]. ${t.r.o === V ? 'New calls arrive here.' : nm(V, t.r.o) + ' signals each new call (ids only); I read and check each one here.'} Findings land as cards on this board - yours, stored here.` : 'Nothing I can reach to listen to.';
+  } else if (/triage/.test(q)) {
+    const inbox = b.cards.filter(c => c.status === 'Inbox');
+    out = inbox.length ? `Inbox: ${inbox.map(c => '#' + c.n + ' ' + c.title).join('; ')}.\n#12 looks like #7 (same branch IN-list 500) - merge into #7? Your call.` : 'The Inbox is empty.';
+  } else if (/(open|make|create).*card/.test(q)) {
+    const f = fail.find(k => k.x.r.o !== V) || fail[0];
+    if (!f) out = 'No failed call to open a card for.';
+    else {
+      apply({ type: 'card.create', board: bid, kind: 'BUG', remote: f.x.r.o === V ? null : nm(V, f.x.r.o), title: `${f.c.m} ${f.c.p} → ${f.c.st} (${f.x.c.name})`, comment: evidenceText(f.c, f.x.r.o) }, 'Claude');
+      out = `Opened #${b.cards[b.cards.length - 1].n} in the Inbox for ${f.c.m} ${f.c.p} [${where(f.x)}], SQL and log lines attached. It is your card, stored here${f.x.r.o === V ? '' : '; ' + nm(V, f.x.r.o) + ' was not asked'}.`;
+    }
+  } else if (/fail|why|500|error/.test(q)) {
+    out = fail.length ? fail.map(({ x, c }) => `[${where(x)}] ${x.c.name}: ${c.m} ${c.p} → ${c.st}\n  ${c.sql[0] || ''}${c.logs.length ? '\n  ' + c.logs.join('\n  ') : ''}`).join('\n') : 'No failed calls in the cycles I can read.';
+  } else {
+    out = 'I can read: ' + (reach.map(x => `${x.c.name} [${where(x)}, ${x.c.calls.length} calls]`).join('; ') || 'nothing') + '.';
+  }
+  if (away.length) out += `\nI cannot reach ${away.map(x => where(x) + ' (' + x.c.name + ')').join(', ')} now - left out.`;
+  return out;
+}
+
+/* ================= views ================= */
+function sim() {
+  const who = Object.keys(S.alfreds).map(a => `<button class="${a === V ? 'on' : ''}" data-a="as" data-x="${a}">${h(S.alfreds[a].short)}</button>`).join('');
+  const pw = Object.keys(S.alfreds).map(a => `<label><input type="checkbox" data-a="power" data-x="${a}" ${online(a) ? 'checked' : ''}>${h(S.alfreds[a].short)}</label>`).join(' ');
+  return `<div class="sim"><b>MOCK</b> · You are looking at Alfred on <span class="who">${who}</span><span class="sp"></span>Powered on: ${pw}<button class="sbtn go" data-a="tourStart">▶ Show me how to stream</button><button class="sbtn" data-a="help">${ui.help ? 'Hide' : 'Show'} walkthrough</button><button class="sbtn" data-a="reset">Reset</button></div>`;
+}
+function header() {
+  const r = R[V];
+  const tabs = [['live', 'Live Calls'], ['cycles', 'Session Cycles'], ['board', 'Board', '<span class="new">new</span>'], ['team', 'Team', '<span class="new">new</span>'], ['profiles', 'Profiles'], ['interception', 'Interception'], ['relive', 'Relive', '<span class="new">new</span>'], ['logs', 'Logs', '<span class="new">new</span>'], ['settings', 'Settings']];
+  const w = waitingFor(V);
+  const d = S.drafts[V].length;
+  const shared = S.streams.filter(s => s.to === V && s.active).length;
+  return `<div class="hdr"><div class="logo"><span class="hat">🎩</span><span class="dot"></span>ALFRED</div>
+    <div class="tabsx">${tabs.map(([p, t, x]) => `<div class="tab ${r.page === p ? 'on' : ''}" data-a="go" data-p="${p}">${t}${x || ''}</div>`).join('')}</div>
+    <div class="right">
+      ${shared ? `<span class="hbadge vio" data-a="go" data-p="settings" data-s="links" title="Streams other Alfreds send here">⇇ ${shared} shared with me</span>` : ''}
+      ${d ? `<span class="hbadge warn" data-a="tray" title="Kept in this browser until the owner is back">◌ ${d} kept</span>` : ''}
+      <span style="position:relative"><span class="hbadge ${w.length ? 'warn' : ''}" data-a="tray" title="Requests between linked Alfreds">⇄ ${w.length ? w.length + ' to approve' : 'Requests'}</span>${ui.menu === 'tray' ? tray() : ''}</span>
+      <div class="tab" style="padding:14px 6px">👤 Me</div>
+    </div></div>`;
+}
+function tray() {
+  const mine = S.requests.filter(r => r.owner === V).slice().reverse();
+  const sent = S.requests.filter(r => r.from === V).slice().reverse();
+  const st = r => ({ waiting: '<span class="warn">● waiting</span>', accepted: '<span class="ok">✓ approved</span>', auto: '<span class="ok">✓ auto</span>', rejected: '<span class="bad">✗ rejected</span>', withdrawn: '<span class="dim">↩ withdrawn</span>', undone: '<span class="dim">↶ undone</span>' }[r.state]);
+  const rowIn = r => `<div class="row" style="padding:8px 10px">${st(r)}<span class="small"><b>${h(fromLabel(r, V))}</b> · ${h(describe(r.op).what)}</span><span class="sp"></span>${r.state === 'waiting' ? `<button class="ab p" data-a="approve" data-x="${r.id}">Approve</button><button class="ab" data-a="rejectAsk" data-x="${r.id}">Reject…</button>` : (r.state === 'auto' || r.state === 'accepted') ? `<button class="ab" data-a="undo" data-x="${r.id}">Undo</button>` : ''}${r.reason ? `<div class="small dim" style="width:100%">"${h(r.reason)}"</div>` : ''}</div>`;
+  const rowOut = r => `<div class="row" style="padding:8px 10px">${st(r)}<span class="small">to <b>${h(nm(V, r.owner))}</b> · ${h(describe(r.op).what)}</span><span class="sp"></span>${r.state === 'waiting' ? `<button class="ab" data-a="withdraw" data-x="${r.id}">Withdraw</button>` : ''}${r.reason ? `<div class="small dim" style="width:100%">"${h(r.reason)}"</div>` : ''}</div>`;
+  const kept = S.drafts[V].map((r, i) => `<div class="row" style="padding:8px 10px"><span class="warn">◌</span><span class="small">to <b>${h(nm(V, r.owner))}</b> · ${h(describe(r.op).what)}</span><span class="sp"></span><span class="chip c-off">${h(nm(V, r.owner))} offline</span><button class="ab r" data-a="discard" data-x="${i}">Discard</button></div>`).join('');
+  return `<div class="tray"><div class="lbl" style="margin-top:2px">Requests to you <span class="faint">- comments from Alfreds you stream to</span></div>${mine.map(rowIn).join('') || '<div class="small dim" style="padding:4px 2px 8px">None.</div>'}
+    <div class="lbl">Sent from here</div>${sent.map(rowOut).join('') || '<div class="small dim" style="padding:4px 2px 8px">None.</div>'}
+    ${kept ? `<div class="lbl">Kept in this browser <span class="faint">- never in this Alfred's database</span></div>${kept}` : ''}</div>`;
+}
+
+/* ---- board page ---- */
+function boardsMenu(current) {
+  const mine = hostBoards();
+  const shared = S.streams.filter(s => s.to === V && s.kind === 'board' && !s.removed);
+  const item = (id, b, meta, extra = '') => `<div class="it ${id === current ? 'on' : ''}" data-a="openBoard" data-x="${id}"><div class="t">${h(b.key)} · ${h(b.name)} ${extra}</div><div class="dim small">${meta}</div></div>`;
+  return `<div class="menu"><div class="h">Project</div><div class="it"><div class="t">All cards</div><div class="dim small">every card of ${h(S.boards[current].project)}</div></div>
+    <div class="h">Task boards</div>${mine.map(([id, b]) => item(id, b, `${h(b.project)} · ${b.cards.length} cards${b.cycles.some(r => r.o !== V) ? ` · ${b.cycles.filter(r => r.o !== V).length} cycles from other Alfreds` : ''}`, outPills('board', id))).join('') || '<div class="it dim small">None</div>'}
+    <div class="h">Shared with me</div>${shared.map(s => { const b = S.boards[s.target]; const st = !s.active ? 'stream ended' : online(s.owner) ? `● live · you may ${s.mode}` : 'offline'; return item(s.target, b, `${h(b.project)} · ${st}`, pill(s.owner, null, 'board', s.target, null)); }).join('') || '<div class="it dim small">Nothing is streamed to this Alfred.</div>'}
+    <div class="h" style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox"> Show archived</div><div class="it" style="color:var(--blue-l)">＋ New board…</div></div>`;
+}
+function pageBoard() {
+  const r = R[V];
+  const bid = r.board;
+  const b = S.boards[bid];
+  const a = boardAccess(bid);
+  const host = a.state === 'local';
+  const tab = r.tab || 'cards';
+  const toolbar = `<div class="toolbar"><span class="picker"><button class="btn" data-a="menu" data-x="boards">▦ Boards ▾</button>${ui.menu === 'boards' ? boardsMenu(bid) : ''}</span>
+    <button class="btn">${h(b.project)} ▾</button>
+    <button class="ab" data-a="chatOpen" style="padding:6px 11px">💬 Chat${host ? '' : ' (read-only)'}</button>
+    ${host ? '<span class="claude"><span>● Claude on · terminal</span><span>▾</span></span>' : `<span class="claude" style="opacity:.5;border-color:var(--line2)" title="Claude on this board is the host's"><span style="color:var(--dim);background:transparent">Claude: the host's</span></span>`}
+    ${host ? `<span class="sp"></span><button class="btn" data-a="streamDlg" data-k="board" data-x="${bid}">⇉ Stream…</button><button class="btn" data-a="exportDlg" data-x="${bid}">⬇ Export ▾</button>` : ''}</div>`;
+  if (a.state === 'ended') return toolbar + `<div class="strip warn"><span class="ic">⇇</span><b>${h(b.key)} · ${h(b.name)}</b><span class="dim">stream ended - nothing is shown, this Alfred kept no copy.</span></div>`;
+  const stages = ['Board', 'Define', 'Triage', 'Code', 'Verify', 'Test', 'Close'];
+  const stepper = `<div class="stepper">${stages.map((s, i) => `${i ? '<span class="ln"></span>' : ''}<span class="s ${i + 1 < b.stage ? 'done' : i + 1 === b.stage ? 'cur' : ''}"><span class="n">${i + 1 < b.stage ? '✓' : i + 1}</span>${s}</span>`).join('')}</div>`;
+  const inbox = b.cards.filter(c => c.status === 'Inbox').length;
+  let strip = '';
+  if (host) {
+    const out = S.streams.filter(s => s.owner === V && s.kind === 'board' && s.target === bid && s.active);
+    if (out.length) strip = `<div class="strip out"><span class="ic">⇉</span><span>Streamed live to ${outPills('board', bid)}</span><span class="dim small">${out.map(s => { const n = S.requests.filter(x => x.streamId === s.id && x.state === 'waiting').length; return `${h(nm(V, s.to))}: auto ${s.auto}${n ? ` · <span class="warn">${n} to approve</span>` : ''}`; }).join(' · ')} · they read it and may comment; cards, states and chat stay yours</span><span class="sp"></span>${presenceOn(bid)}<button class="ab" data-a="streamDlg" data-k="board" data-x="${bid}">Manage</button></div>`;
+  } else {
+    const s = a.stream;
+    strip = a.state === 'offline'
+      ? `<div class="strip warn"><span class="ic">⇇</span>${pill(b.owner, null, 'board', bid, null)}<b>${h(nm(V, b.owner))} is offline</b><span class="dim">Nothing is shown - ${h(S.alfreds[V].short)} keeps no copy. A comment you write is kept in this browser and sent when it is back.</span></div>`
+      : `<div class="strip in"><span class="ic">⇇</span><span>Streamed from ${pill(b.owner, null, 'board', bid, null)} <span class="dim">${h(S.alfreds[b.owner].addr)}</span></span><span class="dim small">you may <b style="color:var(--text)">${s.mode}</b>${s.mode === 'comment' ? ` · your comments ${s.auto === 'on' ? 'go in at once' : 'wait for the host'}` : ''} · cards, states and chat are the host's · nothing stored here</span><span class="sp"></span>${presenceOn(bid)}<span class="chip c-ok">● live</span></div>`;
+  }
+  const head = toolbar + `<div class="title">${h(b.key)} · ${h(b.name)}</div><div class="meta">${b.cards.length} cards${host ? ` · <span class="flag">⚑ ${inbox} wait on you</span>` : ''} · ${inbox} in the Inbox</div>${stepper}${strip}`;
+  if (a.state === 'offline') {
+    return head + `<div class="panel"><div class="lbl" style="margin-top:0">Comment on a card - kept in this browser</div><div class="toolbar"><select class="in" id="off-card">${b.cards.map(c => `<option value="${c.n}">#${c.n} ${h(c.title.slice(0, 50))}</option>`).join('')}</select><input class="in" id="off-text" style="flex:1;min-width:200px" placeholder="Comment"><button class="btn p" data-a="offComment" data-x="${bid}">Keep for ${h(nm(V, b.owner))}</button></div></div>`;
+  }
+  const rec = `<div class="rec"><button class="recbtn" ${host ? '' : 'disabled title="Recording is the host\'s"'}>● Record</button><span>${host ? 'Record the calls while you test this task.' : 'Recording happens on the host.'}</span><span class="sp"></span><span class="small faint">Recordings and related boards are on the Cycles tab.</span></div>`;
+  const tabs = [['cards', 'Cards', b.cards.length], ['calls', 'Calls', boardCalls(bid).length], ['task', 'Task'], ['cycles', 'Cycles', b.cycles.length], ['related', 'Related items'], ['activity', 'Activity', b.activity.length]];
+  const body = { cards: tabCards, calls: tabCalls, task: tabTask, cycles: tabCycles, related: tabRelated, activity: tabActivity }[tab](bid, b, a);
+  return head + rec + `<div class="btabs">${tabs.map(([k, t, c]) => `<a class="${tab === k ? 'on' : ''}" data-a="tab" data-x="${k}">${t}${c != null ? `<span class="cnt">${c}</span>` : ''}</a>`).join('')}</div>` + body;
+}
+const COLS = ['Inbox', 'To do', 'In progress', 'Fixed', 'Verified'];
+function tabCards(bid, b, a) {
+  const host = a.state === 'local';
+  const filters = ['BUG', 'TASK', 'NOTE', 'QUESTION', 'Urgent', 'Risk', 'Blocker', 'Waiting on me', 'Needs re-test', '✦ by Claude', '⇇ evidence from other Alfreds'];
+  const tile = c => `<div class="tile" data-a="openCard" data-x="${bid}" data-n="${c.n}" ${host ? `draggable="true" data-drag="${c.n}"` : ''}><div class="top"><span class="num">#${c.n}</span><span class="kind k-${c.kind}">${c.kind}</span>${c.remote ? `<span class="chip origin" style="cursor:default;font-size:10.5px" title="Its evidence is a call that lives on ${h(c.remote)}">⇇ ${h(c.remote)} call</span>` : ''}</div><div class="tt">${h(c.title)}</div><div class="ft">💬 ${c.comments.length}${c.comments.length ? ' · last ' + h(c.comments[c.comments.length - 1].by) : ''}</div></div>`;
+  return `<div class="toolbar"><input class="in" id="qa" style="flex:1;min-width:220px" placeholder="${host ? 'Quick add:  bug! discount not applied' : 'Only the host adds cards'}" ${host ? '' : 'disabled'}><button class="ab p" data-a="quickAdd" data-x="${bid}" ${host ? '' : 'disabled title="Only the host adds cards"'} style="padding:6px 12px">Add</button>
+      <span class="seg"><button class="${ui.view === 'board' ? 'on' : ''}" data-a="view" data-x="board">▦ Board</button><button class="${ui.view === 'list' ? 'on' : ''}" data-a="view" data-x="list">☰ List</button></span>
+      <button class="ab">Export ▾</button><button class="ab">◈ Pages</button></div>
+    <div class="toolbar">${filters.map(f => `<span class="pillf">${f}</span>`).join('')}</div>
+    ${!host ? `<div class="banner vio">You are reading ${h(nm(V, b.owner))}'s board. Cards cannot be added, moved or edited here${a.mode === 'comment' ? ' - open one to comment or ask a question' : ''}.</div>` : ''}
+    ${ui.view === 'board' ? `<div class="cols">${COLS.map(col => { const cs = b.cards.filter(c => c.status === col); return `<div class="col" ${host ? `data-drop="${col}"` : ''}><div class="ch"><span>${col}</span><span>${cs.length}</span></div>${cs.map(tile).join('') || `<div class="empty" style="padding:14px;font-size:12px">${host ? 'Drop cards here' : 'Empty'}</div>`}</div>`; }).join('')}</div>`
+      : `<table><tr><th>#</th><th>Kind</th><th>Title</th><th>Status</th><th>Comments</th></tr>${b.cards.map(c => `<tr class="click" data-a="openCard" data-x="${bid}" data-n="${c.n}"><td><span class="num">#${c.n}</span></td><td><span class="kind k-${c.kind}">${c.kind}</span></td><td>${h(c.title)} ${c.remote ? `<span class="chip origin" style="cursor:default">⇇ ${h(c.remote)} call</span>` : ''}</td><td>${h(c.status)}</td><td>${c.comments.length}</td></tr>`).join('')}</table>`}
+    ${host ? '<p class="note">Drag a card between columns, or open it.</p>' : ''}`;
+}
+function boardCalls(bid) {
+  const rows = [];
+  S.boards[bid].cycles.forEach(ref => { const a = access(ref.o, ref.id, bid); if (live(a)) S.cycles[ref.id].calls.forEach(c => rows.push({ ref, a, c })); });
+  return rows;
+}
+function tabCalls(bid, b) {
+  const rows = boardCalls(bid);
+  const hidden = b.cycles.filter(ref => !live(access(ref.o, ref.id, bid)));
+  return `${hidden.length ? `<div class="banner amb">${hidden.map(ref => { const a = access(ref.o, ref.id, bid); return `${h(S.cycles[ref.id].name)} ${pill(ref.o, a.via, 'cycle', ref.id, bid)} ${stateChip(a)}`; }).join(' · ')} - calls not shown.</div>` : ''}
+    <table><tr><th>Time</th><th>Call</th><th>Status</th><th>Duration</th><th>Cycle</th><th>Lives on</th><th>◆ SQL · ▤ logs</th></tr>
+    ${rows.map(({ ref, a, c }) => `<tr class="click" data-a="openCall" data-x="${c.id}" data-c="${ref.id}" data-o="${ref.o}" data-b="${bid}"><td class="dim">${c.t}</td><td><span class="m">${c.m}</span> ${h(c.p)}</td><td><span class="st ${c.st >= 400 ? 'b' : 'g'}">${c.st}</span></td><td>${c.ms} ms</td><td class="small">${h(S.cycles[ref.id].name)}</td><td>${pill(ref.o, a.via, 'cycle', ref.id, bid)}</td><td class="small dim">${c.sql.length} · ${c.logs.length}${c.notes.length ? ' · 💬 ' + c.notes.length : ''}</td></tr>`).join('')}</table>`;
+}
+function tabTask(bid, b, a) {
+  const host = a.state === 'local';
+  const canC = host || a.mode === 'comment';
+  const v = x => ({ met: '<span class="ok">✓ met</span>', wrong: '<span class="bad">✗ wrong</span>', unknown: '<span class="dim">? not seen</span>' }[x]);
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px"><div>
+    <div class="lbl" style="margin-top:0">Brief</div><div class="panel">${h(b.brief) || '<span class="dim">No brief.</span>'}
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="ab" ${host ? '' : 'disabled title="Only the host edits the brief"'}>✎ Edit</button><input class="in" id="bc-text" style="flex:1;min-width:160px" placeholder="Comment on the brief" ${canC ? '' : 'disabled'}><button class="ab" data-a="briefComment" data-x="${bid}" ${canC ? '' : 'disabled'}>Comment</button></div>
+      ${b.briefComments.map(c => `<div class="cm"><div class="w"><b>${h(c.by)}</b> · ${c.at}</div>${h(c.text)}</div>`).join('')}</div>
+    <div class="lbl">Test steps</div>${b.steps.map((s, i) => `<div class="row"><span class="dim">${i + 1}</span>${h(s)}</div>`).join('') || '<div class="empty">None.</div>'}
+  </div><div>
+    <div class="lbl" style="margin-top:0">Requirements <span class="faint">- judged on every cycle of this board, local and streamed in</span></div>
+    ${b.reqs.map(r => `<div class="row"><b>${r.k}</b><span style="flex:1;min-width:160px">${h(r.t)}</span>${v(r.v)}${host ? '<button class="ab">✎</button>' : ''}</div>`).join('') || '<div class="empty">None.</div>'}
+    ${b.azure ? `<div class="lbl">Azure ${host ? '' : '<span class="faint">- read-only copy, as the host last synced it</span>'}</div><div class="panel"><b>${b.azure.id}</b> · ${h(b.azure.type)} · <span class="chip">${h(b.azure.state)}</span><div style="margin-top:6px">${h(b.azure.title)}</div><div class="small dim" style="margin-top:4px">${h(b.azure.ac)}</div><div class="note">Synced ${b.azure.synced}${host ? '' : ' by ' + h(nm(V, b.owner)) + '. No Azure reads or writes through a stream.'}</div>${host ? '<div style="margin-top:8px;display:flex;gap:6px"><button class="ab">↻ Refresh from Azure</button><button class="ab">⇪ Tell Azure…</button></div>' : ''}</div>` : ''}
+  </div></div>`;
+}
+function tabCycles(bid, b, a) {
+  const host = a.state === 'local';
+  const rows = b.cycles.map(ref => ({ ref, a: access(ref.o, ref.id, bid), c: S.cycles[ref.id] }));
+  const f = ui.cycFilter;
+  const shown = rows.filter(x => f === 'all' || (f === 'rec' && x.c.recording) || (f === 'fail' && live(x.a) && x.c.calls.some(c => c.st >= 400)) || (f === 'remote' && x.ref.o !== V));
+  const lv = rows.filter(x => live(x.a));
+  const calls = lv.reduce((n, x) => n + x.c.calls.length, 0);
+  const failed = lv.reduce((n, x) => n + x.c.calls.filter(c => c.st >= 400).length, 0);
+  const addable = host ? S.streams.filter(s => s.to === V && s.kind === 'cycle' && s.active && !b.cycles.some(r => r.id === s.target)) : [];
+  return `<div class="stats"><div><b>${rows.length}</b><span>Cycles</span></div><div><b>${calls}</b><span>Calls</span></div><div><b class="${failed ? 'bad' : ''}">${failed}</b><span>Failed calls</span></div><div><b style="color:var(--violet)">${rows.filter(x => x.ref.o !== V).length}</b><span>From other Alfreds</span></div><span class="sp"></span>
+      ${host ? `<button class="ab p" style="padding:6px 12px">● Record ▾</button><span class="picker"><button class="ab" style="padding:6px 12px" data-a="menu" data-x="addcyc">＋ Add existing cycle ▾</button>${ui.menu === 'addcyc' ? `<div class="menu" style="left:auto;right:0"><div class="h">On this Alfred</div><div class="it dim small">Every local cycle, as today</div><div class="h">Streamed to this Alfred</div>${addable.map(s => `<div class="it" data-a="addCycleDirect" data-x="${bid}" data-s="${s.id}"><div class="t">◷ ${h(S.cycles[s.target].name)} ${pill(s.owner, null, 'cycle', s.target, null)}</div><div class="dim small">${S.cycles[s.target].calls.length} calls · you may ${s.mode} · read live, nothing copied</div></div>`).join('') || '<div class="it dim small">Nothing else is streamed to you.</div>'}</div>` : ''}</span>` : ''}</div>
+    ${ui.sel.length ? `<div class="strip out" style="margin-bottom:10px"><b>${ui.sel.length} selected</b><span class="dim small">${ui.sel.map(id => h(S.cycles[id].name)).join(' · ')}</span><span class="sp"></span><button class="ab p" data-a="compare" data-x="${bid}" ${ui.sel.length === 2 ? '' : 'disabled title="Pick two cycles"'}>⇆ Compare</button><button class="ab" data-a="selClear">Clear</button></div>` : ''}
+    <input class="in" style="width:100%;margin-bottom:10px" placeholder="Search cycles, endpoints… (tick two to compare - local with a streamed-in one works)">
+    <div class="toolbar">${[['all', 'All'], ['rec', 'Recording'], ['fail', 'With failures'], ['remote', '⇇ From other Alfreds']].map(([k, t]) => `<span class="pillf ${f === k ? 'on' : ''}" data-a="cycFilter" data-x="${k}">${t}</span>`).join('')}<span class="sp"></span><select class="in"><option>Newest first</option></select></div>
+    ${shown.map(x => {
+      const l = live(x.a);
+      const fn = l ? x.c.calls.filter(c => c.st >= 400).length : 0;
+      return `<div class="row ${l ? 'click' : ''}" ${l ? `data-a="openCycleCalls" data-x="${bid}" data-c="${x.ref.id}"` : ''} style="align-items:flex-start"><input type="checkbox" style="margin-top:4px" data-a="selCyc" data-x="${x.ref.id}" ${ui.sel.includes(x.ref.id) ? 'checked' : ''} ${l ? '' : 'disabled'}><span class="dotrec ${x.c.recording && l ? 'live' : ''}" style="margin-top:7px"></span>
+        <div style="flex:1;min-width:220px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${h(x.c.name)}</b>${pill(x.ref.o, x.a.via, 'cycle', x.ref.id, bid)}${x.ref.o === V ? outPills('cycle', x.ref.id) : ''}${stateChip(x.a)}</div>
+        <div class="small dim" style="margin-top:3px">${l ? `${h(x.c.created)} · ${x.c.calls.length} calls · <span class="${fn ? 'bad' : 'ok'}">${fn} failed</span> · AC ${x.c.ac} · ${h(x.c.project)}${x.c.recording ? ' · <span class="bad">● recording on ' + (x.ref.o === V ? 'this Alfred' : h(nm(V, x.ref.o))) + '</span>' : ''}` : x.a.state === 'name' ? `${h(S.alfreds[x.ref.o].short)} did not allow passing this on` : x.a.state === 'offline' ? 'nothing shown until it is back' : 'no data'}</div></div>
+        ${host && x.ref.o === V ? `<button class="ab" data-a="streamDlg" data-k="cycle" data-x="${x.ref.id}">⇉ Stream…</button><button class="ab" data-a="toggleRec" data-x="${x.ref.id}">${x.c.recording ? 'Pause' : '● Resume'}</button>` : ''}<span class="dim">⋯</span></div>`;
+    }).join('') || '<div class="empty">No cycles match.</div>'}`;
+}
+function tabRelated() { return '<div class="empty">Related boards and cycles - unchanged. A cycle streamed in shows here with its pill like any other.</div>'; }
+function tabActivity(bid, b) { return b.activity.map(e => `<div class="row"><span class="dim small">${e.at}</span><b>${h(e.by)}</b><span>${h(e.text)}</span></div>`).join('') || '<div class="empty">No activity.</div>'; }
+
+/* ---- Session Cycles page ---- */
+function pageCycles() {
+  const grp = ui.cycGroup;
+  const myBoards = hostBoards();
+  const sharedBoards = S.streams.filter(s => s.to === V && s.kind === 'board' && s.active && !s.removed);
+  const row = (o, cid, bid) => {
+    const c = S.cycles[cid];
+    const a = access(o, cid, bid);
+    const l = live(a);
+    const status = !l ? stateChip(a) : c.recording ? '<span class="chip c-bad">RECORDING</span>' : '<span class="chip">PAUSED</span>';
+    const acts = a.state === 'local'
+      ? `${c.copyOf ? '<button class="ab" disabled title="A kept copy never records again">Record</button>' : `<button class="ab" data-a="toggleRec" data-x="${cid}">${c.recording ? 'Pause' : 'Record'}</button>`}<button class="ab">Edit</button><button class="ab" data-a="openCycleCalls" data-x="${bid || ''}" data-c="${cid}" data-o="${o}">Open</button><button class="ab" data-a="streamDlg" data-k="cycle" data-x="${cid}">⇉ Stream…</button><button class="ab">Export ▾</button><button class="ab r">Delete</button>`
+      : `<button class="ab" disabled title="Recording stays with its owner">Record</button>${l ? `<button class="ab" data-a="openCycleCalls" data-x="${bid || ''}" data-c="${cid}" data-o="${o}">Open</button>` : ''}${bid && S.boards[bid].owner === V ? `<button class="ab" data-a="removeRef" data-x="${bid}" data-c="${cid}">Remove from board</button>` : ''}${l && !a.via && (!bid || S.boards[bid].owner === V) ? `<button class="ab" data-a="keepCopy" data-x="${cid}" data-o="${o}" data-b="${bid || ''}">⧉ Keep a copy</button>` : ''}`;
+    return `<tr><td><input type="checkbox"></td><td><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span>${h(c.name)}</span>${pill(o, a.via, 'cycle', cid, bid)}${o === V ? outPills('cycle', cid) : ''}</div>${l ? `<div class="small dim">${c.calls.length} calls · ${h(c.project)}</div>` : ''}</td><td>${status}</td><td class="dim">—</td><td class="small">${h(c.created)}</td><td><div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${acts}</div></td></tr>`;
+  };
+  const table = rows => `<table><tr><th style="width:30px"></th><th>Name</th><th>Status</th><th>Assigned to</th><th>Created</th><th></th></tr>${rows.join('')}</table>`;
+  const groups = [];
+  myBoards.forEach(([id, b]) => groups.push({ head: `<span style="color:var(--blue-l)">▦</span> <b>${h(b.key)} · ${h(b.name)}</b> <span class="dim small">${h(b.project)} · ${b.cycles.length} cycle(s)</span> ${outPills('board', id)}`, open: id, rows: b.cycles.map(r => row(r.o, r.id, id)) }));
+  sharedBoards.forEach(s => { const b = S.boards[s.target]; groups.push({ head: `<span style="color:var(--violet)">▦</span> <b>${h(b.key)} · ${h(b.name)}</b> ${pill(s.owner, null, 'board', s.target, null)} <span class="dim small">${online(s.owner) ? h(b.project) + ' · ' + b.cycles.length + ' cycle(s)' : 'offline'}</span>`, open: online(s.owner) ? s.target : null, rows: online(s.owner) ? b.cycles.map(r => row(r.o, r.id, s.target)) : [] }); });
+  const onBoards = new Set(myBoards.flatMap(([, b]) => b.cycles.map(r => r.id)));
+  const loose = S.streams.filter(s => s.to === V && s.kind === 'cycle' && !s.removed && !onBoards.has(s.target));
+  if (loose.length) groups.push({ head: '<span style="color:var(--violet)">⇇</span> <b>Streamed to this Alfred</b> <span class="dim small">on none of your boards</span>', rows: loose.map(s => row(s.owner, s.target, null)) });
+  const localLoose = Object.entries(S.cycles).filter(([id, c]) => c.owner === V && !onBoards.has(id));
+  if (localLoose.length) groups.push({ head: '<b>On no board</b>', rows: localLoose.map(([id]) => row(V, id, null)) });
+  let body;
+  if (grp === 'board') body = groups.map(g => `<div class="grp"><div class="gh">${g.head}<span class="sp"></span>${g.open ? `<button class="ab" data-a="openBoard" data-x="${g.open}">Open board</button>` : ''}</div>${g.rows.length ? table(g.rows) : '<div class="empty" style="margin:0 14px 14px">Nothing shown: its owner is offline.</div>'}</div>`).join('');
+  else {
+    const seen = new Set(); const flat = [];
+    const add = (o, id, bid) => { if (!seen.has(id)) { seen.add(id); flat.push(row(o, id, bid)); } };
+    myBoards.forEach(([id, b]) => b.cycles.forEach(r => add(r.o, r.id, id)));
+    sharedBoards.forEach(s => online(s.owner) && S.boards[s.target].cycles.forEach(r => add(r.o, r.id, s.target)));
+    loose.forEach(s => add(s.owner, s.target, null));
+    localLoose.forEach(([id]) => add(V, id, null));
+    body = `<div class="grp">${table(flat)}</div>`;
+  }
+  return `<h1>Session Cycles</h1><p class="lead">Named groups of calls you can start/pause recording on, alongside the always-on Live Calls feed. Cycles other Alfreds stream to you sit beside yours, each with a pill saying where it lives.</p>
+    <div class="toolbar"><input class="in" style="width:260px" placeholder="Cycle name (e.g. Repro flight bug)"><button class="btn">Unassigned</button></div>
+    <div class="toolbar"><input class="in" style="flex:1" value="On no board" readonly></div>
+    <div class="toolbar"><button class="btn" style="color:var(--blue-l);background:var(--blue-bg)">＋ New Cycle</button><button class="btn">Import calls</button></div>
+    <div class="toolbar"><input class="in" style="width:260px" placeholder="Search name or assigned to…"><select class="in"><option>Newest first</option></select><button class="btn">Assigned to: All assigned</button></div>
+    <div class="toolbar"><span class="dim small">Group by</span><span class="seg"><button class="${grp === 'board' ? 'on' : ''}" data-a="cycGroup" data-x="board">Board</button><button class="${grp === 'none' ? 'on' : ''}" data-a="cycGroup" data-x="none">None</button></span><span class="small faint">A cycle only stores calls; it relates to any number of boards. A streamed cycle stores nothing here.</span></div>${body}`;
+}
+
+/* ---- Settings → Links & streams ---- */
+function pageSettings() {
+  const secs = ['Server', 'Call filtering', 'Storage', 'Teams', 'Team trackers', 'Open in IDE', 'Inbound logging', 'Database capture', 'Links & streams'];
+  const content = ui.setSec === 'links' ? settingsLinks() : `<div class="panel"><h3 style="margin-top:0">${h(ui.setSec)}</h3><div class="dim">Unchanged by streams.</div></div>`;
+  return `<h1>Settings</h1><p class="lead">Configure how Alfred behaves.</p><div class="settings"><div class="snav">${secs.map(s => { const k = s === 'Links & streams' ? 'links' : s; return `<a class="${ui.setSec === k ? 'on' : ''}" data-a="setSec" data-x="${k}">${s}${k === 'links' ? ' <span class="new">new</span>' : ''}</a>`; }).join('')}</div><div>${content}</div></div>`;
+}
+function settingsLinks() {
+  const mine = S.links.filter(l => l.ids.includes(V));
+  const others = Object.keys(S.alfreds).filter(a => a !== V && !linkOf(V, a));
+  const pend = S.pendingLink && S.pendingLink.from === V ? `<div class="strip warn">Waiting for ${h(S.alfreds[S.pendingLink.to].addr)} to accept. Code shown there: <span class="code6" style="font-size:16px">${S.pendingLink.code}</span><span class="sp"></span><button class="ab" data-a="cancelLink">Cancel</button></div>` : '';
+  const outS = S.streams.filter(s => s.owner === V && s.active);
+  const inS = S.streams.filter(s => s.to === V && !s.removed);
+  const what = s => s.kind === 'board' ? `▦ ${h(S.boards[s.target].key)} · ${h(S.boards[s.target].name.slice(0, 44))}` : `◷ ${h(S.cycles[s.target].name)}`;
+  return `<div class="panel"><h3 style="margin:0 0 4px">Links & streams</h3><div class="dim small" style="margin-bottom:12px">Other Alfreds on the LAN this one is linked to, and what each side streams. A link alone shares nothing. Never through the tunnel.</div>
+    <div class="lbl" style="margin-top:0">Linked Alfreds</div>
+    ${mine.map(l => { const o = l.ids.find(x => x !== V); return `<div class="row">${ui.renaming === o ? `<input class="in" id="rn" value="${h(l.names[V])}" style="width:140px"><button class="ab p" data-a="renameSave" data-x="${o}">Save</button>` : `<b>${h(l.names[V])}</b>`}<span class="dim small">${h(S.alfreds[o].addr)} · calls this one "${h(l.names[o])}" · linked ${l.at}</span><span class="sp"></span><span class="small dim" title="Link health">${online(o) ? `${S.health[o].ms} ms · v${S.health[o].ver} · seen now · 0 reconnects today` : `last seen ${S.health[o].seen || now()} · v${S.health[o].ver}`}</span>${online(o) ? '<span class="chip c-ok">● connected</span>' : '<span class="chip c-off">offline</span>'}<button class="ab" data-a="rename" data-x="${o}">Rename</button><button class="ab r" data-a="unlink" data-x="${o}">Unlink</button></div>`; }).join('') || '<div class="empty">Not linked to any Alfred.</div>'}
+    ${pend}
+    <div class="lbl">Found on this network <span class="faint">- Alfreds announcing themselves on the LAN</span></div>
+    ${(() => { const found = Object.keys(S.alfreds).filter(a => a !== V && !linkOf(V, a) && online(a) && S.alfreds[a].announce); return found.length ? found.map(a => `<div class="row"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--green)"></span><b>${h(S.alfreds[a].says)}</b><span class="dim small">${h(S.alfreds[a].addr)} · Alfred ${h(S.alfreds[a].ver)}</span><span class="sp"></span><button class="ab p" data-a="linkFound" data-x="${a}">Link…</button></div>`).join('') : '<div class="small dim">No unlinked Alfred is announcing right now.</div>'; })()}
+    <label class="small" style="display:flex;gap:8px;align-items:center;margin:10px 0 4px"><input type="checkbox" data-a="announce" ${S.alfreds[V].announce ? 'checked' : ''}> Announce this Alfred on the LAN as <b>"${h(S.alfreds[V].says)}"</b> <span class="faint">(name, address and version only; it never links by itself)</span></label>
+    <div class="lbl">Or type an address <span class="faint">- another subnet, a VPN</span></div>
+    ${others.length ? `<div class="toolbar" style="margin-top:10px"><select class="in" id="lk-to">${others.map(a => `<option value="${a}">${h(S.alfreds[a].addr)}</option>`).join('')}</select><input class="in" id="lk-name" placeholder="Your name for it, e.g. QA server" style="width:220px" value="${h(ui.lkName || '')}"><button class="btn p" data-a="link">Link</button></div><div class="note">Your name for it becomes its pill (<span class="chip origin" style="cursor:default">⇇ name</span>) and the tag in refs (<code>&lt;uuid&gt;@name</code>). The other Alfred shows a one-time code; anyone using it accepts.</div>` : ''}
+    <div class="lbl">Streamed from here</div>
+    ${outS.length ? `<table><tr><th>What</th><th>To</th><th>They may</th><th>Auto-accept</th><th>Pass on</th><th>Secrets</th><th>Since</th><th></th></tr>${outS.map(s => `<tr><td>${what(s)}</td><td>${h(nm(V, s.to))}</td><td>${s.mode}</td><td>${s.auto}</td><td>${s.passOn ? 'yes · ' + s.passMode : 'no'}</td><td>${s.unmasked ? '<span class="warn">unmasked</span>' : 'masked'}</td><td class="dim">${s.at}</td><td style="white-space:nowrap"><button class="ab" data-a="editStream" data-x="${s.id}">Change</button> <button class="ab r" data-a="stopStream" data-x="${s.id}">Stop</button></td></tr>`).join('')}</table>` : '<div class="empty">Nothing streamed from here.</div>'}
+    <div class="lbl">Read log <span class="faint">- what other Alfreds opened or exported from here</span></div>
+    ${S.reads[V].length ? `<table><tr><th>When</th><th>Who</th><th>What</th></tr>${S.reads[V].slice(0, 30).map(r => `<tr><td class="dim">${r.at}</td><td>${h(nm(V, r.by))}</td><td>${h(r.text)}</td></tr>`).join('')}</table>` : '<div class="empty">Nothing read yet. Opening a call, a card or exporting from another Alfred shows up here.</div>'}
+    <div class="lbl">Streamed to here</div>
+    ${inS.length ? `<table><tr><th>What</th><th>From</th><th>You may</th><th>State</th><th>Since</th><th></th></tr>${inS.map(s => `<tr><td>${what(s)}</td><td>${pill(s.owner, null, s.kind, s.target, null)}</td><td>${s.mode}</td><td>${!s.active ? '<span class="chip c-off">stream ended</span>' : online(s.owner) ? '<span class="chip c-ok">● live</span>' : '<span class="chip c-off">offline</span>'}</td><td class="dim">${s.at}</td><td>${s.active ? `<button class="ab" data-a="${s.kind === 'board' ? 'openBoard' : 'openCycleCalls'}" data-x="${s.kind === 'board' ? s.target : ''}" data-c="${s.target}" data-o="${s.owner}">Open</button>` : `<button class="ab" data-a="removeShared" data-x="${s.id}">Remove</button>`}</td></tr>`).join('')}</table>` : '<div class="empty">Nothing is streamed to this Alfred.</div>'}</div>`;
+}
+function pageStub() {
+  const p = R[V].page;
+  const t = { live: 'Live Calls', team: 'Team', profiles: 'Profiles', interception: 'Interception', relive: 'Relive', logs: 'Logs' }[p];
+  return `<h1>${t}</h1><p class="lead">Unchanged by streams.${p === 'live' ? ' Live traffic is never streamed - only cycles and boards are.' : ''}${p === 'team' ? ' Azure is never used through a stream.' : ''}</p><div class="empty">This page stays as it is today.</div>`;
+}
+
+/* ---- card drawer ---- */
+function drawerCard() {
+  const { board, n } = ui.drawer;
+  const b = S.boards[board];
+  const c = b.cards.find(x => x.n === n);
+  if (!c) return '';
+  const a = boardAccess(board);
+  const host = a.state === 'local';
+  const t = ui.drawer.tab || 'activity';
+  const canC = host || (a.mode === 'comment' && a.state !== 'ended');
+  const body = t === 'activity'
+    ? (c.comments.map(m => `<div class="cm"><div class="w"><b>${h(m.by)}</b> · ${m.at}</div><div class="tx">${h(m.text)}</div></div>`).join('') || '<div class="dim small">No comments yet.</div>')
+    : t === 'details'
+      ? `<div class="lbl" style="margin-top:0">Status</div>${host ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${COLS.map(s => `<button class="ab ${s === c.status ? 'p' : ''}" data-a="cardMove" data-to="${s}">${s}</button>`).join('')}</div>` : `<span class="chip">${h(c.status)}</span> <span class="small dim">- the host moves cards</span>`}
+         <div class="lbl">Kind</div><span class="kind k-${c.kind}">${c.kind}</span>
+         <div class="lbl">Evidence</div>${c.remote ? `<span class="chip origin" style="cursor:default">⇇ ${h(c.remote)} call</span> <span class="small dim">read live from ${h(c.remote)}; the card itself is stored on ${host ? 'this Alfred' : h(nm(V, b.owner))}</span>` : '<span class="small dim">Local calls.</span>'}
+         <div class="lbl">Close</div>${host ? '<button class="ab" data-a="cardClose">Close as Verified</button>' : '<span class="small dim">Closing is the host\'s.</span>'}`
+      : `<div class="dim small">Calls, statements and specs this card mentions. A mention of a call that lives on another Alfred keeps its pill: <span class="chip origin" style="cursor:default">⇇ 83 · GET /refunds 500</span>.</div>`;
+  return `<div class="drawer"><div class="dh"><span class="num">#${c.n}</span><span class="tt">${h(c.title)}</span><span class="chip">${h(c.status)}</span>${host ? '<span class="dim">▶</span>' : pill(b.owner, null, 'board', board, null)}<span class="dim">⋯</span><button class="x" data-a="closeDrawer">✕</button></div>
+    <div class="dtabs">${[['activity', 'Activity', c.comments.length], ['details', 'Details'], ['links', 'Links']].map(([k, l, cn]) => `<a class="${t === k ? 'on' : ''}" data-a="dtab" data-x="${k}">${l}${cn != null ? `<span class="cnt">${cn}</span>` : ''}</a>`).join('')}</div>
+    <div class="db">${!host ? `<div class="banner vio">${a.mode === 'comment' ? `Your comment is a request to ${h(nm(V, b.owner))} - it ${a.stream.auto === 'on' ? 'goes in at once (they can undo)' : 'waits for their yes'}.` : 'View only.'} Moving, editing and closing this card is the host's.</div>` : ''}${body}</div>
+    <div class="df">${host ? '<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center" class="small dim">Quick reply: <span class="pillf">✅ Go ahead</span><span class="pillf">Explain more</span><span class="pillf">Not now</span></div>' : ''}
+      <div class="composer" style="margin:0"><textarea id="cd-comment" placeholder="${canC ? 'Write a comment… @ to mention, / for blocks' : 'View only'}" ${canC ? '' : 'disabled'}></textarea>
+      <div class="bar"><span>@</span><span>/</span><span>Aa</span>${!host && canC ? '<button class="ab" data-a="cardQuestion">❓ Ask as a question</button>' : ''}<button class="send" data-a="cardComment" ${canC ? '' : 'disabled'}>↑</button></div></div></div></div>`;
+}
+
+/* ---- call drawer ---- */
+function drawerCall() {
+  const { callId, cycle, o, board } = ui.drawer;
+  const c = S.cycles[cycle];
+  const x = c.calls.find(k => k.id === callId);
+  const a = access(o, cycle, board || null);
+  const t = ui.drawer.tab || 'overview';
+  const hostHere = !board || S.boards[board].owner === V;
+  const src = a.via ? S.alfreds[o].short : nm(V, o);
+  const hdr = Object.entries(x.headers).map(([k, v]) => `${k}: ${masked(a) && /^(authorization|cookie|x-api-key)$/i.test(k) ? '•••••• (masked by ' + src + ')' : v}`).join('\n');
+  const canNote = a.state === 'local' || a.mode === 'comment';
+  const bodies = {
+    overview: `<div class="stats" style="margin-bottom:8px"><div><b>${x.st}</b><span>Status</span></div><div><b>${x.ms} ms</b><span>Duration</span></div><div><b>${x.sql.length}</b><span>SQL</span></div><div><b>${x.logs.length}</b><span>Log lines</span></div></div><div class="small dim">Cycle: ${h(c.name)} ${pill(o, a.via, 'cycle', cycle, board)} · ${o === V ? 'stored here' : 'read from ' + h(src) + ' just now, not stored here'}</div>`,
+    headers: `<pre>${h(hdr)}</pre>${masked(a) ? `<div class="note">Secrets were masked by ${h(src)} before leaving it.</div>` : ''}`,
+    body: `<div class="lbl" style="margin-top:0">Request</div><pre>${h(masked(a) ? redact(x.req || '(empty)') : (x.req || '(empty)'))}</pre><div class="lbl">Response</div><pre>${h(masked(a) ? redact(x.res) : x.res)}</pre>${masked(a) ? `<div class="note">${h(src)}'s redaction rules ran before the body left it.</div>` : ''}`,
+    sql: x.sql.length ? x.sql.map(s => `<pre style="color:#d7f7f2">${h(s)}</pre>`).join('') : '<div class="dim">No statements.</div>',
+    logs: x.logs.length ? `<pre style="color:#e4f5c8">${h(x.logs.join('\n'))}</pre>` : '<div class="dim">No log lines.</div>',
+    redis: x.redis.length ? `<pre style="color:#ffd9cc">${h(x.redis.join('\n'))}</pre>` : '<div class="dim">No Redis commands.</div>'
+  };
+  return `<div class="drawer"><div class="dh"><span class="m">${x.m}</span><span class="tt">${h(x.p)}</span><span class="st ${x.st >= 400 ? 'b' : 'g'}">${x.st}</span>${pill(o, a.via, 'cycle', cycle, board)}<button class="ab" data-a="exportCall" data-x="${o}">⬇ .html</button><button class="x" data-a="closeDrawer">✕</button></div>
+    <div class="dtabs">${[['overview', 'Overview'], ['headers', 'Headers'], ['body', 'Body'], ['sql', '◆ SQL ' + x.sql.length], ['logs', '▤ Logs ' + x.logs.length], ['redis', '⬢ Redis ' + x.redis.length]].map(([k, l]) => `<a class="${t === k ? 'on' : ''}" data-a="dtab" data-x="${k}">${l}</a>`).join('')}</div>
+    <div class="db">${bodies[t]}
+      <div class="lbl">Comments on this call ${o !== V ? `<span class="faint">- stored on ${h(src)}, with the call</span>` : ''}</div>
+      ${x.notes.map(m => `<div class="cm"><div class="w"><b>${h(m.by)}</b> · ${m.at}</div>${h(m.text)}</div>`).join('') || '<div class="dim small">None.</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="call-note" style="flex:1" placeholder="${canNote ? 'Comment on this call' : 'View only'}" ${canNote ? '' : 'disabled'}><button class="ab" data-a="callNote" ${canNote ? '' : 'disabled'}>Comment</button></div>
+      ${o !== V ? `<div class="note">A comment on the call belongs with the call: a request to ${h(src)}${a.via ? ' (through ' + h(nm(V, a.via)) + ')' : ''}.</div>` : ''}
+      ${hostHere && hostBoards().length ? `<div class="lbl">Open a card from this call <span class="faint">- your board, stored here</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><input class="in" id="cc-title" style="flex:1;min-width:200px" value="${h(x.m + ' ' + x.p + ' → ' + x.st)}"><select class="in" id="cc-board">${hostBoards().map(([id, bb]) => `<option value="${id}" ${id === board ? 'selected' : ''}>${h(bb.key)}</option>`).join('')}</select><button class="btn p" data-a="cardFromCall" data-x="${x.id}">＋ Card</button></div>
+        <div class="note">${o === V ? 'A local call.' : `The card, its mention of this call and its comments are yours - ${h(src)} is never asked.`}</div>` : ''}
+    </div></div>`;
+}
+
+/* ---- chat ---- */
+function chatPanel() {
+  const bid = R[V].board;
+  if (R[V].page !== 'board' || !bid) return '';
+  const b = S.boards[bid];
+  const host = b.owner === V;
+  const a = boardAccess(bid);
+  if (a.state === 'ended') return '';
+  const init = h(b.key.replace(/[^A-Z0-9]/g, '').slice(-2) || 'AB');
+  const chip = `<div class="chatchip"><div class="c" data-a="chatOpen"><span class="av ${host ? '' : 'vio'}">${init}<i></i></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(b.key)} ${h(b.name)}</span>${host ? '' : '<span class="chip origin" style="cursor:default">read-only</span>'}</div></div>`;
+  if (!ui.chat) return chip;
+  const msgs = b.chat.map(m => `<div class="msg ${m.by === 'Claude' ? '' : 'u'}"><div class="w"><b>${h(m.by)}</b> · ${m.at}</div>${h(m.text)}</div>`).join('');
+  const offline = !host && a.state === 'offline';
+  return chip + `<div class="chat"><div class="ch"><span class="av ${host ? '' : 'vio'}">${init}<i></i></span><div style="flex:1;min-width:0"><div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(b.key)} · ${h(b.name)}</div><div class="small" style="color:${host ? 'var(--green)' : 'var(--violet)'}">${host ? '● Answered by your terminal · LAPTOP-34BNETR7' : `⇇ ${h(nm(V, b.owner))}'s chat · read-only`}</div></div><span class="dim">⌕ ⋯</span><button class="x" data-a="chatClose">✕</button></div>
+    <div class="msgs">${offline ? `<div class="empty">${h(nm(V, b.owner))} is offline - nothing shown.</div>` : msgs || '<div class="empty">No messages.</div>'}</div>
+    ${host ? `<div class="composer"><textarea id="chat-in" placeholder="Message Claude about this board… try: listen to error flow · open a card for the 83 failure · triage · why does /refunds fail?"></textarea><div class="bar"><span>@</span><span>/</span><span>Aa</span><span>⇄ Auto</span><span>⚡</span><button class="send" data-a="chatSend" data-x="${bid}">↑</button></div></div>`
+      : `<div class="composer" style="opacity:.6"><textarea disabled placeholder="Only the host (${h(nm(V, b.owner))}) uses this chat. To say something, comment on a card or on the brief."></textarea><div class="bar"><span>Read-only - streamed from ${h(nm(V, b.owner))}</span><button class="send" disabled>↑</button></div></div>`}</div>`;
+}
+
+/* ---- popover, dialogs, popups ---- */
+function popover() {
+  const p = ui.pop;
+  if (!p) return '';
+  const st = `left:${p.x}px;top:${p.y}px`;
+  const rows = list => list.filter(Boolean).map(([k, v]) => `<div class="pv-r"><span class="dim">${k}</span><span>${v}</span></div>`).join('');
+  if (p.out) {
+    const list = S.streams.filter(s => s.owner === V && s.kind === p.kind && s.target === p.id && s.active);
+    const what = p.kind === 'board' ? S.boards[p.id].key + ' · ' + S.boards[p.id].name : S.cycles[p.id].name;
+    return `<div class="popover outp" style="${st}"><div class="pv-t" style="color:var(--blue-l)">⇉ ${h(what.slice(0, 60))}</div><div class="dim small" style="margin-bottom:8px">Kept here and streamed live - nothing is copied to the readers.</div>
+      ${list.map(s => `<div class="pv-box">${rows([['To', `<b>${h(nm(V, s.to))}</b> <span class="dim">${h(S.alfreds[s.to].addr)}</span>`], ['State', online(s.to) ? '<span class="ok">● connected</span>' : '<span class="dim">offline</span>'], ['They may', s.mode === 'comment' ? 'comment (requests)' : 'view'], ['Auto-accept', s.auto], ['Pass on', s.passOn ? 'yes · ' + s.passMode : 'no'], ['Secrets', s.unmasked ? '<span class="warn">sent unmasked</span>' : 'masked here'], ['Since', s.at], ['To approve', String(S.requests.filter(r => r.streamId === s.id && r.state === 'waiting').length)]])}
+        <div style="display:flex;gap:6px;margin-top:8px"><button class="ab" data-a="editStream" data-x="${s.id}">Change</button><button class="ab r" data-a="stopStream" data-x="${s.id}">Stop</button></div></div>`).join('')}</div>`;
+  }
+  const isBoard = p.kind === 'board';
+  const a = isBoard ? boardAccess(p.id) : access(p.o, p.id, p.b || null);
+  const o = p.o;
+  const s = a.stream || anyStream(o, V, p.kind, p.id);
+  const stTxt = { ok: '<span class="ok">● live</span>', offline: '<span class="dim">offline · nothing shown, no copy here</span>', ended: '<span class="dim">stream ended</span>', name: '<span class="warn">not shared here</span>' }[a.state] || '';
+  let facts = [];
+  if (isBoard) { const b = S.boards[p.id]; if (a.state === 'ok') facts = [['Project', h(b.project)], ['Cards', String(b.cards.length)], ['Cycles', String(b.cycles.length)], ['Azure', b.azure ? `${b.azure.id} · read-only copy` : '-']]; }
+  else {
+    const c = S.cycles[p.id];
+    const on = hostBoards().filter(([, b]) => b.cycles.some(r => r.id === p.id)).map(([, b]) => h(b.key));
+    if (a.state === 'ok') facts = [['Project', h(c.project)], ['Calls', `${c.calls.length} · <span class="${c.calls.some(x => x.st >= 400) ? 'bad' : 'ok'}">${c.calls.filter(x => x.st >= 400).length} failed</span>`], ['Status', c.recording ? `<span class="bad">● recording on ${h(nm(V, o))}</span>` : 'paused'], ['Created', h(c.created)]];
+    facts.push(['On your boards', on.join(', ') || 'none']);
+  }
+  const ids = [
+    ['Name', `<b>${h(isBoard ? S.boards[p.id].key + ' · ' + S.boards[p.id].name : S.cycles[p.id].name)}</b>`],
+    ['Kind', isBoard ? 'board' : 'cycle'],
+    ['Lives on', `<b>${h(nm(V, o))}</b> <span class="dim">${h(S.alfreds[o].addr)}</span>`],
+    a.via ? ['Through', `${h(nm(V, a.via))} <span class="dim">(passed on; ${h(S.alfreds[o].short)} set the mode)</span>`] : null,
+    ['State', stTxt],
+    a.mode && a.state !== 'name' ? ['You may', a.mode === 'comment' ? 'comment - each a request' : 'view only'] : null,
+    s && a.state !== 'name' ? ['Their auto-accept', s.auto] : null,
+    s && a.state !== 'name' ? ['Secrets', s.unmasked ? '<span class="warn">unmasked</span>' : `masked by ${h(nm(V, o))}`] : null,
+    s ? ['Streamed since', s.at] : null,
+    ['Stored here', 'nothing - read live from its owner'],
+    ['Ref tag', `<code>&lt;uuid&gt;@${h(a.via ? S.alfreds[o].short : nm(V, o))}</code>`]
+  ];
+  const mb = hostBoards();
+  const canAdd = !isBoard && a.state === 'ok' && !a.via && mb.some(([, b]) => !b.cycles.some(r => r.id === p.id));
+  const onOwnBoard = !isBoard && p.b && S.boards[p.b].owner === V;
+  return `<div class="popover" style="${st}"><div class="pv-t" style="color:var(--violet)">⇇ ${h(a.via ? S.alfreds[o].short + ' via ' + nm(V, a.via) : nm(V, o))}</div>${rows(ids)}${facts.length ? '<div class="pv-sep"></div>' + rows(facts) : ''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      ${a.state === 'ok' ? (isBoard ? `<button class="ab p" data-a="openBoard" data-x="${p.id}">Open board</button>` : `<button class="ab p" data-a="openCycleCalls" data-x="${p.b || ''}" data-c="${p.id}" data-o="${o}">Open calls</button>`) : ''}
+      ${canAdd ? `<select class="in" id="pp-add" style="padding:2px 6px">${mb.filter(([, b]) => !b.cycles.some(r => r.id === p.id)).map(([id, b]) => `<option value="${id}">${h(b.key)}</option>`).join('')}</select><button class="ab" data-a="ppAdd" data-x="${p.id}" data-o="${o}">Add to board</button>` : ''}
+      ${onOwnBoard ? `<button class="ab" data-a="removeRef" data-x="${p.b}" data-c="${p.id}">Remove from this board</button>` : ''}
+      ${!isBoard && a.state === 'ok' && !a.via && (!p.b || S.boards[p.b].owner === V) ? `<button class="ab" data-a="keepCopy" data-x="${p.id}" data-o="${o}" data-b="${p.b || ''}" title="Import it here in full - a copy, never live again">⧉ Keep a copy</button>` : ''}
+      <button class="ab" data-a="go" data-p="settings" data-s="links">Links & streams</button></div></div>`;
+}
+function dialogStream() {
+  const d = ui.dialog;
+  const isBoard = d.kindStream === 'board';
+  const title = isBoard ? S.boards[d.target].key + ' · ' + S.boards[d.target].name : S.cycles[d.target].name;
+  const linked = S.links.filter(l => l.ids.includes(V)).map(l => l.ids.find(x => x !== V));
+  const seg = (key, vals, labels) => `<span class="seg">${vals.map((v, i) => `<button class="${d[key] === v ? 'on' : ''}" data-a="dset" data-k="${key}" data-v="${v}">${labels ? labels[i] : v}</button>`).join('')}</span>`;
+  const existing = d.to ? activeStream(V, d.to, d.kindStream, d.target) : null;
+  const carries = isBoard ? (() => {
+    const b = S.boards[d.target];
+    return `<div class="small">Cards and activity, brief, specs, requirements, test steps, pages, Azure copies (read-only), your chat (read-only), and its cycles:</div>
+      ${b.cycles.map(ref => { const c = S.cycles[ref.id]; if (ref.o === V) return `<div class="small" style="margin-top:5px">◷ ${h(c.name)} <span class="chip c-local">local</span> <span class="ok">carried</span></div>`; const ps = activeStream(ref.o, V, 'cycle', ref.id); return `<div class="small" style="margin-top:5px">◷ ${h(c.name)} ${pill(ref.o, null, 'cycle', ref.id, null)} ${ref.o === d.to ? '<span class="dim">theirs already</span>' : ps && ps.passOn ? `<span class="ok">passed on - ${h(nm(V, ref.o))} set: ${ps.passMode}</span>` : `<span class="warn">${h(nm(V, ref.o))} does not allow passing on - name only</span>`}</div>`; }).join('')}`;
+  })() : '<div class="small">Every call of the cycle, also those recorded after now, with headers, bodies, SQL, log lines and Redis commands.</div>';
+  return `<div class="overlay"><div class="dialog"><h3>${existing ? 'Change stream' : 'Stream'} ${isBoard ? 'board' : 'cycle'} <span class="dim" style="font-weight:400">"${h(title.slice(0, 70))}"</span></h3>
+    <div class="field"><div class="fl">To</div>${linked.length ? seg('to', linked, linked.map(o => nm(V, o) + (online(o) ? '' : ' (offline)'))) : '<span class="warn">Link an Alfred first (Settings → Links & streams).</span>'}</div>
+    <div class="field"><div class="fl">What it carries</div>${carries}</div>
+    <div class="field"><div class="fl">What they may do</div>${seg('mode', ['view', 'comment'])}
+      <div class="note">${{ view: 'Read everything streamed, nothing else.', comment: 'view + comments and questions on cards, brief comments, comments on calls - each a request to you.' }[d.mode]} Cards, states, brief, specs, listen, triage and the chat stay yours alone.</div></div>
+    <div class="field"><div class="fl">Accept their requests automatically</div>${seg('auto', ['off', 'on'])}
+      <div class="note">${{ off: 'Every request shows you a popup.', on: 'Every comment goes in at once.' }[d.auto]} Auto-accepted requests are recorded and can be undone.</div></div>
+    <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600;font-size:13px"><input type="checkbox" data-a="dtog" data-k="passOn" ${d.passOn ? 'checked' : ''}> Allow passing on</label>
+      <div class="note">They may carry it inside their own board streams to a third Alfred, which may: ${seg('passMode', ['view', 'comment'])}</div></div>
+    <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600;font-size:13px"><input type="checkbox" data-a="dtog" data-k="unmasked" ${d.unmasked ? 'checked' : ''}> Send unmasked</label>
+      <div class="note">${d.unmasked ? '<span class="warn">They will see real Authorization headers, cookies, API keys and unredacted bodies.</span>' : 'Authorization, cookies, API keys and everything your redaction rules match (bodies too) are masked here, before anything leaves.'}</div></div>
+    <div class="note">Never through a stream: Azure, settings, recording, ▤ ◆ ⬢ switches, interception rules, exports, Relive, your Claude or your chat input.</div>
+    <div style="display:flex;gap:8px;margin-top:16px">${existing ? `<button class="btn r" data-a="stopStream" data-x="${existing.id}">Stop stream</button>` : ''}<span class="sp"></span><button class="btn" data-a="closeDialog">Cancel</button><button class="btn p" data-a="streamSave" ${d.to ? '' : 'disabled'}>${existing ? 'Save' : 'Start stream'}</button></div></div></div>`;
+}
+function dialogCompare() {
+  const [ia, ib] = ui.dialog.ids;
+  const bid = ui.dialog.board;
+  const side = id => { const ref = S.boards[bid].cycles.find(r => r.id === id); const c = S.cycles[id]; const a = access(ref.o, id, bid); return { ref, c, a }; };
+  const A1 = side(ia), B1 = side(ib);
+  const ep = x => x.p.split('?')[0];
+  const stat = s => { const cs = s.c.calls; const ms = cs.map(x => x.ms).sort((p, q) => p - q); return { calls: cs.length, failed: cs.filter(x => x.st >= 400).length, med: ms[Math.floor(ms.length / 2)] || 0, sql: cs.reduce((n, x) => n + x.sql.length, 0), ac: s.c.ac, eps: new Map(cs.map(x => [x.m + ' ' + ep(x), x.st])) }; };
+  const a = stat(A1), b = stat(B1);
+  const all = [...new Set([...a.eps.keys(), ...b.eps.keys()])];
+  const diff = all.filter(k => a.eps.has(k) && b.eps.has(k) && a.eps.get(k) !== b.eps.get(k));
+  const onlyA = all.filter(k => !b.eps.has(k)), onlyB = all.filter(k => !a.eps.has(k));
+  const row = (k, x, y, bad) => `<tr><td class="dim">${k}</td><td>${x}</td><td>${y}</td><td>${bad ? '<span class="bad">≠</span>' : ''}</td></tr>`;
+  const head = s => `${h(s.c.name)} ${pill(s.ref.o, s.a.via, 'cycle', s.ref.id, bid)}`;
+  return `<div class="overlay"><div class="dialog" style="max-width:760px"><h3>Compare cycles</h3>
+    <table><tr><th></th><th>${head(A1)}</th><th>${head(B1)}</th><th></th></tr>
+    ${row('Calls', a.calls, b.calls)}${row('Failed', a.failed, b.failed, a.failed !== b.failed)}${row('Median time', a.med + ' ms', b.med + ' ms')}${row('SQL statements', a.sql, b.sql)}${row('Requirements met', a.ac, b.ac, a.ac !== b.ac)}</table>
+    <div class="lbl">Endpoints whose status differs</div>${diff.length ? diff.map(k => `<div class="row"><span class="m">${k.split(' ')[0]}</span>${h(k.split(' ').slice(1).join(' '))}<span class="sp"></span><span class="st ${a.eps.get(k) >= 400 ? 'b' : 'g'}">${a.eps.get(k)}</span> → <span class="st ${b.eps.get(k) >= 400 ? 'b' : 'g'}">${b.eps.get(k)}</span></div>`).join('') : '<div class="dim small">None.</div>'}
+    <div class="lbl">Only in one</div><div class="small">${onlyA.map(k => `<div>◧ ${h(k)} <span class="dim">- only in ${h(A1.c.name)}</span></div>`).join('')}${onlyB.map(k => `<div>◨ ${h(k)} <span class="dim">- only in ${h(B1.c.name)}</span></div>`).join('') || ''}${!onlyA.length && !onlyB.length ? '<span class="dim">None.</span>' : ''}</div>
+    <div class="note">The remote side is read live from its owner - nothing is copied. The same comparison your Claude gets from compare_cycles.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" data-a="compareAsk" data-x="${bid}">✦ Ask Claude why</button><button class="btn p" data-a="closeDialog">Close</button></div></div></div>`;
+}
+function dialogExport() {
+  const bid = ui.dialog.board;
+  const b = S.boards[bid];
+  const rows = b.cycles.map(ref => ({ ref, a: access(ref.o, ref.id, bid), c: S.cycles[ref.id] }));
+  const bad = rows.filter(x => x.ref.o !== V && x.a.state !== 'ok');
+  const fetched = rows.filter(x => x.ref.o !== V && x.a.state === 'ok').reduce((n, x) => n + x.c.calls.length, 0);
+  return `<div class="overlay"><div class="dialog"><h3>Export ${h(b.key)} as .json</h3><div class="small dim" style="margin-bottom:10px">Exports never cut call data, so every call of a cycle from another Alfred is fetched in full now.</div>
+    ${rows.map(x => `<div class="row"><span>◷ ${h(x.c.name)}</span>${pill(x.ref.o, x.a.via, 'cycle', x.ref.id, bid)}<span class="sp"></span>${x.ref.o === V ? '<span class="dim small">local</span>' : x.a.state === 'ok' ? `<span class="ok small">✓ ${x.c.calls.length} calls fetched</span>` : `<span class="bad small">✗ ${x.a.state === 'offline' ? 'offline' : 'not available'}</span>`}</div>`).join('')}
+    ${bad.length ? `<div class="strip warn" style="margin-top:10px">${bad.length} cycle${bad.length > 1 ? 's' : ''} cannot be read now. "Export without them" writes ${bad.length > 1 ? 'them' : 'it'} as a reference, and the file says so at the top.</div>` : ''}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" data-a="closeDialog">Cancel</button>${bad.length ? `<button class="btn" data-a="exportDlg" data-x="${bid}">Try again</button><button class="btn p" data-a="exportDo" data-f="${fetched}" data-r="${bad.length}">Export without them</button>` : `<button class="btn p" data-a="exportDo" data-f="${fetched}" data-r="0">Export</button>`}</div></div></div>`;
+}
+function stack() {
+  const out = [];
+  if (S.pendingLink && S.pendingLink.to === V) {
+    const p = S.pendingLink;
+    out.push(`<div class="req link"><b>An Alfred wants to link</b><div class="small dim" style="margin:4px 0 8px">From ${h(S.alfreds[p.from].addr)}. Every open tab of this Alfred shows this; anyone may accept.</div><span class="code6">${p.code}</span>
+      <div style="display:flex;gap:6px;margin-top:10px;align-items:center"><input class="in" id="lk-back" value="${h(S.alfreds[p.from].short)}" style="width:120px" title="Your name for it"><button class="ab p" data-a="acceptLink">Accept</button><button class="ab" data-a="declineLink">Decline</button></div><div class="note">A link alone shares nothing.</div></div>`);
+  }
+  waitingFor(V).slice(0, 3).forEach(r => {
+    const d = describe(r.op);
+    out.push(`<div class="req"><div><b>${h(fromLabel(r, V))}</b> <span class="dim">asks to ${h(d.what)}</span></div>
+      ${d.old != null ? `<div class="diff"><span class="del">${h(d.old)}</span>\n<span class="ins">${h(d.nw)}</span></div>` : `<div class="diff">${h(d.diff)}</div>`}
+      <div class="dim small">${h(S.boards[r.op.board]?.key || S.cycles[r.op.cycle]?.name)} · ${r.at} · shown in every open tab, the first answer wins</div>
+      ${ui.rejecting === r.id ? `<div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="rej-reason" placeholder="Reason (they see it)" style="flex:1"><button class="ab r" data-a="reject" data-x="${r.id}">Reject</button><button class="ab" data-a="rejectCancel">Back</button></div>`
+        : `<div style="display:flex;gap:6px;margin-top:8px"><button class="ab p" data-a="approve" data-x="${r.id}">Approve</button><button class="ab" data-a="rejectAsk" data-x="${r.id}">Reject…</button></div>`}</div>`);
+  });
+  ui.toasts.forEach(t => out.push(`<div class="toast ${t.err ? 'e' : ''}">${h(t.text)}</div>`));
+  return out.length ? `<div class="stack" style="${ui.chat ? 'right:600px' : ''}">${out.join('')}</div>` : '';
+}
+function help() {
+  if (!ui.help) return '';
+  const steps = [
+    ['PC-1', 'You are the host of <b>AB#61813</b>. The blue strip under the stepper says it streams to 83 - click <b>⇉ 83 · comment ▾</b>.'],
+    ['PC-1', '<b>Cycles</b> tab: your cycle, two from 83, one from 90, each with a pill - click one for its details. Try the <b>⇇ From other Alfreds</b> filter.'],
+    ['PC-1', '<b>Calls</b> tab → a 83 call: headers masked by 83. <b>＋ Card</b> opens a card on your board (83 not asked). <b>Comment</b> on the call goes to 83.'],
+    ['PC-1', '<b>💬 Chat</b>: "listen to error flow", "open a card for the 83 failure", "triage" - your Claude works 83\'s cycles like local ones.'],
+    ['83', 'Switch to <b>83</b> → <b>Boards ▾</b> → Shared with me → AB#61813. No Add, no drag; Claude and Chat are read-only. Open card #7 → comment.'],
+    ['PC-1', '<b>⇉ Stream… → auto off</b>. As 83 comment again; back on PC-1 the popup asks - Approve or Reject with a reason. <b>⇄</b> in the header: Undo.'],
+    ['83', 'Untick <b>PC-1</b> in this bar: 83 sees "PC-1 is offline", nothing shown. Keep a comment; tick PC-1 again - it is sent.'],
+    ['any', '<b>Session Cycles</b> on PC-1 and on 83: grouped by board, streamed cycles with pills. <b>Settings → Links & streams</b>: link 91, then accept the code as 91.'],
+    ['PC-1', 'Untick <b>90</b>, then <b>⬇ Export ▾</b>: it stops and offers "Export without them".']
+  ];
+  return `<div class="help"><div class="hd" data-a="help">Walkthrough (${steps.length})<span class="sp"></span><span class="small">hide</span></div><ol>${steps.map(([w, s]) => `<li><span class="who">${w}</span> ${s}</li>`).join('')}</ol></div>`;
+}
+
+/* ================= guided tour: how to stream ================= */
+const T = [
+  { part: 'Part 1 · Link two Alfreds', who: 'pc1', sel: '[data-a="go"][data-p="settings"]', title: 'Open Settings', text: 'A stream rides on a link between two Alfreds. Links live in Settings → Links & streams.', done: () => V === 'pc1' && R.pc1.page === 'settings' && ui.setSec === 'links' },
+  { part: 'Part 1 · Link two Alfreds', sel: '[data-a="linkFound"][data-x="a91"]', title: 'Pick it from the network', text: 'Alfreds on the LAN announce themselves - "Smoke box" is 192.168.1.91. Click Link… (no IP to type). Its announced name becomes its pill here; rename it any time. 91 then shows a one-time code.', done: () => !!S.pendingLink || !!linkOf('pc1', 'a91') },
+  { part: 'Part 1 · Link two Alfreds', sel: '[data-a="as"][data-x="a91"]', title: 'Go to 91', text: 'In the mock bar, switch to 91 - like walking over to that PC.', done: () => V === 'a91' || !!linkOf('pc1', 'a91') },
+  { part: 'Part 1 · Link two Alfreds', sel: '.req.link [data-a="acceptLink"]', title: 'Accept the code on 91', text: 'Every open tab of 91 shows this. Anyone using 91 may accept. A link alone shares nothing yet.', done: () => !!linkOf('pc1', 'a91') },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="as"][data-x="pc1"]', title: 'Back to PC-1', text: 'Now share your task with 91.', done: () => V === 'pc1' },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="go"][data-p="board"]', title: 'Open the Board tab', text: 'Your task board AB#61813.', done: () => V === 'pc1' && R.pc1.page === 'board' && R.pc1.board === 'b1' },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="streamDlg"][data-k="board"]', title: 'Click ⇉ Stream…', text: 'Top right of the board toolbar.', done: () => ui.dialog && ui.dialog.kind === 'stream' && ui.dialog.kindStream === 'board' },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="dset"][data-k="to"][data-v="a91"]', title: 'Choose who gets it', text: 'Pick "QA box" (91). You can stream the same board to several Alfreds, one by one.', done: () => ui.dialog && ui.dialog.to === 'a91' },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="dset"][data-k="mode"][data-v="comment"]', title: 'What may they do?', text: 'view = read only. comment = they may also comment and ask questions - each a request to you. Cards, states and the chat stay yours either way.', done: () => ui.dialog && ui.dialog.mode === 'comment' },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="dset"][data-k="auto"][data-v="off"]', title: 'Approve each comment?', text: 'off = every comment pops up for your yes. on = comments go in at once (you can still undo). Keep it off for now.', next: true },
+  { part: 'Part 2 · Stream your board', sel: '[data-a="streamSave"]', title: 'Start stream', text: 'Secrets stay masked unless you tick "Send unmasked".', done: () => !!activeStream('pc1', 'a91', 'board', 'b1') },
+  { part: 'Part 2 · Stream your board', sel: '.strip.out', title: 'It is live', text: 'The blue strip names everyone who reads this board. Click a ⇉ pill any time to see details, change the mode or stop.', next: true },
+  { part: 'Part 3 · What 91 sees', sel: '[data-a="as"][data-x="a91"]', title: 'Switch to 91', text: 'Look at it from the other side.', done: () => V === 'a91' },
+  { part: 'Part 3 · What 91 sees', sel: '[data-a="menu"][data-x="boards"]', title: 'Open Boards ▾', text: 'Streamed boards sit in the same switcher, under "Shared with me".', done: () => V === 'a91' && (ui.menu === 'boards' || R.a91.board === 'b1'), pre: () => { if (V === 'a91' && R.a91.page !== 'board') R.a91 = { page: 'board', board: 'b4', tab: 'cards' }; } },
+  { part: 'Part 3 · What 91 sees', sel: '.menu [data-a="openBoard"][data-x="b1"]', title: 'Open your board on 91', text: 'It carries the ⇇ PC-1 pill - it lives on PC-1.', done: () => V === 'a91' && R.a91.board === 'b1' && R.a91.page === 'board' },
+  { part: 'Part 3 · What 91 sees', sel: '.strip.in', title: 'Read live, nothing stored', text: '91 sees every tab, read live from PC-1. It cannot add or move cards; the chat is read-only. In comment mode it may comment on a card - try it after the tour.', next: true },
+  { part: 'Part 4 · Get a cycle streamed to you', sel: '[data-a="as"][data-x="a83"]', title: 'Switch to 83', text: 'Now the other way round: 83 recorded a new cycle and shares it with you.', done: () => V === 'a83' },
+  { part: 'Part 4 · Get a cycle streamed to you', sel: '[data-a="go"][data-p="cycles"]', title: 'Open Session Cycles on 83', text: '83\'s new cycle "regression run 2" is on none of its boards.', done: () => V === 'a83' && R.a83.page === 'cycles' },
+  { part: 'Part 4 · Get a cycle streamed to you', sel: '[data-a="streamDlg"][data-k="cycle"][data-x="c5"]', title: 'Click ⇉ Stream… on it', text: 'The same dialog, for one cycle: every call, also the ones recorded later.', done: () => (ui.dialog && ui.dialog.target === 'c5') || !!activeStream('a83', 'pc1', 'cycle', 'c5') },
+  { part: 'Part 4 · Get a cycle streamed to you', sel: '[data-a="dset"][data-k="mode"][data-v="comment"]', title: 'Let PC-1 comment on its calls', text: 'Comments on a call stay with the call, on 83 - each a request 83 approves.', done: () => (ui.dialog && ui.dialog.mode === 'comment') || !!activeStream('a83', 'pc1', 'cycle', 'c5') },
+  { part: 'Part 4 · Get a cycle streamed to you', sel: '[data-a="streamSave"]', title: 'Start stream', text: 'PC-1 gets it under "Shared with me".', done: () => !!activeStream('a83', 'pc1', 'cycle', 'c5') },
+  { part: 'Part 5 · Work it like your own', sel: '[data-a="as"][data-x="pc1"]', title: 'Back to PC-1', text: 'Put 83\'s cycle on your board.', done: () => V === 'pc1' },
+  { part: 'Part 5 · Work it like your own', sel: '[data-a="go"][data-p="board"]', title: 'Open the Board tab', text: '', done: () => V === 'pc1' && R.pc1.page === 'board' && R.pc1.board === 'b1' },
+  { part: 'Part 5 · Work it like your own', sel: '[data-a="tab"][data-x="cycles"]', title: 'Open the Cycles tab', text: '', done: () => V === 'pc1' && R.pc1.page === 'board' && R.pc1.tab === 'cycles' },
+  { part: 'Part 5 · Work it like your own', sel: '[data-a="menu"][data-x="addcyc"]', title: '＋ Add existing cycle ▾', text: 'Streamed cycles are listed next to your local ones.', done: () => ui.menu === 'addcyc' || S.boards.b1.cycles.some(r => r.id === 'c5') },
+  { part: 'Part 5 · Work it like your own', sel: '.menu [data-a="addCycleDirect"]', title: 'Add "regression run 2"', text: 'Read live from 83 - nothing is copied.', done: () => S.boards.b1.cycles.some(r => r.id === 'c5') },
+  { part: 'Part 6 · Keep a copy (only if you must)', sel: '[data-a="go"][data-p="cycles"]', title: 'Open Session Cycles', text: 'Say 83 will be wiped tomorrow and you must keep "regression run 2".', done: () => V === 'pc1' && R.pc1.page === 'cycles' },
+  { part: 'Part 6 · Keep a copy (only if you must)', sel: '[data-a="keepCopy"][data-x="c5"]', title: '⧉ Keep a copy', text: 'Fetched in full and imported here through the normal export/import - a copy, labelled "copy · from 83", never live again. 83 sees it in its read log. Nothing is ever copied by itself.', done: () => Object.values(S.cycles).some(c => c.copyOf && /regression run 2/.test(c.name)) },
+  { part: 'Part 6 · Keep a copy (only if you must)', sel: '.chip.c-local[title^="A copy"]', title: 'The copy sits beside the stream', text: 'The streamed cycle stays live with its ⇇ 83 pill; the copy is yours and never changes again.', next: true },
+  { part: 'Done', pre: () => { if (V === 'pc1' && R.pc1.page !== 'board') R.pc1 = { page: 'board', board: 'b1', tab: 'cycles' }; }, sel: '.row .origin', title: 'That is streaming', text: 'The ⇇ 83 pill marks it. Your Claude, listen, triage, cards from its calls and exports all work on it like on a local cycle; a comment on one of its calls goes to 83. Click the pill for its details.', next: true, last: true }
+];
+function tourStep() {
+  if (!ui.tour) return null;
+  let st = T[ui.tour.i];
+  while (st && !st.next && st.done && st.done() && ui.tour.i < T.length - 1) { ui.tour.i++; st = T[ui.tour.i]; }
+  if (st && st.pre) st.pre();
+  return st;
+}
+function tourBox(st) {
+  const i = ui.tour.i;
+  return `<div class="tourbox" id="tourbox"><div class="part">${h(st.part)} · step ${i + 1} of ${T.length}</div><div class="tt">${h(st.title)}</div><div>${h(st.text)}</div>
+    <div class="bar">${st.last ? '<button class="tb p" data-a="tourEnd">Finish</button>' : `${st.next ? '<button class="tb p" data-a="tourNext">Next ›</button>' : ''}<button class="tb ${st.next ? '' : 'p'}" data-a="tourDo">${st.next && !st.fill ? 'Show' : 'Do it for me'}</button>`}<span class="sp"></span>${i ? '<button class="tb" data-a="tourBack">‹ Back</button>' : ''}<button class="tb" data-a="tourEnd">End tour</button></div>
+    <div class="prog"><i style="width:${Math.round((i + 1) / T.length * 100)}%"></i></div></div>`;
+}
+function tourPlace() {
+  const box = document.getElementById('tourbox');
+  if (!box) return;
+  const st = T[ui.tour.i];
+  const el = st && document.querySelector(st.sel);
+  document.querySelectorAll('.tour-hl').forEach(x => x.classList.remove('tour-hl'));
+  if (!el) { box.style.left = Math.max(12, (innerWidth - box.offsetWidth) / 2) + 'px'; box.style.top = '90px'; return; }
+  el.classList.add('tour-hl');
+  const r = el.getBoundingClientRect();
+  if (r.top < 70 || r.bottom > innerHeight - 20) { el.scrollIntoView({ block: 'center' }); }
+  const rr = el.getBoundingClientRect();
+  const below = rr.bottom + 12 + box.offsetHeight < innerHeight;
+  box.style.left = Math.max(12, Math.min(rr.left, innerWidth - box.offsetWidth - 12)) + 'px';
+  box.style.top = (below ? rr.bottom + 12 : Math.max(40, rr.top - box.offsetHeight - 12)) + 'px';
+}
+
+function render() {
+  const pages = { board: pageBoard, cycles: pageCycles, settings: pageSettings };
+  const w = waitingFor(V).length;
+  document.title = (w ? `(${w}) ` : '') + `Alfred ${S.alfreds[V].short}`;
+  const typed = {}; document.querySelectorAll('input.in[id], textarea[id]').forEach(el => { typed[el.id] = el.value; });
+  const focus = document.activeElement && document.activeElement.id;
+  const scroll = window.scrollY;
+  const tourSt = tourStep();
+  const off = online(V) ? '' : `<div class="strip warn" style="margin:12px 26px 0">${h(S.alfreds[V].short)} is switched off in the mock: other Alfreds cannot reach it.</div>`;
+  document.getElementById('app').innerHTML = sim() + header() + off + `<div class="page">${(pages[R[V].page] || pageStub)()}</div>`
+    + (ui.drawer ? (ui.drawer.kind === 'card' ? drawerCard() : drawerCall()) : '')
+    + chatPanel() + (ui.dialog ? ({ stream: dialogStream, export: dialogExport, compare: dialogCompare }[ui.dialog.kind])() : '') + popover() + stack() + help()
+    + (tourSt ? tourBox(tourSt) : '');
+  if (!ui.clearTyped) Object.entries(typed).forEach(([id, v]) => { const el = document.getElementById(id); if (el && el.value !== v) el.value = v; });
+  ui.clearTyped = false;
+  if (focus) { const el = document.getElementById(focus); el && el.focus(); }
+  window.scrollTo(0, scroll);
+  wireDrag();
+  if (tourSt) requestAnimationFrame(tourPlace);
+}
+function wireDrag() {
+  document.querySelectorAll('[data-drag]').forEach(el => el.addEventListener('dragstart', e => { ui.drag = +el.dataset.drag; e.dataTransfer.setData('text/plain', el.dataset.drag); }));
+  document.querySelectorAll('[data-drop]').forEach(col => {
+    col.addEventListener('dragover', e => { if (ui.drag != null) { e.preventDefault(); col.classList.add('over'); } });
+    col.addEventListener('dragleave', () => col.classList.remove('over'));
+    col.addEventListener('drop', e => { e.preventDefault(); const bid = R[V].board; const c = S.boards[bid].cards.find(x => x.n === ui.drag); if (c && c.status !== col.dataset.drop) write(boardAccess(bid), { type: 'card.move', board: bid, n: c.n, from: c.status, to: col.dataset.drop }); ui.drag = null; render(); });
+  });
+}
+
+/* ================= actions ================= */
+const val = id => (document.getElementById(id) || {}).value || '';
+const A = {
+  as: d => { V = d.x; Object.assign(ui, { drawer: null, dialog: null, pop: null, menu: null, chat: false, rejecting: null, toasts: [] }); },
+  power: d => { if (S.alfreds[d.x].online) S.health[d.x].seen = now(); S.alfreds[d.x].online = !S.alfreds[d.x].online; if (S.alfreds[d.x].online) { flushDrafts(); if (d.x !== V && S.streams.some(x => x.owner === d.x && x.to === V && x.active)) toast(`Caught up with ${nm(V, d.x)}: replayed every signal since ${S.health[d.x].seen || 'it went away'} - calls recorded meanwhile are judged now.`); } },
+  reset: () => { const f = clone(S0); Object.keys(S).forEach(k => delete S[k]); Object.assign(S, f); V = 'pc1';
+    Object.assign(R, { pc1: { page: 'board', board: 'b1', tab: 'cards' }, a83: { page: 'board', board: 'b2', tab: 'cards' }, a90: { page: 'board', board: 'b3', tab: 'cards' }, a91: { page: 'board', board: 'b4', tab: 'cards' } });
+    Object.assign(ui, { sel: [], drawer: null, dialog: null, pop: null, menu: null, chat: false, toasts: [], help: false, rejecting: null, renaming: null, setSec: 'links', cycGroup: 'board', cycFilter: 'all', view: 'board', tour: null, lkName: '' }); },
+  tourStart: () => { ui.tour = { i: 0 }; ui.help = false; Object.assign(ui, { drawer: null, dialog: null, pop: null, menu: null, chat: false }); },
+  tourEnd: () => { ui.tour = null; document.querySelectorAll('.tour-hl').forEach(x => x.classList.remove('tour-hl')); },
+  tourNext: () => { const st = T[ui.tour.i]; if (st.fill) st.fill(); if (ui.tour.i < T.length - 1) ui.tour.i++; },
+  tourBack: () => { if (ui.tour.i > 0) ui.tour.i--; },
+  tourDo: () => {
+    const st = T[ui.tour.i];
+    if (st.fill) { st.fill(); ui.tour.i++; return; }
+    const el = document.querySelector(st.sel);
+    if (st.next) { el && el.scrollIntoView({ block: 'center' }); return; }
+    setTimeout(() => { const now2 = document.querySelector(st.sel); now2 && now2.click(); }, 0); // re-find: the render after this click replaces the DOM
+  },
+  help: () => { ui.help = !ui.help; },
+  go: d => { R[V] = Object.assign({}, R[V], { page: d.p }); if (d.s) ui.setSec = d.s; ui.drawer = null; ui.pop = null; ui.menu = null; },
+  menu: d => { ui.menu = ui.menu === d.x ? null : d.x; ui.pop = null; },
+  tray: () => { ui.menu = ui.menu === 'tray' ? null : 'tray'; },
+  tab: d => { R[V].tab = d.x; ui.drawer = null; },
+  view: d => { ui.view = d.x; },
+  setSec: d => { ui.setSec = d.x; },
+  cycFilter: d => { ui.cycFilter = d.x; },
+  selCyc: d => { ui.sel = ui.sel.includes(d.x) ? ui.sel.filter(x => x !== d.x) : [...ui.sel, d.x].slice(-2); },
+  selClear: () => { ui.sel = []; },
+  compare: d => { ui.dialog = { kind: 'compare', board: d.x, ids: ui.sel.slice(0, 2) }; ui.sel.forEach(id => { const r = S.boards[d.x].cycles.find(q => q.id === id); r && readLog(r.o, `compared ${S.cycles[id].name}`); }); },
+  compareAsk: d => { const [x, y] = ui.dialog.ids; const b = S.boards[d.x]; const t = `why does ${S.cycles[x].name} differ from ${S.cycles[y].name}?`; b.chat.push({ by: 'fathy', at: now(), text: t }); b.chat.push({ by: 'Claude', at: now(), text: claudeAnswer(d.x, 'why fail') }); ui.dialog = null; ui.chat = true; },
+  cycGroup: d => { ui.cycGroup = d.x; },
+  openBoard: d => { R[V] = { page: 'board', board: d.x, tab: 'cards' }; ui.drawer = null; ui.menu = null; ui.pop = null; readLog(S.boards[d.x].owner, `opened the board ${S.boards[d.x].key}`); here(d.x); },
+  openCycleCalls: d => {
+    const bid = d.x || (hostBoards().find(([, b]) => b.cycles.some(r => r.id === d.c)) || [])[0];
+    if (bid) { R[V] = { page: 'board', board: bid, tab: 'calls' }; ui.drawer = null; }
+    else { const c = S.cycles[d.c]; ui.drawer = { kind: 'call', callId: c.calls[0].id, cycle: d.c, o: d.o || c.owner, board: null, tab: 'overview' }; }
+    ui.pop = null; ui.menu = null;
+  },
+  openCard: d => { ui.drawer = { kind: 'card', board: d.x, n: +d.n, tab: 'activity' }; here(d.x, +d.n); readLog(S.boards[d.x].owner, `opened card #${d.n} of ${S.boards[d.x].key}`); },
+  openCall: d => { ui.drawer = { kind: 'call', callId: d.x, cycle: d.c, o: d.o, board: d.b, tab: 'overview' }; const c = S.cycles[d.c]; const x = c.calls.find(k => k.id === d.x); readLog(d.o, `opened ${x.m} ${x.p} of ${c.name}`); },
+  dtab: d => { ui.drawer.tab = d.x; },
+  closeDrawer: () => { if (ui.drawer && ui.drawer.kind === 'card') here(ui.drawer.board); ui.drawer = null; },
+  closeDialog: () => { ui.dialog = null; },
+  chatOpen: () => { ui.chat = !ui.chat; },
+  chatClose: () => { ui.chat = false; },
+  pill: (d, t) => { const r = t.getBoundingClientRect(); ui.pop = { kind: d.k, id: d.x, o: d.o, via: d.v || null, b: d.b || null, x: Math.max(8, Math.min(r.left, innerWidth - 412)), y: Math.min(r.bottom + 6, innerHeight - 120) }; ui.menu = null; },
+  pillOut: (d, t) => { const r = t.getBoundingClientRect(); ui.pop = { out: true, kind: d.k, id: d.x, x: Math.max(8, Math.min(r.left, innerWidth - 412)), y: Math.min(r.bottom + 6, innerHeight - 120) }; ui.menu = null; },
+  ppAdd: d => { const bid = val('pp-add'); S.boards[bid].cycles.push({ o: d.o, id: d.x }); ui.pop = null; toast(`Added to ${S.boards[bid].key} - read live from ${nm(V, d.o)}, nothing copied.`); },
+  addCycleDirect: d => { const s = S.streams.find(x => x.id === d.s); S.boards[d.x].cycles.push({ o: s.owner, id: s.target }); ui.menu = null; toast('Added - read live, nothing copied.'); },
+  removeRef: d => { const b = S.boards[d.x]; b.cycles = b.cycles.filter(r => r.id !== d.c); ui.pop = null; toast('Removed from the board. Nothing was stored here, so nothing is deleted.'); },
+  removeShared: d => { S.streams.find(s => s.id === d.x).removed = true; },
+  toggleRec: d => { const c = S.cycles[d.x]; c.recording = !c.recording; toast(c.recording ? 'Recording. Readers see "● recording" and get a signal per new call.' : 'Paused.'); },
+
+  quickAdd: d => { const t = val('qa').trim(); if (!t) return toast('Type a title first.', true); write(boardAccess(d.x), { type: 'card.create', board: d.x, kind: /^bug!/i.test(t) ? 'BUG' : 'TASK', title: t.replace(/^\w+!\s*/, '') }); },
+  cardMove: d => { const { board, n } = ui.drawer; const c = S.boards[board].cards.find(x => x.n === n); write(boardAccess(board), { type: 'card.move', board, n, from: c.status, to: d.to }); },
+  cardClose: () => { const { board, n } = ui.drawer; write(boardAccess(board), { type: 'card.close', board, n }); },
+  cardComment: () => { const t = val('cd-comment').trim(); if (!t) return toast('Write a comment first.', true); const { board, n } = ui.drawer; write(boardAccess(board), { type: 'card.comment', board, n, text: t }); },
+  cardQuestion: () => { const t = val('cd-comment').trim(); if (!t) return toast('Write the question first.', true); const { board, n } = ui.drawer; write(boardAccess(board), { type: 'card.question', board, n, text: t }); },
+  briefComment: d => { const t = val('bc-text').trim(); if (!t) return toast('Write a comment first.', true); write(boardAccess(d.x), { type: 'brief.comment', board: d.x, text: t }); },
+  offComment: d => { const t = val('off-text').trim(); if (!t) return toast('Write a comment first.', true); write(boardAccess(d.x), { type: 'card.comment', board: d.x, n: +val('off-card'), text: t }); },
+  callNote: () => { const t = val('call-note').trim(); if (!t) return toast('Write a comment first.', true); const { callId, cycle, o, board } = ui.drawer; const x = S.cycles[cycle].calls.find(k => k.id === callId); write(access(o, cycle, board || null), { type: 'call.note', cycle, callId, call: `${x.m} ${x.p}`, text: t }); },
+  cardFromCall: d => {
+    const { cycle, o } = ui.drawer; const bid = val('cc-board'); const b = S.boards[bid];
+    const x = S.cycles[cycle].calls.find(k => k.id === d.x);
+    apply({ type: 'card.create', board: bid, kind: 'BUG', remote: o === V ? null : nm(V, o), title: val('cc-title') || `${x.m} ${x.p}`, comment: evidenceText(x, o) }, 'fathy');
+    const card = b.cards[b.cards.length - 1];
+    audit(V, `you · card #${card.n} from ${x.m} ${x.p}`);
+    R[V] = { page: 'board', board: bid, tab: 'cards' }; ui.drawer = { kind: 'card', board: bid, n: card.n, tab: 'activity' };
+    toast(`Card #${card.n} opened in the Inbox of ${b.key}. Stored here${o === V ? '' : '; ' + nm(V, o) + ' was not asked'}.`);
+  },
+  chatSend: d => { const t = val('chat-in').trim(); if (!t) return; const b = S.boards[d.x]; b.chat.push({ by: 'fathy', at: now(), text: t }); b.chat.push({ by: 'Claude', at: now(), text: claudeAnswer(d.x, t) }); },
+
+  approve: d => { const r = S.requests.find(x => x.id === d.x); if (r.state !== 'waiting') return; r.before = clone(targetOf(r.op)); apply(r.op, fromLabel(r, r.owner)); r.state = 'accepted'; audit(V, `${fromLabel(r, V)} · ${describe(r.op).what} - approved`); toast('Approved. The other tabs closed their popup.'); },
+  rejectAsk: d => { ui.rejecting = d.x; },
+  rejectCancel: () => { ui.rejecting = null; },
+  reject: d => { const r = S.requests.find(x => x.id === d.x); r.state = 'rejected'; r.reason = val('rej-reason') || 'no reason given'; ui.rejecting = null; toast('Rejected - they see your reason.'); },
+  undo: d => { const r = S.requests.find(x => x.id === d.x); const t = targetOf(r.op); Object.keys(t).forEach(k => delete t[k]); Object.assign(t, r.before); r.state = 'undone'; toast('Undone.'); },
+  withdraw: d => { S.requests.find(x => x.id === d.x).state = 'withdrawn'; toast('Withdrawn.'); },
+  discard: d => { S.drafts[V].splice(+d.x, 1); },
+
+  streamDlg: d => {
+    const linked = S.links.filter(l => l.ids.includes(V)).map(l => l.ids.find(x => x !== V));
+    const to = linked.find(o => activeStream(V, o, d.k, d.x)) || linked[0] || null;
+    const ex = to ? activeStream(V, to, d.k, d.x) : null;
+    ui.dialog = Object.assign({ kind: 'stream', kindStream: d.k, target: d.x, to, mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false }, ex ? { mode: ex.mode, auto: ex.auto, passOn: ex.passOn, passMode: ex.passMode, unmasked: ex.unmasked } : {});
+    ui.pop = null; ui.menu = null;
+  },
+  editStream: d => { const s = S.streams.find(x => x.id === d.x); ui.dialog = { kind: 'stream', kindStream: s.kind, target: s.target, to: s.to, mode: s.mode, auto: s.auto, passOn: s.passOn, passMode: s.passMode, unmasked: s.unmasked }; ui.pop = null; },
+  dset: d => { ui.dialog[d.k] = d.v; if (d.k === 'to') { const ex = activeStream(V, d.v, ui.dialog.kindStream, ui.dialog.target); Object.assign(ui.dialog, ex ? { mode: ex.mode, auto: ex.auto, passOn: ex.passOn, passMode: ex.passMode, unmasked: ex.unmasked } : { mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false }); } },
+  dtog: d => { ui.dialog[d.k] = !ui.dialog[d.k]; },
+  streamSave: () => {
+    const d = ui.dialog; const ex = activeStream(V, d.to, d.kindStream, d.target);
+    const props = { mode: d.mode, auto: d.auto, passOn: d.passOn, passMode: d.passMode, unmasked: d.unmasked };
+    if (ex) { Object.assign(ex, props); toast(`Changed live - ${nm(V, d.to)} sees it at once.`); }
+    else { S.streams.push(Object.assign({ id: uid('s'), owner: V, to: d.to, kind: d.kindStream, target: d.target, active: true, removed: false, at: now() }, props)); toast(`Streaming to ${nm(V, d.to)}. It shows there in Boards ▾ / Session Cycles under "Shared with me".`); }
+    ui.dialog = null;
+  },
+  stopStream: d => {
+    const s = S.streams.find(x => x.id === d.x); s.active = false; let n = 0;
+    S.requests.filter(r => r.streamId === s.id && r.state === 'waiting').forEach(r => { r.state = 'rejected'; r.reason = 'stream ended'; n++; });
+    ui.dialog = null; ui.pop = null;
+    toast(`Stopped. ${nm(V, s.to)} sees "stream ended"${n ? `; ${n} waiting request${n > 1 ? 's' : ''} rejected` : ''}.`);
+  },
+  link: () => { const to = val('lk-to'); S.pendingLink = { from: V, to, code: String(Math.floor(100000 + Math.random() * 899999)).replace(/(\d{3})(\d{3})/, '$1 $2'), name: val('lk-name') || S.alfreds[to].short }; toast(`Asked ${S.alfreds[to].addr}. Switch to ${S.alfreds[to].short} in the mock bar to accept.`); },
+  cancelLink: () => { S.pendingLink = null; },
+  linkFound: d => { S.pendingLink = { from: V, to: d.x, code: String(Math.floor(100000 + Math.random() * 899999)).replace(/(\d{3})(\d{3})/, '$1 $2'), name: S.alfreds[d.x].says }; toast(`Asked "${S.alfreds[d.x].says}". It shows a one-time code there; switch to ${S.alfreds[d.x].short} in the mock bar to accept.`); },
+  announce: () => { S.alfreds[V].announce = !S.alfreds[V].announce; toast(S.alfreds[V].announce ? 'Announcing on the LAN again.' : 'No longer announced - others can still link by typing the address.'); },
+  keepCopy: d => {
+    const src = S.cycles[d.x]; const from = nm(V, d.o);
+    const id = uid('cy');
+    const a = access(d.o, d.x, d.b || null);
+    const calls = clone(src.calls).map(c => { if (masked(a)) { c.headers.Authorization = '•••••• (masked by ' + from + ')'; c.headers.Cookie = '•••••• (masked by ' + from + ')'; c.req = redact(c.req); c.res = redact(c.res); } c.id = uid('c'); c.notes = []; return c; });
+    S.cycles[id] = { owner: V, name: `copy of ${src.name} · from ${from} · ${now()}`, project: src.project, recording: false, created: 'today ' + now(), ac: src.ac, copyOf: from, calls };
+    hostBoards().forEach(([bid, b]) => { if (b.cycles.some(r => r.id === d.x)) b.cycles.push({ o: V, id }); });
+    readLog(d.o, `kept a copy of ${src.name}`);
+    ui.pop = null;
+    toast(`Kept a copy: ${calls.length} calls imported here as "copy of ${src.name}". The streamed one stays live; the copy never changes again.`);
+  },
+  acceptLink: () => { const p = S.pendingLink; S.links.push({ ids: [p.from, p.to], names: { [p.from]: p.name, [p.to]: val('lk-back') || S.alfreds[p.from].short }, at: 'today' }); S.pendingLink = null; toast('Linked. Nothing is shared until someone starts a stream.'); },
+  declineLink: () => { S.pendingLink = null; toast('Declined.'); },
+  rename: d => { ui.renaming = d.x; },
+  renameSave: d => { linkOf(V, d.x).names[V] = val('rn') || S.alfreds[d.x].short; ui.renaming = null; toast('Renamed - every pill here uses the new name.'); },
+  unlink: d => { const l = linkOf(V, d.x); S.links = S.links.filter(x => x !== l); S.streams.filter(s => s.active && ((s.owner === V && s.to === d.x) || (s.owner === d.x && s.to === V))).forEach(s => { s.active = false; }); toast('Unlinked - every stream on it ended.'); },
+  exportCall: d => { const a = access(d.x, ui.drawer.cycle, ui.drawer.board || null); if (a.state === 'ok') readLog(d.x, `exported a call of ${S.cycles[ui.drawer.cycle].name} (.html)`); if (d.x !== V && a.state !== 'ok') return toast(`${nm(V, d.x)} is offline - the call cannot be fetched for export now.`, true); toast(d.x === V ? 'Exported the call as .html.' : `Exported as .html - fetched in full from ${nm(V, d.x)} just now${masked(a) ? ', secrets masked as ' + nm(V, d.x) + ' sends them' : ''}.`); },
+  exportDlg: d => { ui.dialog = { kind: 'export', board: d.x }; ui.menu = null; },
+  exportDo: d => { const eb = S.boards[ui.dialog.board]; eb.cycles.forEach(r => { if (r.o !== V && access(r.o, r.id, ui.dialog.board).state === 'ok') readLog(r.o, `exported ${S.cycles[r.id].name} inside ${eb.key} (.json)`); }); ui.dialog = null; toast(`Written - ${d.f} calls from other Alfreds fetched in full${+d.r ? `, ${d.r} cycle${+d.r > 1 ? 's' : ''} as reference (said at the top)` : ''}.`); }
+};
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-a]');
+  const inFloat = e.target.closest('.popover, .menu, .tray, .tourbox');
+  if ((ui.pop || ui.menu) && !inFloat && !(t && ['pill', 'pillOut', 'menu', 'tray'].includes(t.dataset.a))) { ui.pop = null; ui.menu = null; if (!t) render(); }
+  if (!t || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && t.type !== 'checkbox') || t.disabled) return;
+  if (t.dataset.a === 'selCyc') e.stopPropagation();
+  const fn = A[t.dataset.a];
+  if (!fn) return;
+  fn(t.dataset, t);
+  ui.clearTyped = true;
+  render();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { ui.drawer = null; ui.dialog = null; ui.pop = null; ui.menu = null; ui.chat = false; render(); }
+  if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'chat-in') { e.preventDefault(); const b = document.querySelector('[data-a="chatSend"]'); b && b.click(); }
+});
+render();
+</script>
+</body>
+</html>
