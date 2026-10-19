@@ -813,6 +813,10 @@ export class FakeAlfred {
       const want = q.get('project') ?? '';
       return b.runner && (b.runner.project === want || b.runner.project === '') ? [200, b.runner] : [204, undefined];
     }
+    // a team test's boards: every id is a board (the team tools resolve AB#/name/id refs first)
+    if (this.team && method === 'GET' && p[1] === 'boards' && p.length === 3) {
+      return [200, { board: { id: p[2], name: p[2] }, cards: 0, cycleIds: [], boardIds: [], linkedItem: null }];
+    }
     if (p[1] === 'agent-status' && method === 'GET') return [200, { state: b.agentState }];
     if (p[1] === 'agent-status' && method === 'PUT') {
       return [200, { ...body, state: b.agentState === 'PAUSED' ? 'PAUSED' : body.state, lastCheckAt: '', updatedAt: '' }];

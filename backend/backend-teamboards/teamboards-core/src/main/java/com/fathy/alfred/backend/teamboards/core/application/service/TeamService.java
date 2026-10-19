@@ -276,6 +276,11 @@ public class TeamService implements TeamUseCase {
     }
 
     @Override
+    public Optional<java.time.Instant> myTokenUntil(String conn) {
+        return live.vault().ownUntil(conn);
+    }
+
+    @Override
     public boolean forgetToken(String conn) {
         boolean was = live.vault().forget(conn);
         signals.changed(conn, "token");

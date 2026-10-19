@@ -48,6 +48,11 @@ public interface TeamUseCase {
 
     TokenStatus tokenStatus(String conn);
 
+    /** Until when the caller's own token of a connection lives in Alfred (a paired user's; empty for anyone else). */
+    default Optional<java.time.Instant> myTokenUntil(String conn) {
+        return Optional.empty();
+    }
+
     boolean forgetToken(String conn);
 
     // ------------------------------------------------------------------------------------------------------- the lists

@@ -316,6 +316,16 @@ class AzureDevOpsConnectorTest {
     }
 
     @Test
+    void alfredMentionsBecomeAzureMentions() {
+        String guid = "3b296e4e-9f0b-4d2b-a1f5-52e1eb592df0";
+        assertThat(AzureDevOpsConnector.markdownMentions("@[person:de99cad8/" + guid + "|waleed@scs-eg.com] Hi, see @[workitem:de99cad8/62123|Task 62123 x]"
+                + " and @[card:b1/72|Backend] or @[person:de99cad8/someone@x.com|Some One]"))
+                .isEqualTo("@<" + guid + "> Hi, see #62123 and Backend or @Some One");
+        assertThat(AzureDevOpsConnector.html("Hi @[person:c/" + guid + "|Waleed <W>]\nbye"))
+                .isEqualTo("<div>Hi <a href=\"#\" data-vss-mention=\"version:2.0," + guid + "\">@Waleed &lt;W&gt;</a><br>bye</div>");
+    }
+
+    @Test
     void theHookBodyGivesItsItemIdOnly() {
         assertThat(azure.ids("{\"eventType\":\"workitem.updated\",\"resource\":{\"id\":3,\"workItemId\":4521,\"fields\":{}}}")).containsExactly("4521");
         assertThat(azure.ids("{\"eventType\":\"workitem.created\",\"resource\":{\"id\":4600}}")).containsExactly("4600");

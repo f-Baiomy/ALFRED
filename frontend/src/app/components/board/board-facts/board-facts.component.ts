@@ -10,6 +10,8 @@ import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
 import { MainSummary } from '../../../core/team/team.models';
 import { CloseOnOutsideDirective } from '../../../shared/directives/close-on-outside.directive';
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
+import { OutboxTrayComponent } from '../../team/outbox/outbox-tray.component';
 import { refreshLine } from '../stage-strip/stage-strip.component';
 
 /** The current stage's own count, said in amber on the facts line ("2 Fixed waiting" in Verify). */
@@ -33,7 +35,7 @@ export function stageCount(st: BoardStage | null): string | null {
 @Component({
   selector: 'app-board-facts',
   standalone: true,
-  imports: [CloseOnOutsideDirective],
+  imports: [CloseOnOutsideDirective, OutboxTrayComponent],
   styles: [`
     .facts { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 8px 0 12px; font-size: 12.5px; color: var(--text-dim); }
     .facts b { color: var(--text); font-weight: 600; }
@@ -57,11 +59,16 @@ export function stageCount(st: BoardStage | null): string | null {
         <span aria-hidden="true">·</span>
       }
       <span class="cards">{{ cards() ? cards() + ' card' + (cards() === 1 ? '' : 's') : 'no cards yet' }}</span>
-      @if (waiting().length; as n) {
+      @if (waitingAll(); as n) {
         <span aria-hidden="true">·</span>
-        <button type="button" class="you" [title]="'Open #' + waiting()[0] + ' - the first one'" (click)="openFirst()">⚑ {{ n }} wait{{ n === 1 ? 's' : '' }} on you</button>
+        <button type="button" class="you" [title]="waiting().length ? 'Open #' + waiting()[0] + ' - the first one' : 'Changes waiting to go to Azure'"
+                (click)="openFirst()">⚑ {{ n }} wait{{ n === 1 ? 's' : '' }} on you</button>
       }
       @if (count(); as c) { <span aria-hidden="true">·</span><span class="amber">{{ c }}</span> }
+      @if (outbox.count(); as n) {
+        <!-- specs/034: what waits to go to Azure, one click from the header (it was only on the card's Links tab) -->
+        <button type="button" class="tob-pill" [attr.aria-expanded]="tray()" (click)="tray.set(!tray())">⇪ {{ n }} to send to Azure {{ tray() ? '▾' : '▸' }}</button>
+      }
       <span class="spacer"></span>
       @if (main(); as m) {
         <span class="rel" [appCloseOnOutside]="open()" (closed)="open.set(false)">
@@ -79,7 +86,10 @@ export function stageCount(st: BoardStage | null): string | null {
           }
         </span>
       }
-    </div>`,
+    </div>
+    @if (tray() && (outbox.count() || outbox.partial().length)) {
+      <app-team-outbox-tray [project]="project()" [editable]="editable()" (closed)="tray.set(false)" />
+    }`,
 })
 export class BoardFactsComponent {
   private readonly api = inject(BoardApiService);
@@ -94,6 +104,10 @@ export class BoardFactsComponent {
   readonly cards = input(0);
   readonly editable = input(true);
 
+  readonly outbox = inject(BundleOutboxService);
+  /** The tray opens by itself once per board when something waits - then it is the user's to close. */
+  readonly tray = signal(false);
+  private trayShownFor: string | null = null;
   readonly main = signal<MainSummary | null>(null);
   readonly steps = signal<NextSteps | null>(null);
   readonly open = signal(false);
@@ -101,11 +115,21 @@ export class BoardFactsComponent {
   readonly fetching = signal(false);
   readonly waiting = computed(() => (this.steps()?.waitingOnUser ?? []).map((w) => w.number));
   readonly count = computed(() => stageCount(this.stage()));
+  /** Cards waiting on the user, and bundles waiting for their approval (specs/034). */
+  readonly waitingAll = computed(() => this.waiting().length + this.outbox.count());
   readonly ref = computed(() => this.stage()?.ref ?? (this.main() ? `AB#${this.main()!.item}` : ''));
   private asked = 0;
 
   constructor() {
     if (!this.teamState.loaded()) this.teamState.load();
+    effect(() => this.outbox.watch(this.boardId()), { allowSignalWrites: true });
+    effect(() => {
+      const id = this.boardId();
+      if (this.outbox.count() && this.trayShownFor !== id) {
+        this.trayShownFor = id;
+        untracked(() => this.tray.set(true));
+      }
+    }, { allowSignalWrites: true });
     effect(() => {
       const id = this.boardId();
       this.teamState.startVersion();
@@ -131,6 +155,10 @@ export class BoardFactsComponent {
   }
 
   openFirst(): void {
+    if (!this.waiting().length) {
+      this.tray.set(true);
+      return;
+    }
     const n = this.waiting()[0];
     if (n != null) this.mentions.cardToOpen.set({ project: this.project(), number: n });
   }

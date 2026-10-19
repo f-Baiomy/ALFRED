@@ -13049,3 +13049,81 @@ app-board-cycles { display: block; position: relative; }
 .board-page { padding-right: 3.6rem; }
 @media (max-width: 720px) { .board-page { padding-right: 2.5rem; } }
 .cyx-bulk .cyx-danger-btn { color: var(--red); }
+
+// ------------------------------------------------------------------ specs/034: a consent bundle as a review
+.tcb { display: grid; gap: .35rem; padding: .55rem .65rem; border: 1px solid var(--purple-light); border-radius: 8px; font-size: .82rem; background: var(--card-inner); }
+.tcb-DONE, .tcb-REJECTED { border-color: var(--border); }
+.tcb-REJECTED { opacity: .8; }
+.tcb-PARTIAL { border-color: var(--amber); }
+.tcb-active { outline: 2px solid var(--blue, #60a5fa); outline-offset: 1px; }
+.tcb-head { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; }
+.tcb-title { min-width: 0; overflow-wrap: anywhere; }
+.tcb-card { font-size: .74rem; padding: 0 .4rem; border: 1px solid var(--border-strong); border-radius: 999px; }
+.tcb-grow { flex: 1; }
+.tcb-dim { color: var(--text-dim); font-size: .76rem; }
+.tcb-sent { color: var(--green); font-size: .76rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 .45rem; }
+.tcb-sent.err { color: var(--amber); }
+.tcb-step { display: grid; grid-template-columns: 1.1rem 6.2rem minmax(0, 1fr); gap: .45rem; align-items: start; padding: .4rem 0; border-top: 1px solid var(--border); }
+.tcb-step.off .tcb-body { opacity: .55; }
+.tcb-step > input[type=checkbox] { margin-top: .15rem; }
+.tcb-k { color: var(--text-dim); font-size: .76rem; display: grid; gap: .1rem; }
+.tcb-edited { color: var(--amber); font-size: .7rem; }
+.tcb-edited.claude { color: var(--purple-light); }
+.tcb-body { display: grid; gap: .3rem; min-width: 0; }
+.tcb-chg { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.tcb-old { text-decoration: line-through; color: var(--red); background: rgba(248,113,113,.14); padding: 0 .35rem; border-radius: 4px; }
+.tcb-new { color: var(--green); background: rgba(52,211,153,.14); padding: 0 .35rem; border-radius: 4px; }
+.tcb-arrow { color: var(--text-dim); }
+.tcb-warn { color: var(--amber); font-size: .76rem; }
+.tcb-warn.bad { color: var(--red); }
+.tcb-text { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: .4rem .55rem; }
+.tcb-compact .tcb-text { max-height: 7.5rem; overflow: auto; }
+.tcb-draft { border-style: dashed; }
+.tcb-d-ins { background: rgba(52,211,153,.18); color: var(--green); border-radius: 3px; }
+.tcb-d-del { background: rgba(248,113,113,.16); color: var(--red); text-decoration: line-through; border-radius: 3px; }
+.tcb-azure { background: #fff; color: #201f1e; border-radius: 6px; padding: .5rem .7rem; font-family: 'Segoe UI', system-ui, sans-serif; }
+.tcb-azure a { color: #0078d4; }
+.tcb-azure code { background: #f3f2f1; color: #201f1e; }
+.tcb-line { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.tcb-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.tcb-seg button { background: none; border: 0; color: var(--text-dim); font: inherit; font-size: .74rem; padding: .1rem .5rem; cursor: pointer; }
+.tcb-seg button.on { background: var(--card); color: var(--text); }
+.tcb-body textarea, .tcb-body input:not([type=checkbox]), .tcb-ask { box-sizing: border-box; flex: 1 1 220px; min-width: 0; width: 100%; padding: .3rem .45rem;
+  border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card); color: inherit; font: inherit; }
+.tcb-line .tcb-ask, .tcb-acts .tcb-ask { width: auto; }
+.tcb-tick { display: inline-flex; gap: .25rem; align-items: center; }
+.tcb-res { font-size: .76rem; color: var(--green); display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.tcb-res.err { color: var(--red); }
+.tcb-res-icon { color: var(--green); text-align: center; }
+.tcb-res-icon.err { color: var(--red); }
+.tcb-acts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; border-top: 1px solid var(--border); padding-top: .45rem; }
+.tcb-bar { flex: 1 1 80px; height: 4px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.tcb-bar > span { display: block; height: 100%; background: var(--blue, #60a5fa); transition: width 1s linear; }
+.tcb-msg { color: var(--green); font-size: .78rem; }
+.tcb-msg.err { color: var(--red); }
+@media (max-width: 720px) { .tcb-step { grid-template-columns: 1.1rem minmax(0, 1fr); } .tcb-step > :nth-child(n+2) { grid-column: 2; } }
+.tob { display: grid; gap: .5rem; margin: 0 0 12px; padding: .7rem .8rem; border: 1px solid color-mix(in srgb, var(--blue, #60a5fa) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--blue, #60a5fa) 7%, var(--card)); }
+.tob-h { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.tob-warn { color: var(--amber); }
+.tob-sub { margin-top: .3rem; }
+.tob-keys kbd, .tob kbd { font: 11px ui-monospace, monospace; padding: 0 .3rem; border: 1px solid var(--border-strong); border-radius: 4px; }
+.tob-pill { border: 1px solid color-mix(in srgb, var(--blue, #60a5fa) 60%, transparent); color: var(--blue, #60a5fa); background: none; border-radius: 999px;
+  padding: 1px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.tob-pill:hover { background: color-mix(in srgb, var(--blue, #60a5fa) 12%, transparent); }
+// waiting on the user: a soft ring pulses while something waits to be sent (the pill shows only then), still on hover
+.tob-pill:not(:hover) { animation: tob-pulse 1.8s ease-out infinite; }
+@keyframes tob-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue, #60a5fa) 55%, transparent);
+    background: color-mix(in srgb, var(--blue, #60a5fa) 14%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; background: none; }
+  100% { box-shadow: 0 0 0 0 transparent; background: none; }
+}
+@media (prefers-reduced-motion: reduce) { .tob-pill { animation: none !important; } }
+.cd-azure { display: grid; gap: .5rem; margin: 0 0 .6rem; padding: .55rem .7rem; border: 1px solid color-mix(in srgb, var(--blue, #60a5fa) 55%, transparent);
+  border-radius: 9px; background: color-mix(in srgb, var(--blue, #60a5fa) 7%, var(--card)); }
+.cd-azure-h { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.chat-bundle { margin: .2rem 0 .6rem 1.6rem; }
+.tcb-azure * { color: #201f1e; border-color: #e1dfdd; }
+.tcb-azure a, .tcb-azure a * { color: #0078d4; }
+.tob-bar { margin: 6px 0 10px; }

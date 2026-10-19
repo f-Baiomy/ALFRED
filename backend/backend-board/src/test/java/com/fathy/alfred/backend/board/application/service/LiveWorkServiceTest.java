@@ -39,6 +39,27 @@ class LiveWorkServiceTest {
     }
 
     @Test
+    void aRunThatEndsEndsTheOlderRunsOnTheSameMessageThatStillSayWorking() {
+        // a runner killed before it ended its row (2026-10-19): the next one answered, the old row said "Reading your message" for ever
+        service.report(new Report("orphan", "odeysys", 0, "waiting for your terminal to be free", List.of(), null, LiveWork.State.WORKING, null, 5265L));
+        service.report(new Report("other-msg", "odeysys", 0, "answering", List.of(), null, LiveWork.State.WORKING, null, 5300L));
+        service.report(new Report("card", "odeysys", 7, "reading the card", List.of(), null, LiveWork.State.WORKING, null));
+        now = now.plusSeconds(30);
+        service.report(new Report("copy", "odeysys", 0, "answering in the chat", List.of(), null, LiveWork.State.WORKING, null, 5265L));
+        assertThat(service.current("odeysys")).filteredOn(w -> w.id().equals("orphan")).extracting(LiveWork::state).containsExactly(LiveWork.State.WORKING);
+        service.report(new Report("copy", "odeysys", 0, "answering in the chat", List.of(), null, LiveWork.State.DONE, "answered in the chat", 5265L));
+        assertThat(service.current("odeysys")).filteredOn(w -> w.id().equals("orphan")).singleElement().satisfies(w -> {
+            assertThat(w.state()).isEqualTo(LiveWork.State.DONE);
+            assertThat(w.outcome()).isEqualTo("taken over - answered in the chat");
+        });
+        assertThat(service.current("odeysys")).filteredOn(w -> w.id().equals("other-msg")).extracting(LiveWork::state).containsExactly(LiveWork.State.WORKING);
+        assertThat(service.current("odeysys")).filteredOn(w -> w.id().equals("card")).extracting(LiveWork::state).containsExactly(LiveWork.State.WORKING);
+        service.report(new Report("card-2", "odeysys", 7, "answering", List.of(), null, LiveWork.State.DONE, "replied", null));
+        assertThat(service.current("odeysys")).filteredOn(w -> w.id().equals("card")).extracting(LiveWork::state)
+                .containsExactly(LiveWork.State.WORKING); // a card may have two runs at once
+    }
+
+    @Test
     void eachReportReplacesTheRunAndIsSignalledKeepingWhenItStarted() {
         service.report(report("r1", LiveWork.State.WORKING, "reading the card"));
         now = now.plusSeconds(3);

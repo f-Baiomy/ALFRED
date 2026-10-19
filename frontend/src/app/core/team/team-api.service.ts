@@ -6,7 +6,7 @@ import { reconnectingSocket } from '../state/reconnecting-socket';
 import {
   BoardItemsView, CardItem, CardMatch, ConnectorInfo, SyncResult, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
   NewBoardBody, NewBoardResult, SeedTarget, SavedSearch, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
-  TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep,
+  TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep, BundleCheck,
 } from './team.models';
 
 const e = encodeURIComponent;
@@ -302,8 +302,22 @@ export class TeamApiService {
     return this.http.post<WriteBundle>(`${this.base}/writes/${id}/approve`, {});
   }
 
-  reject(id: number): Observable<WriteBundle> {
-    return this.http.post<WriteBundle>(`${this.base}/writes/${id}/reject`, {});
+  reject(id: number, reason?: string): Observable<WriteBundle> {
+    return this.http.post<WriteBundle>(`${this.base}/writes/${id}/reject`, reason ? { reason } : {});
+  }
+
+  /** What the bundle meets in the tracker now (specs/034) - a live read with the viewer's token. */
+  checkBundle(id: number): Observable<BundleCheck> {
+    return this.http.get<BundleCheck>(`${this.base}/writes/${id}/check`);
+  }
+
+  /** Asks Claude to change a comment step: a waiting message in the board's chat (specs/034). */
+  askRedraft(id: number, step: number, instruction: string): Observable<{ message: number | null }> {
+    return this.http.post<{ message: number | null }>(`${this.base}/writes/${id}/redraft`, { step, instruction });
+  }
+
+  retryStep(id: number, step: number): Observable<WriteBundle> {
+    return this.http.post<WriteBundle>(`${this.base}/writes/${id}/steps/${step}/retry`, {});
   }
 
   // ------------------------------------------------------------------------------------------- hook, type kinds

@@ -232,6 +232,9 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         if (!columnExists("connections", "lists_at")) {
             jdbc.execute("ALTER TABLE connections ADD COLUMN lists_at INTEGER");
         }
+        if (!columnExists("azure_writes", "note")) {
+            jdbc.execute("ALTER TABLE azure_writes ADD COLUMN note TEXT"); // specs/034: the user's reject reason
+        }
         jdbc.update("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema', ?)", SCHEMA);
     }
 
@@ -990,11 +993,11 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     // ---------------------------------------------------------------------------------------------- write bundles
 
     private static final String BUNDLE = """
-            SELECT id, board_id, card_id, conn, item, origin, asked_in, title, steps_json, state, created_at, decided_at, decided_by FROM azure_writes""";
+            SELECT id, board_id, card_id, conn, item, origin, asked_in, title, steps_json, state, created_at, decided_at, decided_by, note FROM azure_writes""";
 
     private final RowMapper<WriteBundle> bundleRow = (rs, n) -> new WriteBundle(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4),
             rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8), read(rs.getString(9), new TypeReference<List<WriteStep>>() { }, List.of()),
-            WriteState.valueOf(rs.getString(10)), instant(rs, 11), instant(rs, 12), rs.getString(13));
+            WriteState.valueOf(rs.getString(10)), instant(rs, 11), instant(rs, 12), rs.getString(13), rs.getString(14));
 
     @Override
     public long insertBundle(WriteBundle b) {
@@ -1048,8 +1051,10 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
 
     @Override
     public void updateBundle(WriteBundle b) {
-        jdbc.update("UPDATE azure_writes SET title = ?, steps_json = ?, state = ?, decided_at = ?, decided_by = ? WHERE id = ?", b.title(), write(b.steps()),
-                b.state().name(), millis(b.decidedAt()), b.decidedBy(), b.id());
+        // a board is only ever filled in (an older bundle made without one, specs/034), never taken away; the note likewise
+        jdbc.update("UPDATE azure_writes SET title = ?, steps_json = ?, state = ?, decided_at = ?, decided_by = ?, board_id = COALESCE(?, board_id), "
+                + "note = COALESCE(?, note) WHERE id = ?", b.title(), write(b.steps()), b.state().name(), millis(b.decidedAt()), b.decidedBy(), b.boardId(),
+                b.note(), b.id());
     }
 
     @Override

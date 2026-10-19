@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Azure Approvals Mock</title>
+<style>
+  :root {
+    --bg: #111317; --panel: #181b21; --card: #1f232b; --inner: #262b34; --border: #2f3540; --border-strong: #3d4552;
+    --text: #e6e8ec; --dim: #8b93a1; --blue: #60a5fa; --green: #4ade80; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+    --ins: rgba(74,222,128,.14); --del: rgba(248,113,113,.14);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  .page { max-width: 1280px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lead { color: var(--dim); margin: 0 0 22px; max-width: 900px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+  .tabs button { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
+  .tabs button.on { border-color: var(--blue); background: rgba(96,165,250,.14); }
+  .view { display: none; } .view.on { display: block; }
+  .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 22px 0 8px; }
+  .frame { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; overflow: hidden; }
+  .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .col { flex: 1 1 360px; min-width: 0; }
+  .dim { color: var(--dim); } .small { font-size: 12px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; white-space: nowrap; }
+  .pill.amber { color: var(--amber); border-color: rgba(251,191,36,.45); }
+  .pill.blue { color: var(--blue); border-color: rgba(96,165,250,.5); background: rgba(96,165,250,.08); cursor: pointer; }
+  .pill.green { color: var(--green); border-color: rgba(74,222,128,.45); }
+  .btn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--inner); color: var(--text); cursor: pointer; }
+  .btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+  .btn.link { background: none; border: 0; color: var(--blue); padding: 0; }
+  .note { border-left: 3px solid var(--violet); padding: 8px 12px; background: rgba(167,139,250,.07); border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13px; }
+  .bad { border-left-color: var(--red); background: rgba(248,113,113,.07); }
+  .num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--violet); color: #111; font-size: 12px; font-weight: 700; margin-right: 6px; }
+
+  /* board header */
+  .hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ab { font-size: 12px; padding: 2px 7px; border: 1px solid var(--blue); color: var(--blue); border-radius: 5px; }
+  .hdr h3 { margin: 0; font-size: 17px; }
+  .facts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; color: var(--dim); }
+
+  /* the "to send" tray */
+  .tray { margin-top: 12px; border: 1px solid rgba(96,165,250,.5); border-radius: 10px; background: #172030; padding: 12px 14px; }
+  .tray-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tray-h b { font-size: 14px; }
+  .grow { flex: 1; }
+
+  /* one bundle as a review */
+  .bundle { border: 1px solid var(--border); border-radius: 9px; background: var(--card); margin-top: 10px; }
+  .bundle-h { display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .bundle-h .t { font-weight: 600; }
+  .step { display: grid; grid-template-columns: 22px 92px minmax(0,1fr); gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); align-items: start; }
+  .step:last-of-type { border-bottom: 0; }
+  .step .k { color: var(--dim); font-size: 12px; padding-top: 2px; }
+  .chg { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .old { text-decoration: line-through; color: var(--red); background: var(--del); padding: 1px 6px; border-radius: 4px; }
+  .new { color: var(--green); background: var(--ins); padding: 1px 6px; border-radius: 4px; }
+  .arrow { color: var(--dim); }
+  .text { background: var(--inner); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; white-space: pre-wrap; font-size: 13px; }
+  .text ins { text-decoration: none; background: var(--ins); color: var(--green); border-radius: 3px; padding: 0 2px; }
+  .text del { background: var(--del); color: var(--red); border-radius: 3px; padding: 0 2px; }
+  .edited { font-size: 11px; color: var(--amber); margin-left: 6px; }
+  .acts { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .warn { color: var(--amber); font-size: 12px; }
+  input[type=checkbox] { accent-color: #2563eb; margin-top: 3px; }
+
+  /* chat */
+  .chat { background: #15181d; border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .msg-user { margin-left: auto; max-width: 85%; background: #24304a; border-radius: 12px; padding: 8px 12px; direction: rtl; text-align: right; }
+  .msg-claude { margin-top: 10px; font-size: 13px; }
+  .msg-claude .who { color: var(--blue); font-size: 12px; }
+
+  /* board tile */
+  .tile { width: 250px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; }
+  .tile .t { font-weight: 600; margin: 5px 0; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+
+  /* card drawer */
+  .drawer-top { border: 1px solid rgba(96,165,250,.5); background: #172030; border-radius: 9px; padding: 9px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .dtabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); margin-top: 12px; padding-bottom: 6px; font-size: 13px; }
+  .dtabs span.on { border-bottom: 2px solid var(--blue); padding-bottom: 5px; }
+  .hl { outline: 2px dashed var(--amber); outline-offset: 3px; border-radius: 6px; }
+  .strike { color: var(--dim); }
+  ol.steps { margin: 6px 0 0 18px; padding: 0; } ol.steps li { margin: 3px 0; }
+  kbd { font: 11px ui-monospace, monospace; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--inner); color: var(--text); }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  table.cmp th, table.cmp td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.cmp th { color: var(--dim); font-weight: 500; }
+  @media (max-width: 720px) { .step { grid-template-columns: 22px minmax(0,1fr); } .step > :nth-child(n+2) { grid-column: 2; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Azure approvals: before and after</h1>
+  <p class="lead">Claude prepares what goes to Azure (a comment, a state, a field, a file) as a <b>bundle</b>. Nothing is sent before you approve.
+    Today you only find it inside the card, on the Links tab. After: it shows up where you already are, and each change reads as old → new.</p>
+
+  <div class="tabs">
+    <button class="on" data-v="before">Before</button>
+    <button data-v="after">After</button>
+    <button data-v="more">Enhancements (9)</button>
+    <button data-v="compare">What changes</button>
+  </div>
+
+  <!-- ============================================================ BEFORE -->
+  <section class="view on" id="before">
+    <div class="label">Today: 4 clicks, and the bundle is hidden</div>
+    <div class="row">
+      <div class="col">
+        <div class="frame">
+          <div class="chat">
+            <div class="msg-user">ممكن تكتب كومنت علي الـ task ... وتغير الـ status لـ testing ... اعمل الكومنت بالانجليزي</div>
+            <div class="msg-claude">
+              <div class="who">✦ Claude · 23:28</div>
+              <p>The comment is ready on your task... <b>Comment:</b> drafted as a bundle on card <span class="pill">▣ Backend filters task (#72)</span> - open it, review, Approve to send to Azure.</p>
+              <p class="dim small">No button here. You must open the card yourself.</p>
+            </div>
+          </div>
+          <div class="note bad"><span class="num">1</span>The answer names the bundle but has no Approve. You click the card chip.</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <div class="hdr"><b>#72</b> <span class="tag">TASK</span> <span class="dim">Backend: enhance refund filters implementation</span></div>
+          <div class="dim small" style="margin-top:6px">Status <b>Closed · Fine - not an issue</b></div>
+          <div class="dtabs"><span class="on">Activity 11</span><span>Details</span><span class="hl">Links 5</span></div>
+          <div class="note bad"><span class="num">2</span>The drawer opens on Activity. Nothing says a bundle waits. You must guess "Links".</div>
+          <div class="dim small" style="margin:8px 0 4px">Links tab → Azure item AB#62123 → scroll</div>
+          <div class="bundle">
+            <div class="bundle-h"><span class="t">Comment on item 62123</span><span class="dim small">Claude · item 62123 · waiting</span></div>
+            <div class="step"><input type="checkbox" checked><span class="k">Comment</span>
+              <div class="text">The backend implementation of the Refunded Requests filter enhancements (All Agencies, All Branches, and Branch multi-select) has been deployed to Staging 216 and is ready for testing.</div></div>
+            <div class="acts"><button class="btn primary">Approve 1 step</button><button class="btn">Reject</button></div>
+          </div>
+          <div class="note bad"><span class="num">3</span>No before → after. A state step shows only the new value; an edited comment does not show what you changed from Claude's draft.</div>
+          <div class="note bad"><span class="num">4</span>The board never counts it: this bundle has no board, so nothing in the header, on the tile or in "wait on you" mentions it.
+            And the state change you asked for is not in it.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ AFTER -->
+  <section class="view" id="after">
+    <div class="label">A · Board header: one pill, one tray, everything waiting for Azure</div>
+    <div class="frame">
+      <div class="hdr"><span class="ab">AB#61813</span><h3>Enhance Refunded Requests Filters – All Agencies, All Branches &amp; Branch Multi-Select</h3></div>
+      <div class="facts">Work item <b style="color:var(--text)">User Story · Active</b> · 17 cards · <span class="pill amber">12 to test</span>
+        <span class="pill blue" id="trayBtn">⇪ 2 to send to Azure ▾</span></div>
+      <div class="tray" id="tray">
+        <div class="tray-h"><b>To send to Azure</b><span class="dim small">prepared by Claude · nothing is sent before you approve · token ✓ live</span>
+          <span class="grow"></span><button class="btn primary">Approve all (3 changes)</button></div>
+
+        <div class="bundle">
+          <div class="bundle-h"><span class="pill">#72</span><span class="t">AB#62123 · Backend: enhance refund filters</span>
+            <span class="dim small">asked in chat 23:27 · Claude</span><span class="grow"></span><button class="btn ghost">Open card</button></div>
+          <div class="step"><input type="checkbox" checked><span class="k">State</span>
+            <div class="chg"><span class="old">New</span><span class="arrow">→</span><span class="new">Testing</span>
+              <span class="warn">⚠ Azure may refuse this move for your account - the comment still goes</span></div></div>
+          <div class="step"><input type="checkbox" checked><span class="k">Comment<span class="edited">edited by you</span></span>
+            <div>
+              <div class="text">The backend implementation of the Refunded Requests filter enhancements (All Agencies, All Branches, and Branch multi-select) has been deployed to <del>Staging 216</del><ins>staging 216 (build 3.4.7)</ins> and is ready for testing.</div>
+              <div class="small" style="margin-top:4px"><button class="btn link">✎ Edit</button> · <button class="btn link">Show Claude's draft</button> · <span class="dim">posts as you, in English</span></div>
+            </div></div>
+          <div class="acts"><button class="btn primary">Approve 2 changes</button><button class="btn">Reject</button><span class="dim small">or untick a change to leave it out</span></div>
+        </div>
+
+        <div class="bundle">
+          <div class="bundle-h"><span class="pill">#74</span><span class="t">AB#62125 · QA: test refund filters</span>
+            <span class="dim small">Claude · 22:58</span><span class="grow"></span><button class="btn ghost">Open card</button></div>
+          <div class="step"><input type="checkbox" checked><span class="k">Field</span>
+            <div class="chg">Assigned To <span class="old">(nobody)</span><span class="arrow">→</span><span class="new">Fathy Biomy</span></div></div>
+          <div class="acts"><button class="btn primary">Approve 1 change</button><button class="btn">Reject</button></div>
+        </div>
+      </div>
+      <div class="note">The pill counts waiting bundles; click toggles the tray. Shows only when something waits, so it never adds noise.
+        "Wait on you" in the header counts them too.</div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="label">B · In the chat, right under Claude's answer</div>
+        <div class="frame">
+          <div class="chat">
+            <div class="msg-user">ممكن تكتب كومنت علي الـ task ... وتغير الـ status لـ testing ... اعمل الكومنت بالانجليزي</div>
+            <div class="msg-claude">
+              <div class="who">✦ Claude · 23:28</div>
+              <p>The comment is ready, and the move to Testing. Review them below - nothing goes to Azure before you approve.</p>
+              <div class="bundle">
+                <div class="bundle-h"><span class="t">⇪ To Azure · AB#62123</span><span class="dim small">card #72</span></div>
+                <div class="step"><input type="checkbox" checked><span class="k">State</span>
+                  <div class="chg"><span class="old">New</span><span class="arrow">→</span><span class="new">Testing</span></div></div>
+                <div class="step"><input type="checkbox" checked><span class="k">Comment</span>
+                  <div class="text" style="max-height:62px;overflow:hidden">The backend implementation of the Refunded Requests filter enhancements (All Agencies, All Branches, and Branch multi-select) has been deployed to Staging 216…</div></div>
+                <div class="acts"><button class="btn primary">Approve 2 changes</button><button class="btn">✎ Edit</button><button class="btn ghost">Reject</button></div>
+              </div>
+              <p class="dim small">After Approve: "✓ Sent to Azure 23:31 · state Testing · comment" replaces the buttons, with a link to the item.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="label">C · On the board: the tile says it, the card opens on it</div>
+        <div class="frame">
+          <div class="row" style="gap:12px">
+            <div class="tile">
+              <div><span class="pill">#72</span> <span class="tag">TASK</span></div>
+              <div class="t">Backend: enhance refund filters implementation</div>
+              <span class="pill blue">⇪ 2 to Azure</span>
+            </div>
+            <div class="col" style="flex-basis:220px">
+              <div class="drawer-top"><b>⇪ 2 changes wait to go to Azure</b><span class="dim small">AB#62123 · state New → Testing · comment</span>
+                <span class="grow"></span><button class="btn primary">Review &amp; approve</button></div>
+              <div class="dtabs"><span class="on">Activity 11</span><span>Details</span><span>Links 5</span></div>
+              <p class="dim small">The card drawer shows the strip above its tabs, whatever tab is open. "Review &amp; approve" unfolds the same review as A.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="label">D · Every change reads as old → new</div>
+    <div class="frame">
+      <table class="cmp">
+        <tr><th style="width:110px">Change</th><th>How it shows</th></tr>
+        <tr><td>State</td><td><span class="old">New</span> <span class="arrow">→</span> <span class="new">Testing</span> - the old value read live from Azure</td></tr>
+        <tr><td>Field</td><td>Assigned To <span class="old">(nobody)</span> <span class="arrow">→</span> <span class="new">Fathy Biomy</span></td></tr>
+        <tr><td>Comment</td><td>The full text. If you edit it: your changes marked against Claude's draft, <span class="edited">edited by you</span>, "Show Claude's draft" to compare</td></tr>
+        <tr><td>Attach</td><td>📎 calls-72.html · 214 KB · secrets masked · <button class="btn link">preview</button></td></tr>
+        <tr><td>Create</td><td><span class="new">+ Task: QA test refund filters</span> under AB#61813</td></tr>
+        <tr><td>Tag</td><td><span class="new">+ alfred</span> / <span class="old">alfred</span></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ ENHANCEMENTS -->
+  <section class="view" id="more">
+    <p class="dim">Each one shows only when it applies. Shown here inside the same review the tray, chat and card share.</p>
+
+    <div class="label">Safer</div>
+    <div class="row">
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">1</span>Azure changed since the draft</b>
+          <p class="dim small">The tray re-reads the item on open. Someone moved it after Claude drafted.</p>
+          <div class="bundle">
+            <div class="step"><input type="checkbox" checked><span class="k">State</span>
+              <div>
+                <div class="chg"><span class="old">Active</span><span class="arrow">→</span><span class="new">Testing</span></div>
+                <div class="warn" style="margin-top:4px">⟳ Azure says <b>Active</b> now - it was <b>New</b> when Claude drafted (changed 23:29 by Mostafa Negm)</div>
+              </div></div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">2</span>Will Azure allow it?</b>
+          <p class="dim small">Alfred asks Azure which moves your account may make, before you approve.</p>
+          <div class="bundle">
+            <div class="step"><input type="checkbox"><span class="k">State</span>
+              <div>
+                <div class="chg strike"><span class="old">New</span><span class="arrow">→</span><span>Testing</span></div>
+                <div class="warn" style="margin-top:4px">⛔ Your account cannot move a Task from New to Testing. Allowed: Active, Removed. Left out - <button class="btn link">pick Active instead</button></div>
+              </div></div>
+            <div class="step"><input type="checkbox" checked><span class="k">Comment</span><div class="text">The backend implementation … is ready for testing.</div></div>
+            <div class="acts"><button class="btn primary">Approve 1 change</button><button class="btn">Reject</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">3</span>5-second Undo</b>
+          <p class="dim small">Right after Approve, before anything leaves Alfred.</p>
+          <div class="bundle">
+            <div class="bundle-h"><span class="t">AB#62123</span><span class="dim small">2 changes</span></div>
+            <div class="acts"><span>Sending in <b>4 s</b>…</span>
+              <span style="flex:1;height:4px;background:var(--inner);border-radius:3px;overflow:hidden"><span style="display:block;width:80%;height:100%;background:#2563eb"></span></span>
+              <button class="btn">Undo</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="label">Faster</div>
+    <div class="row">
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">4</span>Ask Claude to change it, in place</b>
+          <p class="dim small">No chat needed. Claude rewrites this bundle only; the change is marked.</p>
+          <div class="bundle">
+            <div class="step"><input type="checkbox" checked><span class="k">Comment</span>
+              <div>
+                <div class="text">The backend <del>implementation of the Refunded Requests filter enhancements (All Agencies, All Branches, and Branch multi-select) has been deployed</del><ins>for the refund filters (All Agencies, All Branches, branch multi-select) is on</ins> Staging 216<ins>, build 3.4.7</ins> and is ready for testing.</div>
+                <div style="display:flex;gap:6px;margin-top:6px">
+                  <input style="flex:1;min-width:0;background:var(--inner);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font:inherit;font-size:13px" value="shorter, and mention build 3.4.7">
+                  <button class="btn">✦ Redraft</button></div>
+                <div class="small dim" style="margin-top:4px">✦ Claude redrafted 23:30 · <button class="btn link">back to the first draft</button></div>
+              </div></div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">5</span>Reject with a reason</b>
+          <p class="dim small">One optional line. It lands on the card for Claude; nothing is redrafted unless you ask.</p>
+          <div class="bundle">
+            <div class="acts" style="border-top:0">
+              <input style="flex:1;min-width:0;background:var(--inner);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font:inherit;font-size:13px" value="wrong env - it is on 80, not 216">
+              <button class="btn">Reject</button><button class="btn ghost">Cancel</button></div>
+          </div>
+          <div class="small dim" style="margin-top:8px">On card #72: <i>You rejected "Comment on AB#62123": wrong env - it is on 80, not 216</i></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">6</span>Keyboard in the tray</b>
+          <p class="dim small">Shown once, small, under the tray.</p>
+          <div class="bundle" style="outline:2px solid var(--blue);outline-offset:-1px">
+            <div class="bundle-h"><span class="pill">#72</span><span class="t">AB#62123 · 2 changes</span><span class="grow"></span><span class="dim small">selected</span></div>
+          </div>
+          <div class="bundle"><div class="bundle-h"><span class="pill">#74</span><span class="t">AB#62125 · 1 change</span></div></div>
+          <div class="small dim" style="margin-top:8px"><kbd>A</kbd> approve · <kbd>E</kbd> edit · <kbd>R</kbd> reject · <kbd>J</kbd>/<kbd>K</kbd> next / previous · <kbd>Esc</kbd> close</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="label">Clearer</div>
+    <div class="row">
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">7</span>Preview as Azure shows it</b>
+          <div style="display:flex;gap:6px;margin:8px 0"><span class="pill">Raw</span><span class="pill blue">Azure preview</span></div>
+          <div style="background:#fff;color:#201f1e;border-radius:6px;padding:10px 12px;font-family:'Segoe UI',sans-serif;font-size:13px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="width:24px;height:24px;border-radius:50%;background:#0078d4;color:#fff;display:grid;place-items:center;font-size:11px">FB</span>
+              <b>Fathy Biomy</b><span style="color:#605e5c">commented just now</span></div>
+            <p style="margin:0 0 6px">The backend implementation of the Refunded Requests filter enhancements has been deployed to <b>Staging 216</b>:</p>
+            <ul style="margin:0 0 6px 18px;padding:0"><li>All Agencies</li><li>All Branches</li><li>Branch multi-select</li></ul>
+            <p style="margin:0"><span style="background:#deecf9;color:#0078d4;border-radius:3px;padding:0 3px">@Mostafa Negm</span> ready for testing.</p>
+          </div>
+          <p class="dim small">Posted as you, so it shows your name, not Claude's.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">8</span>A visible trail after sending</b>
+          <div class="bundle">
+            <div class="bundle-h"><span class="t">AB#62123</span><span class="pill green">✓ Sent 23:31 by you</span><span class="grow"></span><button class="btn link">open in Azure ↗</button></div>
+            <div class="step"><span style="color:var(--green)">✓</span><span class="k">Comment</span><span class="dim small">posted · comment 4471</span></div>
+            <div class="step"><span style="color:var(--red)">✗</span><span class="k">State</span>
+              <div><span class="dim small">Azure: "TF401320: Rule Error for field State. Error code: Required, InvalidListValue."</span>
+                <div style="margin-top:4px"><button class="btn">Retry this step</button></div></div></div>
+          </div>
+          <div class="small dim" style="margin-top:8px">Card #72 Activity: <i>You sent to Azure AB#62123: comment ✓ · state ✗</i></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="frame">
+          <b><span class="num">9</span>Count in the tab title</b>
+          <p class="dim small">Only while something waits. No pop-ups, no sounds.</p>
+          <div style="display:flex;gap:2px;margin-top:8px">
+            <div style="background:var(--inner);border:1px solid var(--border);border-bottom:0;border-radius:8px 8px 0 0;padding:6px 12px;font-size:12px">⇪ (2) Alfred Dashboard</div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-bottom:0;border-radius:8px 8px 0 0;padding:6px 12px;font-size:12px" class="dim">Azure DevOps</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:0 8px 8px 8px;height:60px;background:var(--panel)"></div>
+          <p class="dim small" style="margin-top:10px">An old bundle only says it in the tray: <span class="dim">waiting since yesterday 22:58</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="label">Left out on purpose</div>
+    <div class="frame small">
+      <div>✗ <b>"Always allow Claude's comments" / auto-approve</b> - nothing goes to Azure without your Approve.</div>
+      <div style="margin-top:4px">✗ <b>Reminders and pop-ups</b> for old bundles - the tray's "waiting since" is enough.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ COMPARE -->
+  <section class="view" id="compare">
+    <div class="label">What changes</div>
+    <div class="frame">
+      <table class="cmp">
+        <tr><th style="width:190px"></th><th>Before</th><th>After</th></tr>
+        <tr><td>Find it</td><td>Open card → Links tab → scroll</td><td>Header pill, chat answer, tile badge, top of the card - any one</td></tr>
+        <tr><td>Clicks to approve</td><td>4 (chip, Links, scroll, Approve)</td><td>1 (Approve in the chat or the tray)</td></tr>
+        <tr><td>See what changes</td><td>New value only</td><td>Old → new for state and fields; your edits marked against Claude's draft</td></tr>
+        <tr><td>Several at once</td><td>One card at a time</td><td>"Approve all" in the tray, each change still untickable</td></tr>
+        <tr><td>Board counts it</td><td>No (bundle had no board)</td><td>Yes: pill, "wait on you", tile</td></tr>
+        <tr><td>What you asked for</td><td>State step missing, Claude only said so in prose</td><td>Claude puts every asked change in one bundle; a change Azure may refuse is warned, not dropped</td></tr>
+        <tr><td>Rules kept</td><td colspan="2">Nothing goes to Azure without your Approve · Claude never approves · the token stays in Alfred's memory · Reject keeps a record</td></tr>
+      </table>
+      <div class="label">Build steps (after you say start)</div>
+      <ol class="steps">
+        <li>Backend: a bundle made for a card gets that card's board; <code>GET /teamboards/writes?board=</code> then finds it. Old bundles get theirs on start.</li>
+        <li>Backend: state and field steps carry the current Azure value (<code>from</code>), read when the bundle is made and refreshed on open.</li>
+        <li>Frontend: one review component (old → new, edits vs draft, tick, edit, approve) used by the tray, the chat answer and the card strip.</li>
+        <li>Header pill + tray; tile badge; card drawer strip above the tabs; "wait on you" counts bundles. Live through the /ws/teamboards signal, no polling.</li>
+        <li>Chat: a Claude answer that made a bundle shows it inline (the chat record names the bundle id).</li>
+        <li>Skills: a change the user asked for always goes in the bundle; one Azure may refuse is warned in it.</li>
+        <li>Enhancements: re-read the item on open (1) and Azure's allowed state moves (2); 5 s Undo before sending (3); in-place redraft through the board chat runner (4); reject reason on the card (5); tray keys (6); Azure preview (7); sent trail, Activity line and Retry per step (8); tab-title count (9).</li>
+        <li>Tests per step; full suites; Docker rebuild; check in the browser.</li>
+      </ol>
+    </div>
+  </section>
+</div>
+<script>
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === b.dataset.v));
+  }));
+  const t = document.getElementById('trayBtn'), tray = document.getElementById('tray');
+  t.addEventListener('click', () => { tray.style.display = tray.style.display === 'none' ? '' : 'none'; t.textContent = tray.style.display === 'none' ? '⇪ 2 to send to Azure ▸' : '⇪ 2 to send to Azure ▾'; });
+</script>
+</body>
+</html>

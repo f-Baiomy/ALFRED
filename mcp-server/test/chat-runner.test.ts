@@ -348,3 +348,96 @@ test('an http MCP server gets the user key on every call - without it the board 
   const stdio = { command: 'node', args: ['x.js'] };
   assert.equal(live.withIdentity(stdio, { ALFRED_KEY: 'ak_1' }), stdio, 'a stdio server inherits the env instead');
 });
+
+// ------------------------------------------------------------------------------- 2026-10-19: a deaf terminal
+function deafWorld(extra: Record<string, unknown> = {}) {
+  const logs: string[] = [];
+  const chatLines: string[] = [];
+  const calls: { method: string; path: string; body?: any }[] = [];
+  const runner: any = { o: { chatId: 'term-1', cycleId: 'cy1', project: 'p', chatPath: 'C:/tmp/alfred-live/x.term1.chat.log', log: (l: string) => logs.push(l),
+    chat: (l: string) => chatLines.push(l), alfred: { call: async (method: string, path: string, o: any) => { calls.push({ method, path, body: o?.body }); return null; } },
+    ...extra }, say: (l: string) => logs.push(l) };
+  const lane = new chatLane.ChatLane(runner, {});
+  const copied: number[][] = [];
+  lane.viaCopy = async (_scope: string, _project: string, taken: any[]) => { copied.push(taken.map((t) => t.messageId)); };
+  const ended: any[] = [];
+  const reporter = () => ({ report: () => {}, end: async (b: any) => { ended.push(b); } });
+  return { lane, logs, chatLines, calls, copied, ended, reporter };
+}
+const jl = (o: any) => JSON.stringify(o);
+const delivered = (id: number, task = 'b4aunys0m') => jl({ type: 'user', message: { content:
+  `<task-notification> <task-id>${task}</task-id> <summary>Monitor event: "Alfred live · p"</summary> <event>✉ board chat #${id}: "hi"</event>` } });
+const stopped = (task = 'b4aunys0m') => jl({ type: 'user', message: { content:
+  `<task-notification> <task-id>b7wdn4i4l</task-id> <task-id>${task}</task-id> <status>stopped</status> <summary>3 background shell command tasks didn't finish</summary>` } });
+
+test('a terminal whose chat-log watch ended is deaf: what it was handed is answered in a copy and the board is told (2026-10-19)', async () => {
+  const { lane, logs, chatLines, calls, copied, ended, reporter } = deafWorld();
+  lane.onTerminal(delivered(3)); // learns which background task delivers the ✉ lines
+  assert.ok(lane.listeners.has('b4aunys0m'));
+  lane.track({ key: 'm:9', marker: '✉ board chat #9', reporter: reporter(), done: () => false });
+  lane.pending.get('m:9').item = { project: 'p', t: { messageId: 9 } };
+  lane.onTerminal(jl({ type: 'user', message: { content: '<task-notification><task-id>other</task-id><status>completed</status></task-notification>' } }));
+  assert.equal(lane.deafSince, null, 'another task ending changes nothing');
+  lane.onTerminal(stopped());
+  assert.ok(lane.deafSince, 'the watch that delivered the ✉ lines ended: deaf');
+  await Promise.all([...lane.chains.values()]);
+  assert.deepEqual(copied, [[9]], 'the message it never took up is answered in a copy');
+  assert.equal(ended[0].outcome, 'your terminal was not listening - answered in a copy');
+  assert.ok(calls.some((c) => c.path === '/board/chats/cy1/system' && /stopped listening/.test(c.body.text)), 'the board says so');
+  assert.ok(chatLines.some((l) => /stopped hearing the board/.test(l)), 'and the session, if it comes back');
+  assert.ok(logs.some((l) => /not listening/.test(l)));
+});
+
+test('a handed message nobody takes up within the deadline (checked on the heartbeat) makes the terminal deaf - never "Claude has it" for ever', async () => {
+  const { lane, copied } = deafWorld({ ackMs: 30 });
+  lane.r.o.chat = () => {};
+  await lane.toTerminal('cy1', 'p', [{ messageId: 11, urgent: false }], [{ messageId: 11, take: '#11 user: you hear me?' }]);
+  lane.checkDeadlines(Date.now() + 10);
+  assert.equal(lane.deafSince, null, 'not before the deadline');
+  lane.checkDeadlines(Date.now() + 60);
+  assert.ok(lane.deafSince);
+  await Promise.all([...lane.chains.values()]);
+  assert.deepEqual(copied, [[11]]);
+  const { lane: busy } = deafWorld({ ackMs: 30 });
+  busy.r.o.chat = () => {};
+  await busy.toTerminal('cy1', 'p', [{ messageId: 12, urgent: false }], [{ messageId: 12, take: '#12' }]);
+  busy.onTerminal(jl({ type: 'queue-operation', operation: 'enqueue', content: '<event>✉ board chat #12: "x"</event>' }));
+  busy.checkDeadlines(Date.now() + 60);
+  assert.equal(busy.deafSince, null, 'queued in a busy terminal is delivered - it answers after its current step');
+});
+
+test('while deaf new messages go to a copy; the terminal watching the chat log again takes its chat back', async () => {
+  const { lane, calls } = deafWorld();
+  lane.goDeaf('test');
+  const routed: string[] = [];
+  lane.take = async (c: any) => ({ messageId: c.messageId });
+  lane.toTerminal = async () => { routed.push('terminal'); };
+  lane.viaCopy = async () => { routed.push('copy'); };
+  await lane.answer('cy1', [{ messageId: 20, project: 'p' }]);
+  lane.onTerminal(jl({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Monitor', input: { command: 'tail -n 0 -F "C:/tmp/alfred-live/x.term1.chat.log"' } }] } }));
+  assert.equal(lane.deafSince, null, 'it ran the watch again');
+  assert.ok(calls.some((c) => c.method === 'PUT' && c.path === '/board/chats/cy1/session'), 'Alfred is told the terminal answers again');
+  await lane.answer('cy1', [{ messageId: 21, project: 'p' }]);
+  assert.deepEqual(routed, ['copy', 'terminal']);
+});
+
+test('a runner started after the watch ended knows it at once from the transcript, quietly', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'deaf-'));
+  const cwd = join(dir, 'repo');
+  mkdirSync(cwd);
+  const path = chatLane.transcriptPath(cwd, 'term-1', dir);
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, [delivered(1), stopped()].join('\n') + '\n');
+  const { lane, calls } = deafWorld({ cwd });
+  const orig = chatLane.transcriptPath;
+  // the lane resolves the transcript under the real home; point it at this one
+  lane.followTerminal = function () {
+    this.replaying = true;
+    this.onTerminal(readFileSync(path, 'utf8'));
+    this.replaying = false;
+  };
+  lane.followTerminal();
+  assert.ok(lane.deafSince);
+  assert.equal(calls.length, 0, 'nothing posted for what happened before it started');
+  assert.equal(typeof orig, 'function');
+});

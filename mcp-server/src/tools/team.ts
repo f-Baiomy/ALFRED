@@ -165,7 +165,8 @@ interface IncomingRow {
   readonly proposalReason: string | null; readonly state: string;
 }
 
-interface BundleRow { readonly id: number; readonly title: string; readonly state: string; readonly steps: readonly { kind: string; ticked: boolean }[] }
+interface BundleRow { readonly id: number; readonly title: string; readonly state: string;
+  readonly steps: readonly { kind: string; ticked: boolean; payload?: Record<string, string>; result?: unknown }[] }
 
 interface SeedRow {
   readonly item: ItemRow;
@@ -543,7 +544,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { board: z.string().min(1).max(200).optional(), conn: Conn, id: Id.optional() },
   }, (input) => run(async () => {
     if (input.board) {
-      const v = await client.get<BoardItemsView>(`/teamboards/boards/${seg(input.board)}/items`);
+      const v = await client.get<BoardItemsView>(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/items`);
       return ok({ board: input.board, main: v.main ? boardItemLine(v.main) : 'none', syncedAt: v.syncedAt ?? 'never',
         items: v.items.map(boardItemLine) });
     }
@@ -601,7 +602,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'changed since the copy, and the cards linked to it.',
     inputSchema: { board: z.string().min(1).max(200) },
   }, (input) => run(async () => {
-    const v = await client.get<BoardItemsView>(`/teamboards/boards/${seg(input.board)}/items`);
+    const v = await client.get<BoardItemsView>(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/items`);
     const all = v.main ? [v.main, ...v.items.filter((i) => i.row.item !== v.main!.row.item)] : v.items;
     return ok({ board: input.board, main: v.main ? boardItemLine(v.main) : 'none - the user adds one (Related items, or Start)',
       cardItems: all.filter((i) => i.row.role === 'CARD').map(boardItemLine), references: all.filter((i) => i.row.role === 'REF').map(boardItemLine),
@@ -650,7 +651,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'its closest card and any proposal. Propose with team_propose_card; the user decides.',
     inputSchema: { board: z.string().min(1).max(200) },
   }, (input) => run(async () => {
-    const rows = await client.get<IncomingRow[]>(`/teamboards/boards/${seg(input.board)}/incoming`);
+    const rows = await client.get<IncomingRow[]>(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/incoming`);
     return ok({ waiting: rows.filter((r) => r.state === 'WAITING').map((r) => `${r.conn}/${r.item} · ${r.type ?? ''} · "${r.title ?? ''}" · from ${r.source.toLowerCase()}`
       + (r.matchCard ? ` · looks like ${r.matchCard} (${r.matchScore})` : '') + (r.proposalAction ? ` · proposed ${r.proposalAction}${r.proposalCard ? ' ' + r.proposalCard : ''}` : '')) });
   }));
@@ -660,7 +661,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { board: z.string().min(1).max(200) },
   }, (input) => run(async () => {
     const rows = await client.get<{ id: number; name: string; queryJson: string; lastRunAt: string | null; lastNew: number }[]>(
-      `/teamboards/boards/${seg(input.board)}/watch-rules`);
+      `/teamboards/boards/${seg(await boardIdOf(client, input.board))}/watch-rules`);
     return ok({ rules: rows.map((r) => `${r.id} · ${r.name} · ${r.queryJson} · ${r.lastRunAt ? `ran ${r.lastRunAt}, ${r.lastNew} new` : 'not run yet'}`) });
   }));
 
@@ -673,7 +674,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     try {
-      const v = await live(() => client.post<BoardItemsView>(`/teamboards/boards/${seg(input.board)}/items`,
+      const v = await live(async () => client.post<BoardItemsView>(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/items`,
         { body: { conn: c.id, item: ref.id, asMain: input.asMain, askedIn: input.askedIn }, ...AS_CLAUDE }));
       return ok({ added: `${c.id}/${ref.id} → ${input.board}${input.asMain ? ' as main' : ''}`, main: v.main ? boardItemLine(v.main) : 'none', items: v.items.length });
     } catch (e) {
@@ -688,7 +689,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
-    await client.del(`/teamboards/boards/${seg(input.board)}/items/${seg(c.id)}/${seg(ref.id)}`, AS_CLAUDE);
+    await client.del(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/items/${seg(c.id)}/${seg(ref.id)}`, AS_CLAUDE);
     return ok({ removed: `${c.id}/${ref.id}` });
   }));
 
@@ -740,14 +741,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       throw new Error('Name the card (project + number) or the board this change is for: the user approves it there');
     }
     if (input.extend) {
-      const b = await client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item: ref.id, card: card?.id ?? null, board: input.board ?? null,
+      const b = await client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item: ref.id, card: card?.id ?? null, board: input.board ? await boardIdOf(client, input.board) : null,
         steps: [{ kind, payload, ticked: true, unmasked: false }], askedIn: input.askedIn, extend: input.extend }, ...AS_CLAUDE });
       return ok({ ...bundleReply(b), ...extra });
     }
     const body = kind === 'STATE' ? { state: payload['state'] } : kind === 'FIELD' ? { field: payload['field'], value: payload['value'] }
       : { comment: payload['text'] };
     const b = await client.patch<BundleRow>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`,
-      { body: { ...body, card: card?.id ?? null, board: input.board ?? null, askedIn: input.askedIn }, ...AS_CLAUDE });
+      { body: { ...body, card: card?.id ?? null, board: input.board ? await boardIdOf(client, input.board) : null, askedIn: input.askedIn }, ...AS_CLAUDE });
     return ok({ ...bundleReply(b), ...extra });
   }
 
@@ -783,6 +784,27 @@ export function register(server: McpServer, client: AlfredClient): void {
       askedIn: AskedIn, extend: Extend },
   }, (input) => run(() => step(input, 'FIELD', { field: input.field, value: input.value })));
 
+  // specs/034: Claude reads a bundle (with the user's reject reason) and rewrites its comment when the user asks
+  server.registerTool('team_bundle', {
+    description: 'Read one consent bundle: its steps (each comment\'s text, Claude\'s first draft, the value a state or field had when it was made), '
+      + 'its state, and - when the user rejected it - their reason (note). Read it before a redraft, and after a rejection before you draft again.',
+    inputSchema: { bundle: z.number().int().min(1) },
+  }, (input) => run(async () => {
+    const b = await client.get<BundleRow & { note?: string | null; boardId?: string | null; cardId?: string | null; item?: string | null }>(
+      `/teamboards/writes/${input.bundle}`, AS_CLAUDE);
+    return ok({ bundle: b.id, title: b.title, state: b.state, item: b.item ?? null, note: b.note ?? null,
+      steps: b.steps.map((st, i) => ({ step: i + 1, kind: st.kind, ticked: st.ticked, ...st.payload, ...(st.result ? { result: st.result } : {}) })) });
+  }));
+
+  server.registerTool('team_redraft', {
+    description: 'Rewrite the text of a comment step in a waiting bundle, when the user asked for a change ("/alfred-team redraft bundle N step S: ..."). '
+      + 'Only the text changes; the user still reviews and approves - never say it was sent. Steps count from 1.',
+    inputSchema: { bundle: z.number().int().min(1), step: z.number().int().min(1).max(20), text: z.string().min(1).max(64_000) },
+  }, (input) => run(async () => {
+    const b = await client.post<BundleRow>(`/teamboards/writes/${input.bundle}/redraft`, { body: { step: input.step - 1, text: input.text }, ...AS_CLAUDE });
+    return ok({ ...bundleReply(b), redrafted: input.step });
+  }));
+
   // --------------------------------------------------------------------------------------- proposals and runs
 
   server.registerTool('team_propose_card', {
@@ -794,7 +816,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     if (input.action === 'LINK' && !input.cardId) throw invalid('LINK names the card (cardId)');
-    await client.post(`/teamboards/boards/${seg(input.board)}/incoming/${seg(c.id)}/${seg(ref.id)}/proposal`,
+    await client.post(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/incoming/${seg(c.id)}/${seg(ref.id)}/proposal`,
       { body: { action: input.action, cardId: input.cardId, reason: input.reason }, ...AS_CLAUDE });
     return ok({ proposed: `${input.action}${input.cardId ? ' ' + input.cardId : ''} for ${c.id}/${ref.id}`, note: 'It waits in Incoming for the user.' });
   }));
@@ -822,7 +844,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Run a board\'s watch rules now; new matches land once in its Incoming.',
     inputSchema: { board: z.string().min(1).max(200) },
   }, (input) => run(async () => {
-    const r = await live(() => client.post<{ new: number }>(`/teamboards/boards/${seg(input.board)}/watch-rules/run`, AS_CLAUDE));
+    const r = await live(async () => client.post<{ new: number }>(`/teamboards/boards/${seg(await boardIdOf(client, input.board))}/watch-rules/run`, AS_CLAUDE));
     return ok({ newInIncoming: r.new });
   }));
 
@@ -838,7 +860,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
-    const r = await live(() => client.put<{ attached: string[]; notAttached: string[] }>(`/teamboards/links/${seg(input.board)}`,
+    const r = await live(async () => client.put<{ attached: string[]; notAttached: string[] }>(`/teamboards/links/${seg(await boardIdOf(client, input.board))}`,
       { body: { conn: c.id, extId: ref.id, askedIn: input.askedIn }, ...AS_CLAUDE }));
     return ok({ main: `${input.board} ★ ${c.id}/${ref.id}`, attached: r.attached, notAttached: r.notAttached,
       ...(r.notAttached.length ? { note: 'List the files not attached in the brief by name; the user fetches them with "Fetch attachments".' } : {}) });

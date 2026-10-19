@@ -3,11 +3,13 @@ import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { CardStatus, CardSummary } from '../../../core/models/board.models';
 import { BoardColumnsComponent, CardDrop } from './board-columns.component';
 import { signal } from '@angular/core';
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { LiveWorkStateService } from '../../../core/state/live-work-state.service';
 
 /** The cards ask what /alfred-live is doing on them; here nothing. */
 import { NO_SKILL_RUNS } from '../../../core/state/skill-runs-state.service';
-const NO_LIVE_WORK = [{ provide: LiveWorkStateService, useValue: { working: signal([]) } }, NO_SKILL_RUNS];
+const NO_LIVE_WORK = [{ provide: LiveWorkStateService, useValue: { working: signal([]) } }, NO_SKILL_RUNS,
+  { provide: BundleOutboxService, useValue: { byCard: signal(new Map()) } }];
 
 function card(id: string, status: CardStatus): CardSummary {
   return {

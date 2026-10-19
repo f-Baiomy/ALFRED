@@ -212,12 +212,36 @@ public final class TeamModels {
         }
     }
 
-    /** A consent bundle (028 R9): every write to Azure Alfred makes for Claude, and the user's own actions as an audit. */
+    /**
+     * A consent bundle (028 R9): every write to Azure Alfred makes for Claude, and the user's own actions as an audit.
+     * {@code note} (specs/034): the user's reason when they rejected it, for Claude to read; null otherwise. Step payloads
+     * may also carry {@code from} (the item's value when the step was made), {@code draft} (Claude's first comment text)
+     * and {@code previous} (the text before Claude's last redraft) - free keys, so older Alfreds still read the bundle.
+     */
     public record WriteBundle(long id, String boardId, String cardId, String conn, String item, String origin, String askedIn, String title,
-                              List<WriteStep> steps, WriteState state, Instant createdAt, Instant decidedAt, String decidedBy) {
+                              List<WriteStep> steps, WriteState state, Instant createdAt, Instant decidedAt, String decidedBy, String note) {
         public WriteBundle {
             steps = steps == null ? List.of() : List.copyOf(steps);
         }
+
+        public WriteBundle(long id, String boardId, String cardId, String conn, String item, String origin, String askedIn, String title,
+                           List<WriteStep> steps, WriteState state, Instant createdAt, Instant decidedAt, String decidedBy) {
+            this(id, boardId, cardId, conn, item, origin, askedIn, title, steps, state, createdAt, decidedAt, decidedBy, null);
+        }
+    }
+
+    /**
+     * What a waiting bundle meets in the tracker now (specs/034): the item's state and who changed it last, the footer its
+     * comments end with, and per state/field step the value now, the states Azure allows from it (null: not known) and
+     * whether the item changed since the step was made.
+     */
+    public record BundleCheck(long id, String itemState, String changedBy, Instant changedAt, String footer, List<StepCheck> steps) {
+        public BundleCheck {
+            steps = steps == null ? List.of() : List.copyOf(steps);
+        }
+    }
+
+    public record StepCheck(int step, String now, List<String> allowed, boolean changed, boolean refused) {
     }
 
     // ------------------------------------------------------------------------------------------------------ hook

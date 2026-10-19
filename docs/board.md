@@ -878,7 +878,14 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   user's messages, the final answers, what needs the user (questions, proposals, confirmations) and records - never the
   steps between. A decision needed mid-task is an ordinary reply that asks it; the job waits for the answer. The
   session marker (`chatSessionId` = `forkedFrom` = the terminal's id) says so: the header shows "Answered by your
-  terminal", there is nothing to catch up and nothing is mirrored back. A busy terminal: messages wait. A closed one:
+  terminal", there is nothing to catch up and nothing is mirrored back. **A terminal that does not hear the chat log is
+  never waited on** (2026-10-19): the runner learns which background task delivers the ✉ lines and follows the
+  session's transcript from its start; when that task ends (Pause, a Claude Desktop restart, a compact, a stopped
+  Monitor) or a handed message is neither taken up nor queued within 90 s (`ACK_MS`, checked on the heartbeat), the
+  session is deaf - what it was handed is answered in a copy of it (never the session itself: one writer), the chat
+  says "↪ Your terminal stopped listening", and new messages go to copies until the session watches the chat log again
+  (it runs `/alfred-live`), when its chat is its own again. Before this a Desktop restart left every later message at
+  "Claude has it" for ever. Pause writes `⏸ paused` into the log so the watch stays for ▶ Resume. A busy terminal: messages wait. A closed one:
   "Terminal offline - messages wait" - Alfred never starts or resumes a session itself, except when the user presses
   ▶ Start Claude (its own button, through their helper - "Board sessions" below). The newest `/alfred-live` for a
   cycle takes it over: the old session gets `↪ handed over` in its log and stops listening, the messages it held are

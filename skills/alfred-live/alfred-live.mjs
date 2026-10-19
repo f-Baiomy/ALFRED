@@ -1059,6 +1059,7 @@ export class Runner {
 
   /** The heartbeat; with a chat it also says this chat handles the cycle and whether the chat is still open (its process runs). */
   beat(stopped = false) {
+    this.chatLane?.checkDeadlines?.(); // a message handed to a terminal that does not hear the chat log goes to a copy
     const chatAlive = this.o.chatPid ? alive(Number(this.o.chatPid)) : true;
     if (!chatAlive && this.lastChatAlive) this.o.log('  ⚠ the chat that started this runner seems closed - the board says so; ▶ runs wait for it');
     this.lastChatAlive = chatAlive;
@@ -1569,6 +1570,11 @@ export async function main(argv) {
   if (command === 'stop') {
     const r = running(f.pid);
     if (existsSync(f.pid)) unlinkSync(f.pid);
+    // the terminal that watches the chat log hears it: paused, not gone - its watch stays for ▶ Resume (2026-10-19)
+    if (r?.chat) {
+      try { appendFileSync(r.chat, '⏸ paused from the board - answer nothing until ▶ Resume; keep this watch running, it answers again then.\n'); }
+      catch { /* no log: nothing to tell */ }
+    }
     if (r) { try { process.kill(r.pid); } catch { /* it ends itself: the pid file is gone */ } }
     // frees the cycle at once (the runner's own last beat may come too late, or never)
     const chat = r?.chatId && r?.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {};
@@ -1645,7 +1651,7 @@ export async function main(argv) {
     const mcpEntry = await host.start();
     const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-live' });
     const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry, project, cycleId: args.cycle, model: args.model,
-      cwd, ...claudeOf(args), log, chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live',
+      cwd, ...claudeOf(args), log, chat, chatPath: f.chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live',
       chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true', headless: args.headless === 'true' });
     host.onRestart = () => { mcp.entry = host.entry; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: host.entry } })); };
     const end = (why) => { if (!runner.stopped) log(`  ■ stopping: ${why}`); runner.stop(); };

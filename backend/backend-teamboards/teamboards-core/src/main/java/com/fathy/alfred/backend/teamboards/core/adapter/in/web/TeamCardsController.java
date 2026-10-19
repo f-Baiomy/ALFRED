@@ -178,9 +178,39 @@ public class TeamCardsController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(writes.approve(Who.of(actor), id));
     }
 
+    /** {@code reason} (optional, specs/034): kept on the bundle for Claude to read. */
+    public record RejectDto(String reason) {
+    }
+
     @PostMapping("/teamboards/writes/{id}/reject")
-    public ResponseEntity<?> reject(@PathVariable long id, @RequestHeader(value = ACTOR, required = false) String actor) {
-        return ResponseEntity.ok(writes.reject(Who.of(actor), id));
+    public ResponseEntity<?> reject(@PathVariable long id, @RequestBody(required = false) RejectDto body,
+                                    @RequestHeader(value = ACTOR, required = false) String actor) {
+        return ResponseEntity.ok(writes.reject(Who.of(actor), id, body == null ? null : body.reason()));
+    }
+
+    /** What a waiting bundle meets in the tracker now, read live (specs/034). */
+    @GetMapping("/teamboards/writes/{id}/check")
+    public ResponseEntity<?> check(@PathVariable long id) {
+        return ResponseEntity.ok(writes.check(id));
+    }
+
+    public record RedraftDto(@jakarta.validation.constraints.Min(0) int step, String text, String instruction) {
+    }
+
+    /** As Claude: the new text of a comment step. As the user: how to change it - a waiting message in the board's chat. */
+    @PostMapping("/teamboards/writes/{id}/redraft")
+    public ResponseEntity<?> redraft(@PathVariable long id, @Valid @RequestBody RedraftDto body,
+                                     @RequestHeader(value = ACTOR, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE) {
+            return ResponseEntity.ok(writes.redraft(Who.CLAUDE, id, body.step(), body.text()));
+        }
+        Long message = writes.askRedraft(id, body.step(), body.instruction()).orElse(null);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(java.util.Collections.singletonMap("message", message));
+    }
+
+    @PostMapping("/teamboards/writes/{id}/steps/{step}/retry")
+    public ResponseEntity<?> retry(@PathVariable long id, @PathVariable int step, @RequestHeader(value = ACTOR, required = false) String actor) {
+        return ResponseEntity.ok(writes.retry(Who.of(actor), id, step));
     }
 
     // --------------------------------------------------------------------------------------------------------- hook

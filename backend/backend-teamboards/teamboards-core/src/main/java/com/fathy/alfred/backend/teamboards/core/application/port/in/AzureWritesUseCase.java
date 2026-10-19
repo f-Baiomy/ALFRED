@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.teamboards.core.application.port.in;
 
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BundleCheck;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
@@ -41,6 +42,29 @@ public interface AzureWritesUseCase {
     WriteBundle approve(Who who, long id);
 
     WriteBundle reject(Who who, long id);
+
+    /** Rejects with the user's reason (specs/034), kept on the bundle as its note for Claude to read. */
+    default WriteBundle reject(Who who, long id, String reason) {
+        return reject(who, id);
+    }
+
+    /**
+     * What a waiting bundle meets in the tracker now (specs/034): read live with the viewer's token - the item's state,
+     * per state/field step the value now, the moves Azure allows and whether it changed since the step was made.
+     */
+    BundleCheck check(long id);
+
+    /**
+     * Claude rewrites a comment step of its own waiting bundle (specs/034, "ask Claude to change it"): the text before
+     * it is kept as {@code previous}, Claude's first draft as {@code draft}.
+     */
+    WriteBundle redraft(Who who, long id, int step, String text);
+
+    /** The user asks Claude to change a waiting bundle's comment: a waiting message in the board's chat. Its id, or empty. */
+    Optional<Long> askRedraft(long id, int step, String instruction);
+
+    /** Sends one step again of a bundle that ended PARTIAL (specs/034 "Retry this step"). USER only. */
+    WriteBundle retry(Who who, long id, int step);
 
     /**
      * A card moved (FR-070, FR-075): Verified / Done prepare a "Tell Azure" bundle for each linked item; closed as Not in

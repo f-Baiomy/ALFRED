@@ -48,6 +48,8 @@ import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -453,6 +455,27 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return out;
     }
 
+    /** The type's transitions ("New" -> [Active, Removed]); Azure lists them on the work item type. */
+    @Override
+    public Map<String, List<String>> transitions(Connection c, Token t, String project, String type) throws ProviderException {
+        if (project == null || project.isBlank() || type == null || type.isBlank()) {
+            return Map.of();
+        }
+        JsonNode root = client.get(at(c, "/" + encode(project) + "/_apis/wit/workitemtypes/" + encode(type)), t);
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        root.path("transitions").fields().forEachRemaining(e -> {
+            List<String> to = new ArrayList<>();
+            e.getValue().forEach(n -> {
+                String s = n.path("to").asText("");
+                if (!s.isBlank() && !s.equals(e.getKey())) {
+                    to.add(s);
+                }
+            });
+            out.put(e.getKey(), to);
+        });
+        return out;
+    }
+
     @Override
     public List<String> areas(Connection c, Token t) throws ProviderException {
         List<String> out = new ArrayList<>();
@@ -824,7 +847,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     public String comment(Connection c, Token t, String id, String text) throws ProviderException {
         String project = projectOf(c, t, id);
         JsonNode r = client.post(URI.create(org(c) + "/" + encode(project) + "/_apis/wit/workItems/" + encode(id)
-                + "/comments?format=markdown&api-version=7.1-preview.4"), t, Map.of("text", text));
+                + "/comments?format=markdown&api-version=7.1-preview.4"), t, Map.of("text", markdownMentions(text)));
         return r.path("id").asText(null);
     }
 
@@ -870,14 +893,65 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return id;
     }
 
-    /** Description is an HTML field: text that is not HTML already is escaped, its lines kept. */
+    /** Description is an HTML field: text that is not HTML already is escaped, its lines kept; Alfred mentions become Azure's. */
     static String html(String text) {
         String s = text.strip();
         if (s.startsWith("<") && s.endsWith(">")) {
-            return s;
+            return replaceMentions(s, true);
         }
-        String e = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        return "<div>" + e.replace("\r\n", "\n").replace("\n", "<br>") + "</div>";
+        StringBuilder out = new StringBuilder("<div>");
+        Matcher m = MENTION.matcher(s);
+        int at = 0;
+        while (m.find()) {
+            out.append(escape(s.substring(at, m.start()))).append(mention(m, true));
+            at = m.end();
+        }
+        out.append(escape(s.substring(at)));
+        return out.append("</div>").toString();
+    }
+
+    private static String escape(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\r\n", "\n").replace("\n", "<br>");
+    }
+
+    /** An Alfred mention in board text: {@code @[type:ref|label]}. */
+    private static final Pattern MENTION = Pattern.compile("@\\[([a-z-]+):([^|\\]]*)(?:\\|([^\\]]*))?]");
+    private static final Pattern GUID = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /**
+     * A markdown comment with Alfred's mentions in Azure's words: a person whose id is an Azure identity becomes
+     * {@code @<guid>} (Azure shows the name and notifies them), a work item {@code #id}, anything else (a card, a call)
+     * its label - Azure cannot open Alfred's own references.
+     */
+    static String markdownMentions(String text) {
+        return text == null ? null : replaceMentions(text, false);
+    }
+
+    private static String replaceMentions(String text, boolean html) {
+        Matcher m = MENTION.matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            m.appendReplacement(out, Matcher.quoteReplacement(mention(m, html)));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    private static String mention(Matcher m, boolean html) {
+        String type = m.group(1);
+        String ref = m.group(2);
+        String id = ref.contains("/") ? ref.substring(ref.indexOf('/') + 1) : ref;
+        String label = m.group(3) == null || m.group(3).isBlank() ? id : m.group(3).strip();
+        if ("person".equals(type)) {
+            if (GUID.matcher(id).matches()) {
+                return html ? "<a href=\"#\" data-vss-mention=\"version:2.0," + id + "\">@" + escape(label) + "</a>" : "@<" + id + ">";
+            }
+            return "@" + (html ? escape(label) : label);
+        }
+        if ("workitem".equals(type) && id.matches("\\d+")) {
+            return "#" + id;
+        }
+        return html ? escape(label) : label;
     }
 
     @Override

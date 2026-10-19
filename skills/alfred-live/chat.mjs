@@ -246,7 +246,11 @@ export function terminalEvents(text) {
     if (!raw.trim()) continue;
     let e;
     try { e = JSON.parse(raw); } catch { continue; }
-    if (e.type === 'user' && raw.includes('✉')) out.push({ kind: 'received', raw });
+    // a background task of the session ended (stopped, killed, failed or done): when it is the one that delivered the
+    // ✉ lines, nothing hears the chat log any more (Pause, a Desktop restart, a compact, the user's own stop)
+    const ended = e.type === 'user' && raw.includes('task-notification') ? /<status>(stopped|killed|failed|completed)<\/status>/.exec(raw) : null;
+    if (ended && !raw.includes('Monitor event')) out.push({ kind: 'tasksEnded', ids: taskIdsOf(raw), raw });
+    else if (e.type === 'user' && raw.includes('✉')) out.push({ kind: 'received', raw, ids: taskIdsOf(raw) });
     else if (e.type === 'queue-operation' && e.operation === 'enqueue' && raw.includes('✉')) out.push({ kind: 'queued', raw });
     else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
       for (const c of e.message.content) {
@@ -259,6 +263,14 @@ export function terminalEvents(text) {
   }
   return out;
 }
+
+/** The background task ids a task notification names. */
+export function taskIdsOf(raw) {
+  return [...String(raw).matchAll(/<task-id>([^<\\]+)<\\?\/task-id>/g)].map((m) => m[1].trim()).filter((id) => id && !id.startsWith('__'));
+}
+
+/** How long a handed message may go without the terminal taking it up before the runner answers it in a copy. */
+export const ACK_MS = 90_000;
 
 /**
  * Watches the terminal's transcript with fs.watch events (re-armed when the file is replaced) - the only trigger for
@@ -323,6 +335,14 @@ export class ChatLane {
     /** What was handed to the terminal and is not answered yet: its live progress under the message or card. */
     this.pending = new Map();
     this.follow = null;
+    /** The terminal's background tasks seen delivering ✉ lines - when one of them ends, nobody hears the chat log. */
+    this.listeners = new Set();
+    /**
+     * Since when the terminal does not hear the chat log (its watch ended, or a handed message was not taken up within
+     * ACK_MS): its chat is answered in a copy until it watches the log again. Before this, a message handed to a deaf
+     * terminal said "Claude has it" for ever (2026-10-19: a Desktop restart ended the watch).
+     */
+    this.deafSince = null;
   }
 
   get chatId() {
@@ -338,6 +358,8 @@ export class ChatLane {
   async start() {
     // a headless board session (started by the Alfred helper) is not a terminal: its chat answers in copies of it
     if (!this.r.o.chatId || !this.r.o.cycleId || this.r.o.headless) return;
+    this.followTerminal(); // from the start, so a watch that ends is seen even while nothing is pending
+    if (this.deafSince) return; // its watch ended before this runner started: the chat is answered in copies for now
     await this.r.o.alfred.call('PUT', `/board/chats/${encodeURIComponent(this.r.o.cycleId)}/session`, {
       query: { project: this.r.o.project ?? '' }, headers: { 'X-Alfred-Actor': 'claude' },
       body: { chatSessionId: this.r.o.chatId, forkedFrom: this.r.o.chatId, host: this.host, forkedAt: null, seenUpTo: null },
@@ -364,9 +386,59 @@ export class ChatLane {
       this.r.o.chat?.(`⏹ ${marker}: the user pressed Stop - stop working on it and answer nothing more for it.`);
       this.untrack(key, { state: 'STOPPED', outcome: 'stopped - your terminal was told' });
     };
+    this.followTerminal();
+  }
+
+  followTerminal() {
     if (this.follow || !this.r.o.chatId) return;
     const path = transcriptPath(this.r.o.cwd ?? process.cwd(), this.r.o.chatId);
+    // where the terminal stands now: a runner started by ▶ Resume, after a Desktop restart, must not hand a message to a
+    // watch that ended before it started (read once, quietly - the board hears only of a change from here on)
+    if (existsSync(path)) {
+      try {
+        const size = statSync(path).size;
+        const text = readFileSync(path, 'utf8');
+        this.replaying = true;
+        this.onTerminal(size > 4_000_000 ? text.slice(-4_000_000) : text);
+      } catch { /* unreadable now: judged by what comes next */ } finally { this.replaying = false; }
+    }
     this.follow = new TranscriptWatch(path, (_, text) => this.onTerminal(text ?? ''), { onRaw: (text) => this.onTerminal(text) });
+  }
+
+  /**
+   * The terminal stopped hearing the chat log: what it was handed and has not taken up is answered in a copy now, the
+   * board says so, and every new message goes to a copy until the terminal watches the log again ({@link hear}).
+   */
+  goDeaf(why) {
+    if (this.deafSince || !this.r.o.chatId || !this.r.o.cycleId || this.r.o.headless) return;
+    this.deafSince = Date.now();
+    if (this.replaying) {
+      this.r.o.log(`  ⚠ your terminal is not listening (${why}) - its chat is answered in a copy until it watches the chat log again`);
+      return;
+    }
+    const scope = this.r.o.cycleId;
+    const project = this.r.o.project ?? '';
+    this.r.o.log(`  ⚠ your terminal is not listening (${why}) - its chat is answered in a copy until it watches the chat log again`);
+    this.r.o.chat?.(`⚠ this session stopped hearing the board (${why}) - Alfred answers in a copy of it meanwhile. To answer here again, `
+      + 'run the watch again (`/alfred-live`).');
+    this.r.o.alfred.call('POST', `/board/chats/${encodeURIComponent(scope)}/system`, { query: { project },
+      body: { text: `↪ Your terminal stopped listening (${why}) - Claude answers in a copy of it until /alfred-live runs there again.` } }).catch(() => null);
+    const late = [...this.pending.values()].filter((p) => p.item && !p.seen);
+    for (const p of late) this.untrack(p.key, { state: 'DONE', outcome: 'your terminal was not listening - answered in a copy' });
+    if (!late.length) return;
+    const prev = this.chains.get(scope) ?? Promise.resolve();
+    const next = prev.then(() => this.viaCopy(scope, late[0].item.project, late.map((p) => p.item.t)))
+      .catch((error) => this.r.say(`  ⚠ chat ${scope}: ${error.message}`));
+    this.chains.set(scope, next);
+  }
+
+  /** The terminal watches the chat log again: its chat is handed to it again, and Alfred is told it answers. */
+  hear() {
+    if (!this.deafSince) return;
+    this.deafSince = null;
+    if (this.replaying) return;
+    this.r.o.log('  ✓ your terminal watches the chat log again - its chat is answered there');
+    this.start().catch(() => null);
   }
 
   untrack(key, end) {
@@ -377,10 +449,23 @@ export class ChatLane {
   }
 
   onTerminal(text) {
-    if (!this.pending.size) return;
     for (const ev of terminalEvents(text)) {
+      if (ev.kind === 'received') {
+        for (const id of ev.ids ?? []) this.listeners.add(id);
+        this.hear();
+      } else if (ev.kind === 'tasksEnded') {
+        const mine = (ev.ids ?? []).some((id) => this.listeners.has(id)) || (!this.listeners.size && /Alfred live/.test(ev.raw));
+        if (mine) {
+          for (const id of ev.ids ?? []) this.listeners.delete(id);
+          this.goDeaf('its watch on the chat log ended');
+        }
+        continue;
+      } else if (ev.kind === 'tool' && this.deafSince && this.watchesChatLog(ev.input)) {
+        this.hear(); // it started watching the chat log again (it ran /alfred-live)
+      }
       for (const p of [...this.pending.values()]) {
         if ((ev.kind === 'received' || ev.kind === 'queued') && ev.raw.includes(p.marker)) {
+          p.seen = true;
           if (ev.kind === 'received') p.picked = true;
           p.reporter.report({ steps: p.steps, state: 'WORKING',
             head: ev.kind === 'received' ? 'working on it in your terminal' : 'queued in your terminal after its current step' });
@@ -405,6 +490,21 @@ export class ChatLane {
         p.reporter.report({ steps: p.steps.slice(-40), state: 'WORKING', head: `working in your terminal: ${step}` });
       }
     }
+  }
+
+  /** On the runner's heartbeat: a handed message the terminal has not taken up in ACK_MS means it does not hear the log. */
+  checkDeadlines(now = Date.now()) {
+    const ack = this.r.o.ackMs ?? ACK_MS;
+    const late = [...this.pending.values()].find((p) => p.item && !p.seen && now - (p.handedAt ?? now) >= ack);
+    if (late) this.goDeaf(`it did not take up board chat #${late.item.t.messageId} within ${Math.round(ack / 1000)} s`);
+  }
+
+  /** Whether a tool call of the terminal watches this runner's chat log (a tail or Monitor on it). */
+  watchesChatLog(input) {
+    const path = this.r.o.chatPath;
+    if (!path) return false;
+    const name = path.split(/[\\/]/).pop();
+    return !!name && JSON.stringify(input ?? {}).includes(name);
   }
 
   /** The waiting messages of one page of changes that this runner answers, one chain per chat. */
@@ -447,13 +547,18 @@ export class ChatLane {
   }
 
   async answer(scope, list) {
-    const { alfred } = this.r.o;
     const project = list[0].project;
     const taken = (await Promise.all(list.map((c) => this.take(c)))).filter(Boolean);
     if (!taken.length) return; // FR-055h: nothing to answer, no run
-    // a terminal that ran /alfred-live answers its chat itself; a headless board session (the helper's, specs/032) has no
-    // terminal reading the chat log - the runner answers in a copy of it instead, or nothing ever answered
-    if (scope !== 'project' && this.r.o.chatId && !this.r.o.headless) return this.toTerminal(scope, project, list, taken);
+    // a terminal that ran /alfred-live answers its chat itself - while it hears the chat log; a headless board session
+    // (the helper's, specs/032) or a deaf terminal has nobody reading the log: the runner answers in a copy instead
+    if (scope !== 'project' && this.r.o.chatId && !this.r.o.headless && !this.deafSince) return this.toTerminal(scope, project, list, taken);
+    return this.viaCopy(scope, project, taken);
+  }
+
+  /** Answers taken messages in one run of a copy of the session (never the terminal's session itself - one writer). */
+  async viaCopy(scope, project, taken) {
+    const { alfred } = this.r.o;
     const ctx = await alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/context`, { query: { project } }).catch(() => null);
     const refork = taken.some((t) => t.task && /^Refresh from the terminal/.test(t.text ?? ''));
     const isCycle = scope !== 'project';
@@ -462,8 +567,8 @@ export class ChatLane {
     const lines = path && existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [];
     const stored = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
       ? { chatSessionId: ctx.session.chatSessionId, host: ctx.session.host === 'null' ? null : ctx.session.host } : null;
-    // headless: never continue the board's session itself (it may be open in Claude Desktop - one writer), only a copy
-    const session = this.r.o.headless && stored?.chatSessionId === terminalId ? null : stored;
+    // headless or deaf: never continue the board's session itself (it is open in Claude Desktop - one writer), only a copy
+    const session = (this.r.o.headless || this.deafSince) && stored?.chatSessionId === terminalId ? null : stored;
     // what the copy has read of the terminal: this runner's own memory, else Alfred's (a restarted runner)
     const seenUpTo = this.seenUpTo?.get(scope) ?? (Date.parse(ctx?.session?.seenUpTo ?? '') || 0);
     const delta = session && path ? deltaOf(lines, seenUpTo) : { text: '', at: seenUpTo, entries: 0 };
@@ -558,8 +663,12 @@ export class ChatLane {
     for (const t of [...taken].sort((a, b) => Number(urgent.has(b.messageId)) - Number(urgent.has(a.messageId)))) {
       const reporter = new Reporter(this.r.o.alfred, { id: randomUUID(), project, cardNumber: 0, chatMessageId: t.messageId, head: 'waiting for your terminal to be free' },
         { every: this.r.o.reportEveryMs ?? 250, onError: (error) => this.r.o.log(`  (live-work report failed: ${error.message})`) });
-      this.track({ key: `m:${t.messageId}`, marker: `✉ board chat #${t.messageId}`, reporter,
+      const key = `m:${t.messageId}`;
+      this.track({ key, marker: `✉ board chat #${t.messageId}`, reporter,
         done: (name, input) => /(^|__)chat_reply$/.test(name) && Number(input.messageId) === t.messageId });
+      // delivered means the terminal took it up or queued it; silence past the deadline means nothing hears the log
+      // (checked on the runner's heartbeat - checkDeadlines - never a timer of the lane's own)
+      Object.assign(this.pending.get(key), { item: { project, t }, handedAt: Date.now() });
       this.r.o.chat(chatLine({ ...t, urgent: urgent.has(t.messageId) }, { project, scope }));
     }
     this.r.o.log(`  → 💬 chat ${scope}: ${taken.length} message${taken.length === 1 ? '' : 's'} handed to the terminal session`);

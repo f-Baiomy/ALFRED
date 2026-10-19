@@ -31,7 +31,8 @@ public class TeamTunnelGuard implements WebMvcConfigurer, HandlerInterceptor {
         registry.addInterceptor(this).addPathPatterns("/teamboards/connections/*/search", "/teamboards/connections/*/query",
                 "/teamboards/connections/*/items/**", "/teamboards/connections/*/items", "/teamboards/connections/*/people/*",
                 "/teamboards/connections/*/people", "/teamboards/connections/*/lists", "/teamboards/connections/*/lists/refresh",
-                "/teamboards/connections/*/mine", "/teamboards/items/*/*/seed", "/teamboards/items/*/*/target");
+                "/teamboards/connections/*/mine", "/teamboards/items/*/*/seed", "/teamboards/items/*/*/target",
+                "/teamboards/writes/*/check"); // specs/034: the live check of a bundle reads the tracker too
     }
 
     @Override

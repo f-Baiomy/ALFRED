@@ -162,6 +162,13 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   `archived`). Re-tests are named after their cards in one place, `CycleNaming`. Suggestions stay one dismissible line;
   nothing opens or pauses by itself.
 
+- **What goes to Azure is reviewed where the user is** (specs/034, docs/team.md "Reviewing a bundle where you are"): one
+  review component (`TeamConsentBundleComponent`) in the header tray, the chat, the card tile/drawer, all fed by
+  `BundleOutboxService` (socket-driven); every change old → new (`from`/`draft`/`previous` in the step payload - free
+  keys, no new step field), a live `GET /teamboards/writes/{id}/check` (tunnel-guarded) for "changed since" and Azure's
+  allowed moves, Approve after a 5 s Undo, reject reasons as the bundle's `note`, Claude's `team_redraft`. Still only
+  the user approves.
+
 - **One Claude session per board, one holder per board** (specs/031, docs/board.md "Board sessions", docs/server.md "The
   helper"): `backend-sessions` (leaf slice, `sessions.db`) knows who is who - a user is the email their **helper**
   registered with (its PC's Claude account, or the person whose paired browser downloaded the connect file - one person,
@@ -182,7 +189,10 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   the user's key on (`ALFRED_KEY`/`ALFRED_VIA`, the MCP relay forwards `x-alfred-key`). Admin = whoever may change server
   settings: revoke a user, force-release a board. **One Claude control** (specs/032, `claude-mode.ts`): Pause = STOP (the session
   is kept), **Hand back = RELEASE** on the PC (Handover note card, stop, release) or a direct release when the PC is offline;
-  every outcome is said in the board banner, menus close on outside click / Escape, never on mouseleave.
+  every outcome is said in the board banner, menus close on outside click / Escape, never on mouseleave. **A terminal that stopped
+  hearing the chat log is never waited on** (`ChatLane.goDeaf`: its watch task ended, or a handed message not taken up
+  in 90 s on the heartbeat) - its messages go to a copy until it watches the log again. Open in Desktop opens the chat
+  Desktop made itself (`findDesktopChat`), never a second record beside it.
 
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination

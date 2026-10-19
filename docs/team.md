@@ -47,7 +47,9 @@ dropped at once. **Since specs/031 a token is one per user**: a user paired with
 on a PC of theirs, encrypted with Windows DPAPI for their user - entered in **👤 Me ▸ Azure DevOps** (Save token, Keep it
 on: <PC>; `POST /board/me/pc-token` passes it to that PC's helper once, in memory, on its next heartbeat - `PcTokenService`)
 or on the PC with `alfred helper token set` - and the helper hands it to
-Alfred's memory (`PUT /teamboards/me/token`) while it runs - used for that user's requests only (their X-Alfred-Key,
+Alfred's memory (`PUT /teamboards/me/token`) while it runs: at its start, and on every heartbeat where `GET
+/teamboards/me/token` says Alfred no longer holds that user's own token or holds it under an hour more (8 hours passed,
+Alfred restarted) - so the user enters it once per PC (`Helper.handToken`, a refused hand-over retried after 10 min) - used for that user's requests only (their X-Alfred-Key,
 `TeamCallerPort`), never read by another user. A request from an unpaired browser reads with the shared token as before
 (the last one entered without a user); work outside a request (lists, hooks, watch rules) uses the connection's newest
 live token. Tests: `TokenVaultPerUserTest`. Claude never holds a token:
@@ -184,6 +186,34 @@ always-masked credential headers (`ALWAYS_MASKED_HEADERS`) unless that file is t
 ticked steps with the vault's token (waits with none) and records each step's result (DONE or PARTIAL); only the user
 approves. Comments end with "via Alfred: board …" and a link when the public address is set. Files are deleted when a
 bundle ends.
+
+### Reviewing a bundle where you are (specs/034)
+
+A bundle is one **review** (`TeamConsentBundleComponent`), shown in four places, all from `BundleOutboxService` (the
+board's WAITING / PARTIAL / ended bundles, re-read on the `/ws/teamboards` "write" signal - no polling):
+
+- the board header: **⇪ n to send to Azure** opens a tray with every waiting bundle, **Approve all**, and keys (A
+  approve, E edit, R reject, J/K next / previous, Esc). It opens by itself once per board when something waits;
+  "⚑ n wait on you" counts bundles too;
+- the chat, under Claude's answer to the message the bundle names as `askedIn`, with its result after sending;
+- the card tile (**⇪ n to Azure**) and the card drawer, above its tabs (**Review & approve**); the Links tab still lists
+  them;
+- the tab title says `⇪n` while something waits, after any count another part of the page puts first.
+
+Each change reads as **old → new**. A state or field step stores the item's value when it was made (`from`, in the step
+payload); Claude's comments keep their first `draft` (and `previous` after a redraft), so the review marks what the
+user or Claude changed, word by word (`shared/utils/text-diff.ts`). When it opens, the review reads the item live
+(`GET /teamboards/writes/{id}/check`, the viewer's token; refused through the tunnel): the state and field values now,
+whether they **changed since** the step was made, and the moves Azure allows from the current state
+(`StateCatalog.transitions`, Azure's work item type `transitions`) - a move Azure would refuse starts unticked, with the
+allowed states to pick. A comment shows raw or as an **Azure preview** (Markdown with the footer, posted as the user).
+
+**Approve** sends after 5 seconds with **Undo**. **Reject** takes an optional reason, kept as the bundle's `note` for
+Claude (`team_bundle`). **✦ Redraft** posts `/alfred-team redraft bundle N step S: <how>` to the board's chat; Claude
+rewrites only that comment with `team_redraft` (Claude only, its or Alfred's waiting bundle). A bundle that ended
+PARTIAL keeps **Retry this step** per failed step (`POST …/writes/{id}/steps/{step}/retry`, the user only). A bundle
+made for a card gets that card's board (older ones get it once at start, `fillBoards`), so the board counts it.
+Payload keys are free, so older Alfreds still read every bundle.
 
 ## People and "me"
 

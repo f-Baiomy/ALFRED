@@ -11,7 +11,10 @@ import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePo
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.HookRow;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamChangeSignalPort;
 import com.fathy.alfred.backend.teamboards.core.application.service.Live.Ctx;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardItemRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BundleCheck;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.CardLinkRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepCheck;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepResult;
@@ -21,12 +24,15 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteSta
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep;
 import com.fathy.alfred.backend.teamboards.spi.AttachmentWriter;
 import com.fathy.alfred.backend.teamboards.spi.ItemWriter;
+import com.fathy.alfred.backend.teamboards.spi.StateCatalog;
 import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import com.fathy.alfred.backend.teamboards.spi.model.NewItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -39,6 +45,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Consent bundles (specs/028 R9). The only class that calls {@link ItemWriter} / {@link AttachmentWriter} (ArchUnit):
@@ -171,8 +179,8 @@ public class AzureWritesService implements AzureWritesUseCase {
                 throw TeamException.userOnly("Claude extends only its own waiting bundle for the same item and card - start another");
             }
             List<WriteStep> steps = new ArrayList<>(old.steps());
-            for (WriteStep s : in.steps()) {
-                steps.add(fresh(s, who));
+            for (WriteStep s : annotate(old.conn(), old.item(), in.steps().stream().map(s -> fresh(s, who)).toList(), who)) {
+                steps.add(s);
             }
             check(steps);
             WriteBundle next = new WriteBundle(old.id(), old.boardId(), old.cardId(), old.conn(), old.item(), old.origin(), old.askedIn(), old.title(),
@@ -181,13 +189,99 @@ public class AzureWritesService implements AzureWritesUseCase {
             signal(next);
             return next;
         }
-        List<WriteStep> steps = in.steps().stream().map(s -> fresh(s, who)).toList();
-        WriteBundle b = new WriteBundle(0, blank(in.boardId()), blank(in.cardId()), in.conn(), blank(in.item()), who.name(), blank(in.askedIn()),
+        List<WriteStep> steps = annotate(in.conn(), blank(in.item()), in.steps().stream().map(s -> fresh(s, who)).toList(), who);
+        // a bundle made for a card belongs to the card's board: the board then counts it (specs/034 - it used to have none)
+        String boardId = blank(in.boardId()) != null ? boardOf(in.conn(), blank(in.boardId())) : boardOfCard(blank(in.cardId()));
+        WriteBundle b = new WriteBundle(0, boardId, blank(in.cardId()), in.conn(), blank(in.item()), who.name(), blank(in.askedIn()),
                 in.title().strip(), steps, WriteState.WAITING, clock.instant(), null, null);
         long id = cache.insertBundle(b);
         WriteBundle saved = get(id).orElse(b);
         signal(saved);
         return saved;
+    }
+
+    /**
+     * The board id a ref names: the id itself, or the board whose main item an "AB#123" / "123" names. Claude once stored
+     * "AB#61813" as the board, and the board's header never counted the bundle (2026-10-19). An unknown ref stays as given.
+     */
+    String boardOf(String conn, String ref) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        if (ref == null || port == null || port.boardName(ref).isPresent()) {
+            return ref;
+        }
+        Matcher m = BOARD_ITEM.matcher(ref.strip());
+        if (!m.matches()) {
+            return ref;
+        }
+        List<String> mains = cache.boardsOfItem(conn, m.group(1)).stream().filter(r -> "MAIN".equals(r.role()))
+                .map(BoardItemRow::boardId).distinct().toList();
+        return mains.size() == 1 ? mains.get(0) : ref;
+    }
+
+    private static final Pattern BOARD_ITEM = Pattern.compile("(?i)(?:AB)?#?(\\d+)");
+
+    /** The board a card is on, or null. */
+    private String boardOfCard(String cardId) {
+        if (cardId == null) {
+            return null;
+        }
+        TeamBoardsPort port = boards.getIfAvailable();
+        return port == null ? null : port.card(cardId).map(CardInfo::boardId).orElse(null);
+    }
+
+    /**
+     * Every state or field step remembers the item's value when it was made ({@code from}: read live when a token is
+     * there, else the saved copy) and every Claude comment its first draft ({@code draft}), so the review shows old -> new
+     * and what the user changed (specs/034). Best effort: an item that cannot be read leaves {@code from} out.
+     */
+    List<WriteStep> annotate(String conn, String item, List<WriteStep> steps, Who who) {
+        boolean wantsFrom = item != null && steps.stream().anyMatch(s -> (s.kind() == StepKind.STATE || s.kind() == StepKind.FIELD)
+                && !s.payload().containsKey("from"));
+        Item now = null;
+        if (wantsFrom) {
+            try {
+                now = live.ctxIfLive(conn).map(c -> live.item(c, item)).orElse(null);
+            } catch (RuntimeException e) {
+                now = null;
+            }
+            if (now == null) {
+                now = cache.copy(conn, item).flatMap(Copies::item).orElse(null);
+            }
+        }
+        List<WriteStep> out = new ArrayList<>();
+        for (WriteStep s : steps) {
+            Map<String, String> p = new LinkedHashMap<>(s.payload());
+            if (now != null && s.kind() == StepKind.STATE && !p.containsKey("from")) {
+                p.put("from", now.state() == null ? "" : now.state());
+            } else if (now != null && s.kind() == StepKind.FIELD && !p.containsKey("from")) {
+                String v = now.fields().get(p.get("field").strip());
+                p.put("from", v == null ? "" : v);
+            } else if (who == Who.CLAUDE && s.kind() == StepKind.COMMENT && !p.containsKey("draft")) {
+                p.put("draft", p.get("text"));
+            }
+            out.add(new WriteStep(s.kind(), p, s.ticked(), s.unmasked(), s.result()));
+        }
+        return out;
+    }
+
+    /**
+     * Bundles made before specs/034 had no board when they came from a card, and some were stored with a board ref
+     * ("AB#61813") instead of its id: they get their board at start (the latest 200).
+     */
+    @EventListener(ContextRefreshedEvent.class)
+    public void fillBoards() {
+        try {
+            for (WriteBundle b : cache.bundles(null, null, null, 200)) { // waiting ones for the header, ended ones for the chat's trail
+                String fixed = b.boardId() == null ? null : boardOf(b.conn(), b.boardId());
+                String board = b.boardId() == null ? boardOfCard(b.cardId()) : fixed.equals(b.boardId()) ? null : fixed;
+                if (board != null) {
+                    cache.updateBundle(new WriteBundle(b.id(), board, b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(), b.title(), b.steps(),
+                            b.state(), b.createdAt(), b.decidedAt(), b.decidedBy()));
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not give older bundles their board: {}", e.getClass().getSimpleName());
+        }
     }
 
     /** A new step: no result yet; Claude never sends a file unmasked - only the user ticks that. */
@@ -373,6 +467,159 @@ public class AzureWritesService implements AzureWritesUseCase {
         return out;
     }
 
+    @Override
+    public WriteBundle reject(Who who, long id, String reason) {
+        WriteBundle out = reject(who, id);
+        String why = reason == null ? "" : reason.strip();
+        if (why.isEmpty()) {
+            return out;
+        }
+        WriteBundle noted = new WriteBundle(out.id(), out.boardId(), out.cardId(), out.conn(), out.item(), out.origin(), out.askedIn(), out.title(),
+                out.steps(), out.state(), out.createdAt(), out.decidedAt(), out.decidedBy(), why.length() > 1000 ? why.substring(0, 1000) : why);
+        cache.updateBundle(noted);
+        signal(noted);
+        return noted;
+    }
+
+    // ------------------------------------------------------------------------------------------------------- check
+
+    @Override
+    public BundleCheck check(long id) {
+        WriteBundle b = get(id).orElseThrow(() -> TeamException.notFound("No bundle " + id));
+        if (b.item() == null) {
+            return new BundleCheck(id, null, null, null, footer(b), List.of());
+        }
+        Ctx c = live.ctx(b.conn()); // TOKEN_MISSING: the page shows the bundle as it was made
+        Item now = live.item(c, b.item());
+        Map<String, List<String>> moves = Map.of();
+        if (b.steps().stream().anyMatch(s -> s.kind() == StepKind.STATE)) {
+            try {
+                StateCatalog catalog = live.cap(c, StateCatalog.class, "list state moves");
+                Item item = now;
+                moves = live.call(c, () -> catalog.transitions(c.connection(), c.token(), item.project(), item.type()));
+            } catch (RuntimeException e) {
+                moves = Map.of(); // not known: nothing is refused in advance
+            }
+        }
+        List<StepCheck> out = new ArrayList<>();
+        for (int i = 0; i < b.steps().size(); i++) {
+            WriteStep s = b.steps().get(i);
+            Map<String, String> p = s.payload();
+            if (s.kind() == StepKind.STATE) {
+                String value = now.state() == null ? "" : now.state();
+                String target = p.getOrDefault("state", "").strip();
+                List<String> allowed = moves.isEmpty() ? null : moves.entrySet().stream().filter(e -> e.getKey().equalsIgnoreCase(value))
+                        .map(Map.Entry::getValue).findFirst().orElse(List.of());
+                boolean refused = allowed != null && !target.equalsIgnoreCase(value) && allowed.stream().noneMatch(a -> a.equalsIgnoreCase(target));
+                out.add(new StepCheck(i, value, allowed, changed(p.get("from"), value), refused));
+            } else if (s.kind() == StepKind.FIELD) {
+                String v = now.fields().get(p.getOrDefault("field", "").strip());
+                String value = v == null ? "" : v;
+                out.add(new StepCheck(i, value, null, changed(p.get("from"), value), false));
+            }
+        }
+        return new BundleCheck(id, now.state(), now.changedBy(), now.changedAt(), footer(b), out);
+    }
+
+    /** Whether the value moved since the step was made; a step made without one never says so. */
+    static boolean changed(String from, String now) {
+        return from != null && !from.strip().equalsIgnoreCase(now == null ? "" : now.strip());
+    }
+
+    // ----------------------------------------------------------------------------------------------------- redraft
+
+    @Override
+    public WriteBundle redraft(Who who, long id, int step, String text) {
+        if (who != Who.CLAUDE) {
+            throw TeamException.userOnly("The user changes a bundle's text by editing it; redraft is Claude's");
+        }
+        WriteBundle b = waiting(id);
+        if (Who.USER.name().equals(b.origin())) {
+            throw TeamException.userOnly("Claude redrafts only a bundle Claude or Alfred prepared");
+        }
+        if (step < 0 || step >= b.steps().size() || b.steps().get(step).kind() != StepKind.COMMENT) {
+            throw TeamException.invalid("Step " + (step + 1) + " is not a comment step");
+        }
+        if (text == null || text.isBlank() || text.length() > 256 * 1024) {
+            throw TeamException.invalid("A redraft is 1 character to 256 KB");
+        }
+        List<WriteStep> steps = new ArrayList<>(b.steps());
+        WriteStep s = steps.get(step);
+        Map<String, String> p = new LinkedHashMap<>(s.payload());
+        p.putIfAbsent("draft", p.getOrDefault("text", ""));
+        p.put("previous", p.getOrDefault("text", ""));
+        p.put("text", text.strip());
+        p.put("redraftedAt", clock.instant().toString());
+        steps.set(step, new WriteStep(s.kind(), p, s.ticked(), s.unmasked(), null));
+        WriteBundle out = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(), b.title(), steps,
+                WriteState.WAITING, b.createdAt(), null, null);
+        cache.updateBundle(out);
+        signal(out);
+        return out;
+    }
+
+    @Override
+    public Optional<Long> askRedraft(long id, int step, String instruction) {
+        WriteBundle b = waiting(id);
+        if (step < 0 || step >= b.steps().size() || b.steps().get(step).kind() != StepKind.COMMENT) {
+            throw TeamException.invalid("Step " + (step + 1) + " is not a comment step");
+        }
+        String ask = instruction == null ? "" : instruction.strip().replaceAll("\\s+", " ");
+        if (ask.isEmpty() || ask.length() > 2000) {
+            throw TeamException.invalid("Say in 1 to 2000 characters how to change it");
+        }
+        TeamBoardsPort port = boards.getIfAvailable();
+        if (port == null || b.boardId() == null) {
+            throw TeamException.invalid("This bundle is on no board - ask Claude in a chat instead");
+        }
+        String project = port.projectOf(b.boardId()).orElseThrow(() -> TeamException.notFound("No board " + b.boardId()));
+        String item = b.item() == null ? "a new item" : "AB#" + b.item();
+        return port.postStart(project, b.boardId(), "/alfred-team redraft bundle " + id + " step " + (step + 1) + " (" + item + "): " + ask);
+    }
+
+    // ------------------------------------------------------------------------------------------------------- retry
+
+    @Override
+    public WriteBundle retry(Who who, long id, int step) {
+        if (who != Who.USER) {
+            throw TeamException.userOnly("Only the user sends to the tracker");
+        }
+        WriteBundle b = get(id).orElseThrow(() -> TeamException.notFound("No bundle " + id));
+        if (b.state() != WriteState.PARTIAL) {
+            throw new TeamException(Code.CONFLICT, "Bundle " + id + " is " + b.state() + " - only a step that failed is sent again");
+        }
+        if (step < 0 || step >= b.steps().size()) {
+            throw TeamException.invalid("No step " + (step + 1));
+        }
+        WriteStep s = b.steps().get(step);
+        if (!s.ticked() || s.result() == null || s.result().ok()) {
+            throw TeamException.invalid("Step " + (step + 1) + " did not fail");
+        }
+        if (b.item() == null) {
+            throw TeamException.invalid("No item: the create step did not run");
+        }
+        Ctx c = live.ctx(b.conn());
+        StepResult r;
+        try {
+            r = step(c, b, step, s, b.item());
+        } catch (TeamException e) {
+            if (e.code() == Code.TOKEN_REJECTED || e.code() == Code.TOKEN_MISSING) {
+                throw e; // nothing changes: enter the token and retry
+            }
+            r = new StepResult(false, e.getMessage(), null);
+        } catch (RuntimeException e) {
+            r = new StepResult(false, "Not sent: " + e.getClass().getSimpleName(), null);
+        }
+        List<WriteStep> steps = new ArrayList<>(b.steps());
+        steps.set(step, new WriteStep(s.kind(), s.payload(), s.ticked(), s.unmasked(), r));
+        boolean allOk = steps.stream().filter(WriteStep::ticked).allMatch(x -> x.result() != null && x.result().ok());
+        WriteBundle out = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(), b.title(), steps,
+                allOk ? WriteState.DONE : WriteState.PARTIAL, b.createdAt(), b.decidedAt(), b.decidedBy());
+        cache.updateBundle(out);
+        signal(out);
+        return out;
+    }
+
     // --------------------------------------------------------------------------------------------------------- run
 
     /** Runs the ticked steps in order; each gets its result. A failed CREATE stops the steps that need its item. */
@@ -547,7 +794,8 @@ public class AzureWritesService implements AzureWritesUseCase {
         String name = port == null ? b.boardId() : port.boardName(b.boardId()).orElse(b.boardId());
         String card = "";
         if (b.cardId() != null && port != null) {
-            card = port.card(b.cardId()).map(x -> " · card #" + x.number() + " " + x.title()).orElse("");
+            // "card 72", never "#72": Azure links #72 to its own work item 72
+            card = port.card(b.cardId()).map(x -> " · card " + x.number() + " " + x.title()).orElse("");
         }
         String address = cache.hook(b.conn()).map(HookRow::publicAddress).filter(a -> a != null && !a.isBlank()).orElse(null);
         String link = address == null ? "" : " - " + address.replaceAll("/+$", "") + "/board?board=" + enc(b.boardId())

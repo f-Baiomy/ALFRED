@@ -1,3 +1,6 @@
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
+import { WriteBundle } from '../../../core/team/team.models';
+import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
 import { FormsModule } from '@angular/forms';
 import { SessionsStateService } from '../../../core/state/sessions-state.service';
 import { PendingMessage, boardOfScope } from '../../../core/models/sessions.models';
@@ -34,7 +37,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
-  imports: [ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent, SelectPickerComponent, FormsModule],
+  imports: [TeamConsentBundleComponent, ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent, SelectPickerComponent, FormsModule],
   template: `
     @if (scope(); as sc) {
       <aside class="chat-dock" [class.wide]="view() === 'expanded'" [class.full]="view() === 'full' || inWindow()"
@@ -247,6 +250,10 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               <app-chat-message [message]="it.m" [replies]="repliesOf(it.m.id)" [records]="recordsOf(it.m.id)" [terminal]="terminalOf(it.m.id)" [claudeOn]="claudeOn()"
                                 [editable]="editable()" [position]="positionOf(it.m.id)" [focusId]="state.focusId()" [hitIds]="hitIds()"
                                 [recordsOf]="recordsFn" [positionOf]="positionFn" (quote)="quote.set($event)" />
+              @for (b of bundlesUnder(it.m); track b.id) {
+                <!-- specs/034: what Claude prepared for Azure, reviewed right under the answer that made it -->
+                <div class="chat-bundle"><app-team-consent-bundle [bundle]="b" [editable]="editable()" [compact]="true" (changed)="outbox.replace($event)" /></div>
+              }
             }
           }
           @if (!atBottom()) { <div class="chat-jump"><button type="button" class="action-btn" (click)="toBottom()">↓ Latest</button></div> }
@@ -378,6 +385,7 @@ export class ChatPanelComponent implements AfterViewChecked {
 
   /** The second chat of the split view (FR-047) - its own scope, send box and draft. */
   readonly second = input(false);
+  readonly outbox = inject(BundleOutboxService);
   readonly scope = computed(() => (this.second() ? this.state.splitScope() : this.state.openScope()));
   readonly view = computed(() => (this.state.view() === 'window' ? 'docked' : this.state.view()));
   readonly thread = computed(() => {
@@ -607,6 +615,19 @@ export class ChatPanelComponent implements AfterViewChecked {
     this.atBottom.set(true);
     const el = this.stream()?.nativeElement;
     if (el) el.scrollTop = el.scrollHeight;
+  }
+
+  /**
+   * The bundles Claude made while answering this message, shown under Claude's answer (its replyTo is the user's message
+   * the bundle names as askedIn) - only for the board the page shows, which is the one the outbox reads.
+   */
+  bundlesUnder(m: ChatMessage): readonly WriteBundle[] {
+    if (m.author !== 'CLAUDE' || m.replyTo == null || this.boardIdOf() !== this.outbox.board()) return [];
+    const all = this.outbox.byAsk().get(String(m.replyTo)) ?? [];
+    // several answers to one message: the bundles go under the last of them only
+    const answers = this.items().filter((x) => x.kind === 'msg' && x.m.author === 'CLAUDE' && x.m.replyTo === m.replyTo);
+    const last = answers.length ? answers[answers.length - 1] : null;
+    return last && last.kind === 'msg' && last.m.id !== m.id ? [] : all;
   }
 
   repliesOf(id: number): readonly ChatMessage[] {

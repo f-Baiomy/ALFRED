@@ -192,6 +192,16 @@ class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, Id
         return List.of(new TypeStates("Odeysys", "Bug", s), new TypeStates("Odeysys", "Task", s));
     }
 
+    /** The moves the fake allows (specs/034); empty says "not known". */
+    final Map<String, List<String>> moves = new LinkedHashMap<>();
+    /** A step kind that fails once (specs/034 retry): "state" or "comment". */
+    String failOnce;
+
+    @Override
+    public Map<String, List<String>> transitions(Connection c, Token t, String project, String type) {
+        return moves;
+    }
+
     @Override
     public String comment(Connection c, Token t, String id, String text) throws ProviderException {
         check(t);
@@ -202,6 +212,10 @@ class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, Id
     @Override
     public void moveState(Connection c, Token t, String id, String state) throws ProviderException {
         check(t);
+        if ("state".equals(failOnce)) {
+            failOnce = null;
+            throw new ProviderException(ProviderException.Kind.BAD_RESPONSE, "TF401320: Rule Error for field State");
+        }
         writes.add("state " + id + " " + state);
         Item i = items.get(id);
         put(item(id, i.type(), i.title(), state, parentOf(i), i.rev() + 1));

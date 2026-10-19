@@ -465,6 +465,31 @@ export interface WriteBundle {
   readonly createdAt: string;
   readonly decidedAt: string | null;
   readonly decidedBy: string | null;
+  /** The user's reason when they rejected it (specs/034). */
+  readonly note?: string | null;
+}
+
+/** What a waiting bundle meets in the tracker now, read live (specs/034). */
+export interface BundleCheck {
+  readonly id: number;
+  readonly itemState: string | null;
+  readonly changedBy: string | null;
+  readonly changedAt: string | null;
+  /** The footer Alfred adds to every comment ("via Alfred · board ..."). */
+  readonly footer: string;
+  readonly steps: readonly StepCheck[];
+}
+
+export interface StepCheck {
+  readonly step: number;
+  /** The item's value now. */
+  readonly now: string;
+  /** The states Azure allows from now; null: the tracker did not say. */
+  readonly allowed: readonly string[] | null;
+  /** The item moved since the step was made. */
+  readonly changed: boolean;
+  /** Azure would refuse this move from the state it is in now. */
+  readonly refused: boolean;
 }
 
 export interface HookInfo {

@@ -1,3 +1,5 @@
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
+import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
 import { NgTemplateOutlet } from '@angular/common';
 import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { Component, DestroyRef, ElementRef, HostListener, Injector, afterNextRender, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
@@ -89,7 +91,7 @@ function writeJson(key: string, value: unknown): void {
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent, WaitingBarComponent],
+  imports: [TeamConsentBundleComponent, TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent, WaitingBarComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes cd-modes" role="group" aria-label="Show the card as">
@@ -213,6 +215,20 @@ function writeJson(key: string, value: unknown): void {
         </div>
         <div class="board-drawer-body cd-body" (scroll)="onScroll($event)">
           <ng-container *ngTemplateOutlet="needsPart" />
+          @if (toAzure().length) {
+            <!-- specs/034: what waits to go to Azure shows above the tabs, whatever tab is open - not only on Links -->
+            <div class="cd-azure">
+              <div class="cd-azure-h">
+                <b>⇪ {{ toAzureChanges() }} change{{ toAzureChanges() === 1 ? '' : 's' }} wait to go to Azure</b>
+                <span class="tcb-dim">{{ toAzureLine() }}</span>
+                <span class="tcb-grow"></span>
+                <button type="button" class="action-btn" [class.primary]="!azureOpen()" (click)="azureOpen.set(!azureOpen())">{{ azureOpen() ? 'Hide' : 'Review & approve' }}</button>
+              </div>
+              @if (azureOpen()) {
+                @for (b of toAzure(); track b.id) { <app-team-consent-bundle [bundle]="b" [editable]="editable()" (changed)="outbox.replace($event)" /> }
+              }
+            </div>
+          }
           <!-- tabs in every view: full screen and the window get the same tabs, using their whole width -->
             <nav class="cd-tabs" role="tablist" aria-label="Card sections">
               <button type="button" role="tab" [class.on]="tab() === 'activity'" [attr.aria-selected]="tab() === 'activity'" title="Activity (Shift+1)" (click)="showTab('activity')">
@@ -542,6 +558,16 @@ export class CardDrawerComponent {
   readonly step = output<string>();
 
   readonly card = signal<CardDetail | null>(null);
+  readonly outbox = inject(BundleOutboxService);
+  readonly azureOpen = signal(false);
+  /** Bundles of this card waiting to go to Azure (specs/034). */
+  readonly toAzure = computed(() => this.outbox.byCard().get(this.card()?.id ?? '') ?? []);
+  readonly toAzureChanges = computed(() => this.toAzure().reduce((n, b) => n + b.steps.filter((x) => x.ticked).length, 0));
+  readonly toAzureLine = computed(() => this.toAzure().map((b) => (b.item ? 'AB#' + b.item + ' · ' : '') + b.steps.filter((x) => x.ticked).map((x) => {
+    const p = x.payload;
+    return x.kind === 'STATE' ? `state ${p['from'] ? p['from'] + ' → ' : ''}${p['state']}` : x.kind === 'FIELD' ? `${p['field']?.split('.').pop()} → ${p['value'] || '(cleared)'}`
+      : x.kind.toLowerCase();
+  }).join(' · ')).join('; '));
   private readonly verifyGuard = inject(VerifyGuardService);
   /** The questions dialog is open over the drawer (specs/019). */
   readonly answering = signal(false);

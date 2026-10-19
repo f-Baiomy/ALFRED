@@ -165,6 +165,22 @@ public class TeamboardsController {
         return ResponseEntity.ok(team.putToken(conn, new Token(body.token())));
     }
 
+    /**
+     * Whether Alfred still holds the caller's own token (the connection named, else the first one): the helper asks on
+     * its heartbeat and hands the token it keeps over again when it is gone, so the user enters it once per PC.
+     */
+    @GetMapping("/teamboards/me/token")
+    public ResponseEntity<?> myToken(@RequestParam(required = false) String connectionId) {
+        String conn = connectionId != null && !connectionId.isBlank() ? connectionId
+                : team.connections().stream().findFirst().map(c -> c.id()).orElse(null);
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("connection", conn);
+        java.time.Instant until = conn == null ? null : team.myTokenUntil(conn).orElse(null);
+        out.put("live", until != null);
+        out.put("until", until);
+        return ResponseEntity.ok(out);
+    }
+
     @DeleteMapping("/teamboards/me/token")
     public ResponseEntity<?> forgetMyToken(@RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
         if (Who.of(actor) == Who.CLAUDE) {

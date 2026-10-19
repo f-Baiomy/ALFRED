@@ -240,6 +240,92 @@ class TeamServicesTest {
         assertThat(f.cache.cardLinks(card.id()).get(0).tag()).isTrue();
     }
 
+    // ------------------------------------------------------------------------------------------------ specs/034
+
+    @Test
+    void aBundleRemembersOldValuesAndClaudesDraftAndItsCardsBoard() {
+        f.withToken();
+        CardInfo card = f.boards.card("b1", "Refund total");
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle(null, card.id(), CONN, "102", "Tell Azure", List.of(
+                new WriteStep(StepKind.STATE, Map.of("state", "Active"), true, false, null),
+                new WriteStep(StepKind.FIELD, Map.of("field", "Microsoft.VSTS.Common.Priority", "value", "1"), true, false, null),
+                new WriteStep(StepKind.COMMENT, Map.of("text", "Ready to test"), true, false, null)), null, null));
+        assertThat(b.boardId()).isEqualTo("b1"); // the card's board: the header counts it
+        assertThat(b.steps().get(0).payload()).containsEntry("from", "New");
+        assertThat(b.steps().get(1).payload()).containsEntry("from", "");
+        assertThat(b.steps().get(2).payload()).containsEntry("draft", "Ready to test");
+        assertThat(f.writes.list("b1", null, "WAITING", 10)).extracting(WriteBundle::id).contains(b.id());
+    }
+
+    @Test
+    void theCheckSaysWhatChangedInAzureAndWhichMoveItWouldRefuse() {
+        f.withToken();
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "Tell Azure", List.of(
+                new WriteStep(StepKind.STATE, Map.of("state", "Resolved"), true, false, null),
+                new WriteStep(StepKind.COMMENT, Map.of("text", "x"), true, false, null)), null, null));
+        var unknown = f.writes.check(b.id());
+        assertThat(unknown.steps()).singleElement().satisfies(s -> {
+            assertThat(s.now()).isEqualTo("New");
+            assertThat(s.allowed()).isNull(); // the tracker did not say: nothing refused in advance
+            assertThat(s.changed()).isFalse();
+            assertThat(s.refused()).isFalse();
+        });
+        assertThat(unknown.footer()).contains("Alfred");
+
+        f.tracker.moves.put("New", List.of("Active"));
+        f.tracker.moves.put("Active", List.of("Resolved", "New"));
+        assertThat(f.writes.check(b.id()).steps().get(0).refused()).isTrue();
+
+        f.tracker.put(FakeTracker.item("102", "Bug", "Refund total is wrong", "Active", "101", 3)); // someone moved it
+        var later = f.writes.check(b.id()).steps().get(0);
+        assertThat(later.now()).isEqualTo("Active");
+        assertThat(later.changed()).isTrue();
+        assertThat(later.refused()).isFalse();
+    }
+
+    @Test
+    void rejectKeepsTheReasonForClaude() {
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "x"), true, false, null)), null, null));
+        WriteBundle out = f.writes.reject(Who.USER, b.id(), "  wrong env - it is on 80  ");
+        assertThat(out.state()).isEqualTo(WriteState.REJECTED);
+        assertThat(f.writes.get(b.id()).orElseThrow().note()).isEqualTo("wrong env - it is on 80");
+    }
+
+    @Test
+    void onlyClaudeRedraftsAndTheUserAsksForItInTheBoardChat() {
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.STATE, Map.of("state", "Active"), true, false, null),
+                new WriteStep(StepKind.COMMENT, Map.of("text", "Long first draft"), true, false, null)), null, null));
+        assertThatThrownBy(() -> f.writes.redraft(Who.USER, b.id(), 1, "mine")).isInstanceOf(TeamException.class);
+        assertThatThrownBy(() -> f.writes.redraft(Who.CLAUDE, b.id(), 0, "not a comment")).isInstanceOf(TeamException.class);
+        assertThat(f.writes.askRedraft(b.id(), 1, "shorter,\n mention build 3.4.7")).isPresent();
+        assertThat(f.boards.chat).last().asString().isEqualTo("/alfred-team redraft bundle " + b.id() + " step 2 (AB#102): shorter, mention build 3.4.7");
+
+        WriteBundle once = f.writes.redraft(Who.CLAUDE, b.id(), 1, "Short draft");
+        WriteBundle twice = f.writes.redraft(Who.CLAUDE, b.id(), 1, "Shorter");
+        assertThat(once.steps().get(1).payload()).containsEntry("previous", "Long first draft");
+        assertThat(twice.steps().get(1).payload()).containsEntry("text", "Shorter").containsEntry("previous", "Short draft")
+                .containsEntry("draft", "Long first draft");
+    }
+
+    @Test
+    void aFailedStepIsSentAgainAloneAndTheBundleEndsDone() {
+        f.withToken();
+        f.tracker.failOnce = "state";
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "Ready"), true, false, null),
+                new WriteStep(StepKind.STATE, Map.of("state", "Active"), true, false, null)), null, null));
+        f.writes.approve(Who.USER, b.id());
+        WriteBundle partial = f.writes.get(b.id()).orElseThrow();
+        assertThat(partial.state()).isEqualTo(WriteState.PARTIAL);
+        assertThatThrownBy(() -> f.writes.retry(Who.USER, b.id(), 0)).isInstanceOf(TeamException.class); // it did not fail
+        assertThatThrownBy(() -> f.writes.retry(Who.CLAUDE, b.id(), 1)).isInstanceOf(TeamException.class);
+        WriteBundle done = f.writes.retry(Who.USER, b.id(), 1);
+        assertThat(done.state()).isEqualTo(WriteState.DONE);
+        assertThat(f.tracker.writes.stream().filter(w -> w.startsWith("comment"))).hasSize(1); // the comment is not posted twice
+    }
+
     @Test
     void claudeNeverApprovesAndNothingIsWrittenBeforeTheUserDoes() {
         f.withToken();
@@ -364,6 +450,9 @@ class TeamServicesTest {
         f.starts.link("b1", CONN, "101");
         assertThat(f.starts.waiting(CONN, "101")).isEmpty();
         assertThat(f.cache.main("b1")).get().extracting(BoardItemRow::item).isEqualTo("101");
+        // a bundle named by the board's ref (AB#<main item>) is stored under the board's id, or its header never counts it
+        assertThat(f.writes.create(Who.CLAUDE, new NewBundle("AB#101", null, CONN, "101", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "hi"), true, false, null)), null, null)).boardId()).isEqualTo("b1");
         f.vault.forget(CONN);
         var seed = f.seeds.seed(CONN, "101").orElseThrow();
         assertThat(seed.purpose()).isEqualTo("About Refund a card payment");

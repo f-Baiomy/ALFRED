@@ -1,3 +1,4 @@
+import { OutboxBarComponent } from '../../components/team/outbox/outbox-bar.component';
 import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { Component, DestroyRef, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -47,7 +48,7 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
+  imports: [OutboxBarComponent, SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
     BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent, BoardSessionButtonComponent,
     BoardFactsComponent, BoardStateMenuComponent, NextStepCardComponent, RecordLineComponent, BannerComponent],
   styles: [`
@@ -93,6 +94,8 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
       </div>
       @if (taskBoard(); as id) {
         <app-board-facts [project]="project()" [boardId]="id" [stage]="stage()" [cards]="summary()?.cards ?? 0" [editable]="editable()" />
+      } @else if (project()) {
+        <app-team-outbox-bar [boardId]="sessionBoard()" [project]="project()" [editable]="editable()" />
       }
       @if (bannerHere(); as b) {
         <app-banner [tone]="b.tone" [text]="b.text" [detail]="b.detail ?? null" [action]="b.action ?? null" [dismissable]="b.dismissable !== false"

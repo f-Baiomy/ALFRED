@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   Helper, boardWorktree, claudeAppDataDirs, desktopAccount, desktopAccountDir, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
-  slug, tokensToday, transcriptOf, writeDesktopRecord, desktopHasRecord, DESKTOP_RESTART, findDesktopChat, desktopChatUrl,
+  slug, tokensToday, transcriptOf, writeDesktopRecord, desktopHasRecord, DESKTOP_RESTART, findDesktopChat, desktopChatUrl, dropHelperRecord,
 } from '../alfred-helper.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'alfred-helper-'));
@@ -533,4 +533,52 @@ test("Desktop's own chats are found by folder and time, never a record the helpe
   assert.equal(findDesktopChat({ cwd: 'c:/w', since: 3000 }, dir), null, 'older than the link');
   assert.equal(findDesktopChat({ cliSessionId: 'bbbb' }, dir)?.sessionId, 'local_b');
   assert.match(desktopChatUrl({ cwd: 'C:\\w x', prompt: 'a b' }), /^claude:\/\/code\/new\?q=a%20b&folder=C%3A%5Cw%20x$/);
+});
+
+
+test("Open in Claude Desktop opens the chat Desktop made itself - no second record, no false restart (2026-10-19)", async () => {
+  const api = new FakeApi();
+  const opened = [];
+  const written = [];
+  const dropped = [];
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred',
+    desktop: { record: (o) => { written.push(o); return 'local_x'; }, open: (u) => opened.push(u), terminal: () => {}, has: () => false,
+      findChat: (id) => (id === 'x' ? { sessionId: 'local_d1', cliSessionId: 'x' } : null), dropOwnRecord: (id) => dropped.push(id) } });
+  h.known = async () => ({ id: 's1', boardId: 'b1', project: 'odeysys', cliSessionId: 'x', cwd: tmp() });
+  const r = await h.handle({ kind: 'OPEN_DESKTOP', boardId: 'b1', project: 'odeysys', args: '{}' });
+  assert.equal(r, 'Opened in Claude Desktop.');
+  assert.deepEqual(opened, ['claude://claude.ai/epitaxy/local_d1']);
+  assert.deepEqual(written, [], "no record of the helper beside Desktop's own");
+  assert.deepEqual(dropped, ['x'], 'and one written before goes');
+});
+
+test('the helper drops only its own record, and only when Desktop has its own chat for the session', () => {
+  const dir = tmp();
+  writeDesktopRecord({ cliSessionId: 'cccc', cwd: 'C:/w', title: 't' }, dir);
+  assert.equal(dropHelperRecord('cccc', dir), false, 'no Desktop chat: the helper record is the only entry - kept');
+  writeFileSync(join(dir, 'local_d.json'), JSON.stringify({ sessionId: 'local_d', cliSessionId: 'cccc', cwd: 'C:/w', createdAt: 1 }));
+  assert.equal(dropHelperRecord('cccc', dir), true);
+  assert.equal(existsSync(join(dir, 'local_cccc.json')), false);
+  assert.equal(existsSync(join(dir, 'local_d.json')), true, "Desktop's own record is never touched");
+});
+
+test('the kept Azure token is handed to Alfred again when Alfred lost it or holds it under an hour, never otherwise', async () => {
+  const api = new FakeApi();
+  let mine = { connection: 'c1', live: false, until: null };
+  const call = api.call.bind(api);
+  api.call = async (method, path, o = {}) => (path === '/teamboards/me/token' && method === 'GET' ? (api.calls.push({ method, path }), mine) : call(method, path, o));
+  let kept = true;
+  const h = quietHelper({ server: 'http://a', api, machine: 'PC', token: { has: () => kept, read: () => 'pat-secret' } });
+  const puts = () => api.calls.filter((c) => c.method === 'PUT' && c.path === '/teamboards/me/token');
+  const now = Date.parse('2026-10-19T10:00:00Z');
+  assert.equal(await h.handToken(now), true); // Alfred restarted: lost
+  assert.equal(puts()[0].body.token, 'pat-secret');
+  mine = { connection: 'c1', live: true, until: '2026-10-19T17:00:00Z' };
+  assert.equal(await h.handToken(now), false); // 7 hours left: nothing
+  mine = { connection: 'c1', live: true, until: '2026-10-19T10:30:00Z' };
+  assert.equal(await h.handToken(now), true); // under an hour: renewed
+  kept = false;
+  mine = { connection: 'c1', live: false, until: null };
+  assert.equal(await h.handToken(now), false); // nothing kept on this PC
+  assert.equal(puts().length, 2);
 });

@@ -59,6 +59,16 @@ project + number), else on the board (pass `board`); `extend` to add a step to a
 request bodies; evidence files are built masked by the user's browser when they open the bundle. Say "it waits for your
 approval on card #n" - never that it was sent, never approve it yourself.
 
+- **Everything the user asked for goes in the bundle.** Asked for a comment and a state: both steps, in one bundle
+  (`extend` the first one). A move you think Azure may refuse still goes in - say so in your reply; the user sees,
+  before Approve, whether Azure allows it from the item's current state, and unticks it if not. Never drop a step and
+  only mention it in prose.
+- **"/alfred-team redraft bundle N step S: <how>"** (the user's ✦ Redraft on the bundle): `team_bundle` N, rewrite that
+  comment step as asked with `team_redraft` (same facts, the user's wording wishes), reply in one line. Nothing else
+  changes; the user approves.
+- **A rejected bundle**: `team_bundle` shows the user's reason in `note`. Do not draft again unless they ask; when they
+  do, follow the reason.
+
 ## Finish
 
 One line per thing done or proposed and what waits on the user. On a board: `board_session_log` (did / found / next).

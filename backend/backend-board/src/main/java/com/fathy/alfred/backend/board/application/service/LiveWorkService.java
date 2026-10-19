@@ -133,6 +133,9 @@ public class LiveWorkService implements LiveWorkUseCase {
                 r.state() == null ? LiveWork.State.WORKING : r.state(), outcome,
                 previous != null && previous.stop(), previous == null ? now : previous.startedAt(), now, r.chatMessageId(), usage(r.usage()));
         runs.put(next.id(), next);
+        if (next.ended()) {
+            supersede(next, now);
+        }
         if (next.chatMessageId() != null && next.ended() && (previous == null || !previous.ended())) {
             tellChats(c -> c.runEnded(next.chatMessageId(), next.state(), next.outcome()));
         }
@@ -140,6 +143,26 @@ public class LiveWorkService implements LiveWorkUseCase {
         runnersAreAlive(next.project(), now);
         notifications.liveWork(next);
         return next;
+    }
+
+    /**
+     * A run that ended ends the older runs on the same chat message that still say they are working:
+     * their runner was replaced or killed before it could end them - a runner restarted by its helper, a hard stop, a PC
+     * that slept - and the chat showed "Reading your message…" under a message already answered (2026-10-19).
+     */
+    private void supersede(LiveWork done, Instant now) {
+        for (LiveWork w : List.copyOf(runs.values())) {
+            // a chat message has one answer; a card may have several runs at once (two comments), so cards are left alone
+            boolean same = !w.id().equals(done.id()) && w.project().equals(done.project()) && done.chatMessageId() != null
+                    && done.chatMessageId().equals(w.chatMessageId());
+            if (!same || w.ended() || w.startedAt().isAfter(done.startedAt())) {
+                continue;
+            }
+            LiveWork ended = new LiveWork(w.id(), w.project(), w.cardNumber(), w.head(), w.steps(), w.draft(), LiveWork.State.DONE,
+                    "taken over - " + (done.outcome() == null ? "answered" : done.outcome()), w.stop(), w.startedAt(), now, w.chatMessageId(), w.usage());
+            runs.put(ended.id(), ended);
+            notifications.liveWork(ended);
+        }
     }
 
     /**

@@ -26,7 +26,7 @@ import { homedir, hostname, platform, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.8.0';
+export const VERSION = '1.8.2';
 
 // The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
 // reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
@@ -38,6 +38,10 @@ const execFileSync = (cmd, args, o) => childProcess.execFileSync(cmd, args, hidd
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
+/** Hand the kept Azure token over again when Alfred holds it for less than this (it keeps one 8 hours). */
+const TOKEN_RENEW_MS = 60 * 60_000;
+/** After a refused hand-over (Azure said no, Alfred was down), try again after this. */
+const TOKEN_RETRY_MS = 10 * 60_000;
 const CLAIM_WAIT_S = 50;
 
 // --------------------------------------------------------------------------------------------------- config and files
@@ -391,6 +395,22 @@ export function writeDesktopRecord({ cliSessionId, cwd, title, model }, dir = de
 }
 
 /**
+ * Removes the record the helper wrote for a session (local_<cli id>, adopted) - only when Desktop has its own chat for
+ * it, so one session is one entry in Desktop's list. Never a record Desktop made.
+ */
+export function dropHelperRecord(cliSessionId, dir = desktopAccountDir()) {
+  if (!dir || !cliSessionId || !findDesktopChat({ cliSessionId }, dir)) return false;
+  const file = join(dir, `local_${cliSessionId}.json`);
+  if (!existsSync(file)) return false;
+  try {
+    const rec = JSON.parse(readFileSync(file, 'utf8'));
+    if (!rec.adoptedFromOtherSurface) return false;
+    unlinkSync(file);
+    return true;
+  } catch { return false; }
+}
+
+/**
  * When Claude Desktop's window process started on this PC (ms), or null when it is not running. Desktop reads the
  * session records only when it starts: a record written after that is not in its list, and a deep link to it showed
  * "This session couldn't be found" (2026-10-18, its log: "not found after session load").
@@ -689,7 +709,7 @@ export const modelFor = (settings, job) => settings?.models?.[job] || settings?.
 // --------------------------------------------------------------------------------------------------------- the helper
 
 export class Helper {
-  constructor({ server, api, machine, mcp, skillsDir, claude = 'claude', primary, desktop, notify: toast }) {
+  constructor({ server, api, machine, mcp, skillsDir, claude = 'claude', primary, desktop, notify: toast, token }) {
     this.server = server;
     // the PC's first-connected Alfred: the one whose skills and helper version this PC follows (several Alfreds may be
     // connected at once, each with its own helper process - only one may rewrite the shared files)
@@ -704,8 +724,12 @@ export class Helper {
     // what reaches the user's screen - a folder dialog, Claude Desktop, a terminal, a toast; tests replace them all
     this.pickFolder = pickFolder;
     this.desktop = desktop ?? { record: writeDesktopRecord, open: openUrl, terminal: openTerminal, restart: restartDesktop, has: (id) => desktopHasRecord(id),
-      chat: (o) => openUrl(desktopChatUrl(o)), waitChat: (o) => waitForDesktopChat(o), isChat: (id) => !!findDesktopChat({ cliSessionId: id }) };
+      chat: (o) => openUrl(desktopChatUrl(o)), waitChat: (o) => waitForDesktopChat(o), isChat: (id) => !!findDesktopChat({ cliSessionId: id }),
+      findChat: (id) => findDesktopChat({ cliSessionId: id }), dropOwnRecord: (id) => dropHelperRecord(id) };
     this.notify = toast ?? notify;
+    // the Azure token kept on this PC: whether there is one (cheap, every heartbeat) and its value (DPAPI, only when handed)
+    this.token = token ?? { has: () => existsSync(tokenFile(server)), read: () => readToken(server) };
+    this.tokenTriedAt = 0;
     this.stopped = false;
   }
 
@@ -726,6 +750,7 @@ export class Helper {
     const me = await this.api.call('PUT', '/board/helpers/heartbeat', { body: info });
     // the token first: Alfred hands it over once, and an update below restarts this process
     if (typeof me?.azureToken === 'string') this.keepToken(me.azureToken);
+    await this.handToken().catch((e) => log(`Azure token not handed over: ${e.message}`));
     await this.keepCurrent(me?.versions).catch((e) => log(`could not update from Alfred: ${e.message}`));
     const settings = await this.settings();
     await this.requestsToToasts(me?.user, settings).catch(() => {});
@@ -796,6 +821,27 @@ export class Helper {
       try { unlinkSync(tokenFile(this.server)); } catch { /* none */ }
       log('Azure DevOps token removed from this PC');
     }
+  }
+
+  /**
+   * Alfred keeps the token in memory for 8 hours and loses it on every restart; this PC keeps it for good. So on each
+   * heartbeat: when Alfred no longer holds this user's own token (or holds it for less than an hour more), hand the kept
+   * one over again - the user enters it once per PC, never again (2026-10-19). A refused hand-over waits 10 minutes.
+   */
+  async handToken(now = Date.now()) {
+    if (!this.token.has()) return false;
+    const mine = await this.api.call('GET', '/teamboards/me/token').catch(() => null);
+    if (!mine?.connection) return false;
+    const until = mine.until ? Date.parse(mine.until) : 0;
+    if (mine.live && until - now > TOKEN_RENEW_MS) return false;
+    if (now - this.tokenTriedAt < TOKEN_RETRY_MS) return false;
+    this.tokenTriedAt = now;
+    const token = this.token.read();
+    if (!token) return false;
+    await this.api.call('PUT', '/teamboards/me/token', { body: { token } });
+    this.tokenTriedAt = 0;
+    log(mine.live ? 'Azure DevOps token renewed in Alfred' : 'Azure DevOps token handed to Alfred again (it had lost it)');
+    return true;
   }
 
   /** A toast once per new request for a board this user holds (My settings ▸ Tell me ▸ board requests). */
@@ -885,6 +931,17 @@ export class Helper {
         return this.resume(c, args);
       case 'OPEN_DESKTOP': {
         const s = await this.known(c, args);
+        // a chat Desktop made itself (▶ Claude on opens one) is in Desktop already: open that one. Writing the helper's own
+        // record beside it made a second entry for one session (two writers) and a false "restart Desktop" - and the
+        // restart ended the session's watch on the board chat (2026-10-19)
+        const own = this.desktop.findChat?.(s.cliSessionId);
+        if (own?.sessionId) {
+          this.desktop.dropOwnRecord?.(s.cliSessionId);
+          this.track(s).openIn = 'DESKTOP';
+          await this.report(s.cliSessionId, { desktopId: own.sessionId });
+          this.desktop.open(`claude://claude.ai/epitaxy/${own.sessionId}`);
+          return 'Opened in Claude Desktop.';
+        }
         const id = this.desktop.record({ cliSessionId: s.cliSessionId, cwd: s.cwd, title: s.title, model: s.model });
         if (!id) return 'Claude Desktop is not on this PC - open it in a terminal instead';
         this.track(s).openIn = 'DESKTOP';

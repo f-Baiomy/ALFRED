@@ -1,3 +1,4 @@
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
   CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
@@ -48,6 +49,10 @@ export type CardAction =
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
       <div class="board-card-title"><app-ref-text [text]="card().title" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
+      @if (toAzure(); as n) {
+        <button type="button" class="tob-pill" title="Changes Claude prepared for Azure wait for your approval - open the card"
+                (click)="$event.stopPropagation(); opened.emit()">⇪ {{ n }} to Azure</button>
+      }
       @if (questionCount(); as n) {
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
@@ -165,6 +170,9 @@ export class BoardCardComponent {
   readonly waitingOpen = output<WaitingAnchor>();
 
   private readonly seen = inject(BoardSeenService);
+  private readonly outbox = inject(BundleOutboxService);
+  /** Changes waiting to go to Azure from this card (specs/034). */
+  readonly toAzure = computed(() => (this.outbox.byCard().get(this.card().id) ?? []).reduce((n, b) => n + b.steps.filter((x) => x.ticked).length, 0));
   private readonly live = inject(LiveWorkStateService);
   /** /alfred-live working on this card right now. */
   readonly copied = signal(false);

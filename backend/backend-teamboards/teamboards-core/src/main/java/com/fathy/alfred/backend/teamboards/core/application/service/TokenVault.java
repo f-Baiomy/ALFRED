@@ -125,6 +125,15 @@ public class TokenVault {
         }
     }
 
+    /**
+     * Until when the caller's OWN token of a connection lives - never the shared one: a helper asks this on its heartbeat
+     * and hands its kept token over again when it is gone (8 hours passed, or Alfred restarted) - specs/031.
+     */
+    public Optional<Instant> ownUntil(String conn) {
+        String user = user();
+        return conn == null || SHARED.equals(user) ? Optional.empty() : live(new Key(conn, user)).map(Entry::expiresAt);
+    }
+
     public Optional<Token> token(String conn) {
         return entry(conn).map(Entry::token);
     }
