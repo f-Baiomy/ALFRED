@@ -52,6 +52,7 @@
     <module>backend-triage</module>
     <module>backend-board</module>
     <module>backend-sessions</module>
+    <module>backend-links</module>
     <module>backend-teamboards</module>
     <module>backend-server</module>
     <module>backend-app</module>

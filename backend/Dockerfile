@@ -25,6 +25,7 @@ COPY backend-db-capture/pom.xml backend-db-capture/pom.xml
 COPY backend-triage/pom.xml backend-triage/pom.xml
 COPY backend-board/pom.xml backend-board/pom.xml
 COPY backend-sessions/pom.xml backend-sessions/pom.xml
+COPY backend-links/pom.xml backend-links/pom.xml
 COPY backend-server/pom.xml backend-server/pom.xml
 COPY backend-teamboards/pom.xml backend-teamboards/pom.xml
 COPY backend-teamboards/teamboards-spi/pom.xml backend-teamboards/teamboards-spi/pom.xml

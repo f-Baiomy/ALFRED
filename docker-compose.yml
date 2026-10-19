@@ -290,6 +290,8 @@ services:
       # Task board: cards, their history, cycle briefs and spec files (specs/014-task-board; kept until deleted).
       - BOARD_DB_FILE=/appdata/board.db
       - SESSIONS_DB_FILE=/appdata/sessions.db
+      # Links and streams between Alfreds (specs/035): links, streams, requests, read log, environment marks - never streamed data.
+      - LINKS_DB_FILE=/appdata/links.db
       - TEAMBOARDS_DB_FILE=/appdata/teamboards.db
       # Retention target for calls.db - once it exceeds this many bytes, the oldest calls are
       # dropped until back under it. 10GB.

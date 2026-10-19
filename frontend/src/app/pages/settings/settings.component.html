@@ -49,6 +49,14 @@
       <button
         type="button"
         class="settings-nav-item"
+        [class.active]="activePartition() === 'links'"
+        (click)="setActivePartition('links')"
+      >
+        Links &amp; streams
+      </button>
+      <button
+        type="button"
+        class="settings-nav-item"
         [class.active]="activePartition() === 'ide'"
         (click)="setActivePartition('ide')"
       >
@@ -77,6 +85,8 @@
     <div class="settings-content">
       @if (activePartition() === 'server') {
         <app-server-settings />
+      } @else if (activePartition() === 'links') {
+        <app-links-settings />
       } @else if (activePartition() === 'ide') {
         <app-ide-settings />
       } @else if (activePartition() === 'teams') {
