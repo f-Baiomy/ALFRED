@@ -46,6 +46,19 @@ is covered by `backend-sessions` (keys, holders, sessions, commenters' queue, aw
   at story checkpoints rather than on every edit.
 - Load and burst (`scripts/inbound_load.py`) go only to a throwaway backend container - never the real store.
 
+## Streams E2E (`sh tests/e2e/run_streams_e2e.sh`)
+
+- Three backends from one freshly built jar (`alfred-streams-a/b/c` on network `alfred-streams-e2e`, host ports
+  15101-15103, data inside the containers, all removed at the end): a is the host (PC-1), b owns a cycle and is STG of
+  a's board, c reads b's cycle through a's board stream (specs/035, docs/streams.md).
+- Checks: pairing with the one-time code; NOT_STREAMED before a stream; tagged reads by ref and the explicit
+  `/links/r/` form; Authorization/Set-Cookie masked at the source; a 3 MB body relayed whole in chunks under credit;
+  writes never relayed and `REMOTE_WRITE` on the reader; the owner's read log (with `copy` and the reader behind a
+  middle Alfred); requests accepted / first-answer-wins / undone / withdrawn / view-only / auto-accepted; a remote
+  cycle on the host's board; pass-through refused until the owner allows it; environments (assignment, a tick seen
+  live, Overall, an STG test cycle on the host's board, the host judging STG's re-test); a stream ended, then removed
+  by the reader; discovery saying it is off in Docker.
+
 ## Database capture agent (`db-agent/`, `mvn verify`)
 
 - The agent is tested by **installing it into the test JVM** (ByteBuddy self-attach - the same Attach-API path

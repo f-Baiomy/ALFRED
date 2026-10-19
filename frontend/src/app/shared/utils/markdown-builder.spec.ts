@@ -507,6 +507,15 @@ describe('buildBulkExportMarkdown with a whole session cycle', () => {
     expect(md).toContain('All 2 of its captured calls are here');
   });
 
+  it("says when the cycle is another Alfred's, streamed here, and still carries every body whole (specs/035)", () => {
+    const body = 'x'.repeat(300_000);
+    const calls = [makeCall({ id: 'call-1@stg-83', response: { status: 200, headers: { 'Content-Type': 'text/plain' }, body } })];
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', { ...makeCycle(), origin: 'STG 83' });
+
+    expect(md).toContain("It is STG 83's cycle, streamed to this Alfred and read from it in full at export time");
+    expect(md).toContain(body);
+  });
+
   it('says nothing about a cycle for a hand-picked selection', () => {
     const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now');
 

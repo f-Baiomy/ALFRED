@@ -1,3 +1,4 @@
+import { provideLinksTesting } from '../../../core/links/links-testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { of, Subject } from 'rxjs';
@@ -56,6 +57,7 @@ describe('BoardCyclesComponent (specs/033)', () => {
     TestBed.configureTestingModule({
       imports: [BoardCyclesComponent],
       providers: [
+        ...provideLinksTesting(),
         provideRouter([]),
         { provide: BoardApiService, useValue: api },
         { provide: SessionCyclesApiService, useValue: cyclesApi },

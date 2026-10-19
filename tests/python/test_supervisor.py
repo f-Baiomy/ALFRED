@@ -242,6 +242,64 @@ class SupervisionTest(unittest.TestCase):
 
 
 
+class DiscoveryTest(unittest.TestCase):
+    """LAN discovery (specs/035 D33): what a datagram makes known, and what is never kept."""
+
+    def setUp(self):
+        self.layout = make_home(("ALFRED_UI_PORT=3001",))
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+        self.sup = supervisor.Supervisor(self.layout)
+        self.sup.refresh_specs()
+        self.d = supervisor.Discovery(self.sup)
+        self.sent = []
+        self.d._send = self.sent.append  # no socket: what would go out is collected
+        self.d.set_me({"id": "me-1", "name": "PC-1", "version": "1.53.0", "announce": True})
+
+    def here(self, **over):
+        msg = {"alfred": supervisor.DISCOVERY_PROTOCOL, "type": "here", "id": "b-2", "name": "STG 83", "version": "1.53.0",
+               "port": 3000}
+        msg.update(over)
+        return json.dumps(msg).encode("utf-8")
+
+    def test_an_announce_names_the_ui_port_and_nothing_more(self):
+        self.assertEqual(self.sent[-1], {"alfred": "discovery/1", "type": "here", "id": "me-1", "name": "PC-1",
+                                         "version": "1.53.0", "port": 3001})
+
+    def test_another_alfred_is_found_at_the_datagrams_source(self):
+        self.d.heard(self.here(), "192.168.1.83")
+        found = self.d.status()["found"]
+        self.assertEqual([(f["alfredId"], f["name"], f["address"]) for f in found], [("b-2", "STG 83", "http://192.168.1.83:3000")])
+        self.assertNotIn("_seen", found[0])
+
+    def test_its_own_datagram_and_junk_are_ignored(self):
+        self.d.heard(self.here(id="me-1"), "192.168.1.10")
+        self.d.heard(b"not json", "192.168.1.11")
+        self.d.heard(json.dumps({"alfred": "other", "type": "here", "id": "x", "port": 1}).encode(), "192.168.1.12")
+        self.d.heard(self.here(port=0), "192.168.1.13")
+        self.d.heard(self.here(port="x"), "192.168.1.14")
+        self.assertEqual(self.d.status()["found"], [])
+
+    def test_one_not_heard_from_is_forgotten(self):
+        self.d.heard(self.here(), "192.168.1.83")
+        self.d.found["b-2"]["_seen"] -= supervisor.DISCOVERY_FORGET_SECONDS + 1
+        self.assertEqual(self.d.status()["found"], [])
+
+    def test_a_query_is_answered_but_not_every_time(self):
+        self.sent.clear()
+        q = json.dumps({"alfred": supervisor.DISCOVERY_PROTOCOL, "type": "query"}).encode()
+        self.d.heard(q, "192.168.1.83")
+        self.d.heard(q, "192.168.1.84")
+        self.assertEqual(len(self.sent), 1)
+
+    def test_not_announcing_sends_nothing(self):
+        self.sent.clear()
+        self.d.set_me({"id": "me-1", "name": "PC-1", "version": "1.53.0", "announce": False})
+        self.d.last_answer = 0
+        self.d.heard(json.dumps({"alfred": supervisor.DISCOVERY_PROTOCOL, "type": "query"}).encode(), "192.168.1.83")
+        self.assertEqual(self.sent, [])
+        self.assertFalse(self.d.status()["announcing"])
+
+
 class AppWatcherTest(unittest.TestCase):
     """The supervisor notices a project's app starting, restarting and stopping, and tells the backend each time."""
 

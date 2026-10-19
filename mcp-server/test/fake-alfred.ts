@@ -209,6 +209,8 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 }
 
 export class FakeAlfred {
+  /** A test's own answers, tried before the fake's routes: [status, body], or null to fall through. */
+  extra?: (method: string, parts: string[], query: URLSearchParams, body: unknown) => [number, unknown] | null;
   readonly state: FakeState = emptyState();
   /** /teamboards answers (specs/027), set by a test. */
   team?: (method: string, p: string[], q: URLSearchParams, body: any) => [number, unknown?] | undefined;
@@ -332,7 +334,13 @@ export class FakeAlfred {
       }
     }
     try {
-      const result = this.route(req.method!, url.pathname.split('/').filter(Boolean).map(decodeURIComponent), url.searchParams, body);
+      const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      const custom = this.extra?.(req.method!, parts, url.searchParams, body);
+      if (custom) {
+        send(custom[0], custom[1]);
+        return;
+      }
+      const result = this.route(req.method!, parts, url.searchParams, body);
       send(result[0], result[1]);
     } catch (error) {
       send(500, { error: String(error) });

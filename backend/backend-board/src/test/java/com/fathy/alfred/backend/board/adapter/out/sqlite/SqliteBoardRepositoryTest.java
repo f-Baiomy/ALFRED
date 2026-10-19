@@ -117,6 +117,18 @@ class SqliteBoardRepositoryTest {
     }
 
     @Test
+    void anotherAlfredsCallGetsTheBadgesOfItsLinkedCycleOnly() {
+        // specs/035: a page of a streamed cycle reads the call as x1@stg-83; this board's mention is in:x1@c-9@stg-83
+        Card c = card("p", repo.nextNumber("p"), "t", "");
+        repo.insert(c);
+        repo.replaceMentions(MentionOwner.CARD, c.id(), c.id(), List.of(new MentionRef(MentionType.CALL, "in:x1@c-9@stg-83", "POST")));
+
+        assertThat(repo.badgesOfCalls(List.of("x1@stg-83"))).containsOnlyKeys("x1@stg-83");
+        assertThat(repo.badgesOfCalls(List.of("x1@pc-9"))).isEmpty(); // the same id on another link is another call
+        assertThat(repo.badgesOfCalls(List.of("x1"))).containsOnlyKeys("x1"); // a kept copy of it here keeps its live id
+    }
+
+    @Test
     void filtersAndSearchNarrowTheList() {
         repo.insert(card("p", repo.nextNumber("p"), "Discount not saved", "ORDERS.discount is NULL"));
         Card task = new Card(UUID.randomUUID().toString(), "p", repo.nextNumber("p"), CardKind.TASK, "Retry email", "", CardStatus.TO_DO,

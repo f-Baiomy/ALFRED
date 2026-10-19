@@ -38,7 +38,9 @@ class BoardDataControllerTest {
                 .replaceAll("/\\d+", "/{n}"));
         BoardCycleCallsAdapter signer = new BoardCycleCallsAdapter(mock(ListCapturedCallsUseCase.class), mock(ListPagedCapturedInternalCallsUseCase.class),
                 endpoints, inbound, new org.springframework.beans.factory.support.StaticListableBeanFactory()
-                        .getBeanProvider(com.fathy.alfred.backend.board.application.port.in.RelateCycleUseCase.class));
+                        .getBeanProvider(com.fathy.alfred.backend.board.application.port.in.RelateCycleUseCase.class),
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(com.fathy.alfred.backend.linksbridge.RemoteBoardData.class));
         controller = new BoardDataController(inbound, mock(ListCapturedCallsUseCase.class), mock(ListPagedCapturedInternalCallsUseCase.class), signer,
                 db, logs);
     }

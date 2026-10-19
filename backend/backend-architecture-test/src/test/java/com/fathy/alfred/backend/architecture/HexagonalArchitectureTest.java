@@ -416,6 +416,25 @@ class HexagonalArchitectureTest {
                 .check(classes);
     }
 
+    // links (specs/035) is a leaf slice: links between Alfreds, streams, requests, the read log and environment marks.
+    // backend-app/linksbridge answers a peer's reads from the other slices and applies accepted requests; nothing else
+    // knows it.
+    @Test
+    void linksSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.links..")
+                .should().dependOnClassesThat().resideInAnyPackage(OTHER_SLICES)
+                .orShould().dependOnClassesThat().resideInAnyPackage("..backend.teamboards..", "..backend.sessions..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnLinks() {
+        noClasses().that().resideInAnyPackage(OTHER_SLICES)
+                .or().resideInAnyPackage("..backend.teamboards..", "..backend.sessions..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.links..")
+                .check(classes);
+    }
+
     @Test
     void connectorsAndCoreDoNotKnowEachOther() {
         noClasses().that().resideInAPackage("..backend.teamboards.azure..")

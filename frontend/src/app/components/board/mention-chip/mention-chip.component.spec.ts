@@ -1,3 +1,4 @@
+import { provideLinksTesting } from '../../../core/links/links-testing';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MentionRef } from '../../../core/models/board.models';
@@ -8,7 +9,7 @@ import { groupCalls } from './mention-group.component';
 describe('MentionChipComponent (specs/021 readable references)', () => {
   function chip(ref: MentionRef, live: LiveMention | null): HTMLElement {
     TestBed.configureTestingModule({ imports: [MentionChipComponent],
-      providers: [{ provide: BoardMentionsService, useValue: { live: () => signal(live), preview: () => ({ subscribe: () => undefined }) } }] });
+      providers: [...provideLinksTesting(), { provide: BoardMentionsService, useValue: { live: () => signal(live), preview: () => ({ subscribe: () => undefined }) } }] });
     const fixture = TestBed.createComponent(MentionChipComponent);
     fixture.componentRef.setInput('mention', ref);
     fixture.detectChanges();
