@@ -29,6 +29,7 @@ import * as chat from './tools/chat.ts';
 import * as boards from './tools/boards.ts';
 import * as team from './tools/team.ts';
 import * as links from './tools/links.ts';
+import * as questionsForm from './tools/questions-form.ts';
 import { withBoardParam } from './board-scope.ts';
 import { withOrigins } from './origin.ts';
 
@@ -70,7 +71,7 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
   registerSessionTool(server);
   // specs/035: a reply about another Alfred's thing says where it came from
   const labelled = withOrigins(server, client);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, ruleProposals, boards, team, links]) module.register(labelled, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, ruleProposals, boards, team, links, questionsForm]) module.register(labelled, client);
   // specs/027: the task tools also take `board` - a board is a task, its id the task key they always took
   const boarded = withBoardParam(labelled, client);
   for (const module of [task, board, boardVisuals, requirements, live, chat]) module.register(boarded, client);

@@ -2,7 +2,7 @@ import { Component, DestroyRef, HostListener, computed, effect, inject, input, s
 import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { Title } from '@angular/platform-browser';
 import {
-  ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, STATUS_LABELS, Waiting,
+  ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, defaultBoardId, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, STATUS_LABELS, Waiting,
 } from '../../../core/models/board.models';
 import { BoardNotifyService } from '../../../core/services/board-notify.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
@@ -35,6 +35,8 @@ import { QuickAddComponent } from '../quick-add/quick-add.component';
 import { TriageDecision, TriageDialogComponent, decisionOf } from '../triage-dialog/triage-dialog.component';
 import { actionText, adviceAction } from '../../../shared/utils/triage-advice';
 import { UndoToastComponent } from '../undo-toast/undo-toast.component';
+import { QuestionsMenuComponent } from '../questions-menu/questions-menu.component';
+import { QuestionsFormService } from '../../../core/services/questions-form.service';
 
 /**
  * One board, wherever it is shown - the Board tab and a session cycle's Board tab use this same view (FR-039: two
@@ -48,7 +50,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
   providers: [BoardStateService, RetestStateService],
   imports: [ActionMenuComponent, CardPeekComponent, BoardPagesComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
     BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, WaitingBarComponent, RetestStripComponent, TriageDialogComponent,
-    UndoToastComponent],
+    UndoToastComponent, QuestionsMenuComponent],
   template: `
     @if (!windowMode()) {
     <app-live-strip [status]="state.agent()" [project]="project()" [cycleId]="cycleId()" [editable]="state.editable()" (action)="state.agentAction($event)" />
@@ -149,9 +151,9 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
         <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
       }
       @if (questionCards().length) {
-        <button type="button" class="board-qpill board-qpill-total" [disabled]="!state.editable()" title="Claude's open questions on these cards - answer the first card's"
-                (click)="answering.set(questionCards()[0].id)">❓ {{ questionTotal() }} open question{{ questionTotal() === 1 ? '' : 's' }}
-          on {{ questionCards().length }} card{{ questionCards().length === 1 ? '' : 's' }}</button>
+        <app-questions-menu [boardId]="boardIdNow()" [project]="project()" [total]="questionTotal()" [cards]="questionCards().length" [editable]="state.editable()"
+                            (answer)="answering.set(questionCards()[0].id)" (showCards)="setFilters({ flags: ['NEEDS_DECISION'] })"
+                            (formAll)="questionsForm(questionCards())" />
       }
     </div>
     @if (showNextSteps()) {
@@ -181,8 +183,8 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
                            [now]="now()" [boardNames]="boardNames()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
     }
 
-    <app-bulk-bar [count]="state.selected().size" [total]="state.cards().length" (action)="bulk($event)" (cleared)="state.clearSelection()"
-                  (selectAll)="selectAll()" />
+    <app-bulk-bar [count]="state.selected().size" [total]="state.cards().length" [questions]="selectedQuestions()" (action)="bulk($event)" (cleared)="state.clearSelection()"
+                  (selectAll)="selectAll()" (questionsForm)="questionsForm(selectedCards())" />
     <app-undo-toast [pending]="state.pendingUndo()" (undo)="state.undo()" (reason)="state.addReason($event)" (dismissed)="state.pendingUndo.set(null)" />
     @if (triageQueue(); as queue) {
       <app-triage-dialog [queue]="queue" (decided)="onTriage($event)" (closed)="triageQueue.set(null)" />
@@ -341,6 +343,22 @@ export class BoardViewComponent {
   readonly questionCards = computed(() => this.state.cards().filter((c) => (c.openQuestions ?? 0) > 0)
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)));
   readonly questionTotal = computed(() => this.questionCards().reduce((n, c) => n + (c.openQuestions ?? 0), 0));
+  private readonly forms = inject(QuestionsFormService);
+  /** The board this view shows: its own, or the project's default board (specs/027). */
+  readonly boardIdNow = computed(() => this.cycleId() || defaultBoardId(this.project()));
+  readonly selectedCards = computed(() => { const ids = this.state.selected(); return this.state.cards().filter((c) => ids.has(c.id)); });
+  /** Open questions on the selected cards - the bulk bar's questions form counts them, not the cards. */
+  readonly selectedQuestions = computed(() => this.selectedCards().reduce((n, c) => n + (c.openQuestions ?? 0), 0));
+
+  /** One questions form per board the cards live on (specs/037 D2); cards without open questions are named by Alfred. */
+  async questionsForm(cards: readonly { number: number; boardId?: string; openQuestions?: number }[]): Promise<void> {
+    const byBoard = new Map<string, number[]>();
+    for (const c of cards) {
+      const b = c.boardId || this.boardIdNow();
+      byBoard.set(b, [...(byBoard.get(b) ?? []), c.number]);
+    }
+    for (const [board, numbers] of byBoard) await this.forms.download(board, numbers);
+  }
   readonly notify = inject(BoardNotifyService);
   private readonly seen = inject(BoardSeenService);
   /** Cards Claude changed since they were last opened here - counted in the tab title (specs/015 FR-9). */

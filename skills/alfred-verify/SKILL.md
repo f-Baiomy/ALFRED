@@ -8,6 +8,8 @@ argument-hint: "[AB#1234 | board name or id] [card numbers] [re-test cycle] [pro
 
 Read `rules.md` in this skill's folder first and follow it.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 Verify on the board the card lives on (its home); the re-test is a cycle of that board - `board_record` with kind RETEST (rules §0 "Boards and cycles"). (specs/027) Verified and Done are the user's: you propose.
 
 ## 1. What to re-test

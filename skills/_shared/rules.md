@@ -241,6 +241,28 @@ question, whenever the answer is a choice:
   is a `board_ask` on the card, never only text in the chat - the user may not be at the chat. Then end the run; do
   not wait for an answer in the chat.
 
+### Asking well - a question stands on its own (specs/037)
+
+Whoever answers may not have been there - a BA reading it offline in a questions form. Each question carries what
+they need to decide, nothing more:
+
+- `question`: the decision, in one line. `why`: what it blocks, in one line.
+- `details`: the evidence, in this order and only what helps decide:
+  1. what the user sees - a screenshot with boxes or arrows on the part that matters (`board_image_put`, then
+     `![what it shows](/board/images/<id>)`);
+  2. what happened - the calls as `@[call:…]` mentions or a ```` ```calls ```` block, the rows as a small table;
+  3. how much, how often - ```` ```stats ```` / ```` ```chart ```` from real numbers, never made up;
+  4. what the spec says - the Acceptance lines quoted, with their ids.
+- Every option has `then` (what you will do) and `preview` (what changes, the calls and items it touches); one is
+  `recommended`, and its `preview` says why.
+- No secrets or variable values in any text or on any picture - crop or blur before `board_image_put` (pictures are
+  not masked).
+- Questions for someone outside Alfred → `board_questions_form` (one offline .html, or .zip for mail that blocks html;
+  tell the user where it was saved). An answers file that comes back → `board_import_answers` with `dryRun` (the
+  default): show the user the lines it reports and apply (`dryRun: false`, `askedIn` = their chat message id, or
+  "terminal") only on their yes. Applied answers are the user's answers ("from answers file by …") - act on them as on
+  any answer.
+
 ### Re-test evidence
 
 - A re-test step's `endpoint` is copied from a recorded call (`get_call`), never guessed - `board_retest_plan`

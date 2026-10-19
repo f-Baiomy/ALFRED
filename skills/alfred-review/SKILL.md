@@ -8,6 +8,8 @@ argument-hint: "<AB#1234 | board name or id | cycle> [--dry]"
 
 Read `rules.md` in this skill's folder first and follow it - especially "What becomes a card" and the card journal.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 **Boards** (specs/030): a board (`AB#1234`, its name or id - rules §0 "Naming a board") reviews its newest cycle, or the one the user names; `check_calls` takes the board too.
 
 

@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Questions Form mock</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#5d6678;--line:#dde1e8;--accent:#2f6fde;--accent-soft:#e8f0fd;--ok:#1f8a4c;--warn:#b26b00;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1d2129;--text:#e6e9ef;--muted:#9aa3b2;--line:#2e3440;--accent:#6aa0ff;--accent-soft:#1f2b40;--ok:#4cc27e;--warn:#e0a640;--bad:#ff7a6b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 "Segoe UI",Tahoma,Arial,sans-serif}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
+.tabs button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer}
+.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.screen{display:none;max-width:900px;margin:0 auto;padding:20px 16px 140px}
+.screen.on{display:block}
+.cap{font-size:13px;color:var(--muted);border-inline-start:3px solid var(--accent);padding:4px 10px;margin:0 0 16px;background:var(--accent-soft);border-radius:4px}
+h1{font-size:22px;margin:0 0 4px} h3{margin:18px 0 6px}
+.sub{color:var(--muted);margin:0 0 18px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.pill{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent)}
+.pill.warn{background:#fff3df;color:var(--warn)} .pill.ok{background:#e3f5ea;color:var(--ok)} .pill.bad{background:#fde7e4;color:var(--bad)}
+@media (prefers-color-scheme:dark){.pill.warn{background:#3a2e17}.pill.ok{background:#173325}.pill.bad{background:#3d1e1b}}
+.muted{color:var(--muted)} small{font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px} td,th{text-align:start;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:12.5px;white-space:pre-wrap}
+.menu{border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 6px 24px #0002;width:300px;padding:6px}
+.menu div{padding:8px 10px;border-radius:6px} .menu div.hl{background:var(--accent-soft)}
+.file{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--bg)}
+.ab{background:#1b1d22;color:#d8dbe2;border-radius:12px;padding:16px;border:1px solid #2c2f37}
+.ab .dim{color:#8a90a0} .abh{color:#d8dbe2;font-size:14px;margin:18px 0 8px} .abh:first-child{margin-top:0}
+.abbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#202329;border:1px solid #2c2f37;border-radius:10px;padding:10px 14px;font-size:14px}
+.abt{color:#aab0bd}.abprog{width:150px;height:8px;border-radius:9px;background:#5b8def}.c1{color:#8fb4ff}.c2{color:#5fd3c4}
+.abpill{border:1px solid #a26a1c;background:#3a2a12;color:#f0a840;border-radius:8px;padding:4px 10px;font-weight:600;cursor:pointer}
+.abmenu{width:330px;background:#24272e;border:1px solid #3a3e48;border-radius:10px;padding:6px;margin-top:6px;box-shadow:0 8px 24px #0006;font-size:14px}
+.abmenu .it{padding:7px 10px;border-radius:6px}.abmenu .hl{background:#2d3b57;color:#cfe0ff}.abmenu .sep{height:1px;background:#3a3e48;margin:4px 0}
+.abcard{max-width:720px;background:#202329;border:1px solid #6fa8ff;border-inline-start:3px solid #c9862b;border-radius:10px;padding:12px 14px}
+.abcard .r{display:flex;gap:10px;align-items:center;font-size:13px}.abcard .ti{font-weight:700;font-size:16px;margin:6px 0}
+.ty{color:#e9a43b;font-weight:700}.nd{background:#1f3b39;color:#6fd6c6;border-radius:5px;padding:1px 7px}.you{background:#3a2a12;color:#e9b46a;border-radius:99px;padding:1px 9px}
+.qs{display:flex;gap:10px;align-items:center;background:#3a2c1a;color:#e9a43b;border-radius:7px;padding:6px 10px;margin:6px 0;font-weight:600}
+.fm{border:1px solid #6fa8ff;color:#a9c8ff;border-radius:6px;padding:1px 8px;font-weight:600;cursor:pointer}.an{color:#e9a43b}
+.acts span{flex:1;text-align:center;background:#2a2d34;border-radius:6px;padding:6px;color:#aab0bd}.acts .pl{flex:0 0 60px}
+.absel{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid #5fd3c4;border-radius:12px;padding:10px 14px;background:#1f2228;font-size:14px}
+.sb{border:1px solid #3d4a66;background:#28324a;color:#bcd0ff;border-radius:6px;padding:3px 10px;font-weight:600}.sb.hl2{border-color:#e9a43b;background:#3a2c1a;color:#f0b65a}
+.sb.del{border-color:#7a3a3a;background:#3d2222;color:#f08a8a}.lk{color:#8fb4ff;text-decoration:underline}
+.abchat{max-width:560px;background:#202329;border:1px solid #2c2f37;border-radius:10px;padding:10px;position:relative}
+.abchat .msg{background:#262a31;border-radius:8px;padding:8px 10px;font-size:14px}
+.abchat .att{margin-top:6px;display:inline-block;border:1px solid #3a3e48;border-radius:6px;padding:4px 8px;background:#1b1d22}
+.abchat .inp{display:flex;gap:10px;align-items:center;margin-top:10px;border:1px solid #3a3e48;border-radius:8px;padding:8px 10px}
+.abchat .clip{border:1px solid #e9a43b;color:#f0b65a;border-radius:6px;padding:0 6px}.abchat .send{color:#8fb4ff}
+.abchat .drop{margin-top:8px;border:2px dashed #5fd3c4;color:#5fd3c4;border-radius:8px;padding:10px;text-align:center;font-size:13px}
+.flow{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}.flow .st{flex:1 1 170px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13.5px;background:var(--bg)}
+.flow .ar{align-self:center;color:var(--muted)}
+.fhead h1{font-size:26px}
+.meta{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px}.meta span{font-size:12.5px;padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted);background:var(--card)}
+.tools{position:sticky;top:var(--th,0);z-index:3;background:var(--bg);padding:8px 0 10px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.pbar{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.pbar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.cchips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.cchips a{font-size:13px;text-decoration:none;color:var(--accent);border:1px solid var(--line);background:var(--card);border-radius:99px;padding:2px 10px}
+.cchips a.ok{border-color:var(--ok);color:var(--ok)}.cchips a.ok::after{content:" ✓"}
+.trow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px}.tgl{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.btn.sm{padding:4px 10px;font-size:13px}.keys{font-size:12px;margin-inline-start:auto}
+.grp{margin:18px 0 6px}.ghead{display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:15px}
+.gnum{font-weight:700;color:var(--accent)}.gtype{font-size:12px;color:var(--warn);border:1px solid var(--line);border-radius:6px;padding:0 6px}.gcount{margin-inline-start:auto;font-size:13px;color:var(--muted)}
+.q:focus{outline:2px solid var(--accent);outline-offset:2px}.q.hidden{display:none}.q.islater{border-color:var(--warn)}
+.ltag{display:none;font-size:12px;color:var(--warn);margin-inline-start:6px}.q.islater .ltag{display:inline}
+.opt .k{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;min-width:18px;text-align:center;margin-top:4px;height:18px;line-height:16px}
+.readonly .opt .k{display:none}.opt.later{border-style:dashed}
+.why2{margin-top:4px;font-size:13px;color:var(--muted)}.why2 summary{cursor:pointer;color:var(--accent)}.why2 div{padding:4px 0}
+.fu{display:none;margin:4px 0 10px;padding:10px 12px;border-inline-start:3px solid var(--accent);background:var(--accent-soft);border-radius:8px}.fu.show{display:block}.fu h3{font-size:15px;margin:4px 0 8px}
+textarea.free{min-height:90px}
+.hint{display:none;font-size:13px;margin:4px 0 0}.hint.err{color:var(--bad)}.hint.show{display:block}
+.sure{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--muted)}
+.sure label{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:99px;padding:2px 10px;cursor:pointer}.sure label:has(input:checked){border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.sure input{margin:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:0 0 16px}.stats div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--muted);font-size:13px}
+.stats b{display:block;font-size:22px;color:var(--text)}
+blockquote.notebox{margin:8px 0 0;border-inline-start:3px solid var(--muted);border-style:none;border-inline-start-style:solid;background:var(--bg)}
+@media print{.tabs,.cap,.bar,.tools,.lang{display:none!important}.q{break-inside:avoid}}
+.abq{max-width:820px;background:#202329;border:1px solid #2c2f37;border-radius:10px;padding:12px 14px}
+.abq .r{display:flex;gap:10px;align-items:center;font-size:13px}.abq .hd{display:inline-block;margin-top:8px;font-size:12px;color:#8fb4ff;background:#24324d;border-radius:99px;padding:1px 8px}
+.abq .qq{font-size:17px;font-weight:700;margin:4px 0}
+.abdet{margin:10px 0;border:1px solid #3a3e48;border-radius:8px;padding:8px 10px;background:#1b1d22}.abdet summary{cursor:pointer;color:#8fb4ff;font-size:13px}
+.dgrid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:10px}@media(max-width:700px){.dgrid{grid-template-columns:1fr}}
+.dgrid figure{margin:0}.dgrid img{width:100%;border-radius:6px;border:1px solid #3a3e48}.dgrid figcaption{font-size:12.5px;color:#8a90a0;margin-top:4px}
+.dlabel{font-size:12px;color:#8a90a0;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.04em}.dlabel:first-child{margin-top:0}
+.dt{font-size:12.5px}.dt td,.dt th{border-color:#3a3e48;padding:3px 6px}.chips{display:flex;gap:6px;flex-wrap:wrap}
+.mc{font-size:12px;border:1px solid #3d4a66;background:#28324a;color:#bcd0ff;border-radius:6px;padding:1px 8px}
+.sq{margin:0;border-inline-start:3px solid #6fd6c6;padding:4px 10px;font-size:13px;color:#cfd3dc;background:#202329}
+.ao{border:1px solid #3a3e48;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:14px}.ao.rec{border-color:#6fa8ff;background:#22304a}.recm{font-size:11px;color:#5fd38c;margin-inline-start:6px}
+.det{margin:0 0 12px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--bg)}.det summary{cursor:pointer;color:var(--accent);font-size:14px}
+.dbody{margin-top:8px;font-size:14px}.dbody img{max-width:100%;border-radius:6px;border:1px solid var(--line)}.dbody figure{margin:0 0 10px}.dbody figcaption{font-size:12.5px;color:var(--muted)}
+.dbody table{font-size:13px;margin:4px 0 10px}.dbody .dlabel{color:var(--muted)}.dbody blockquote{margin:6px 0;border-inline-start:3px solid var(--ok);padding:4px 10px;background:var(--card)}
+.sstats{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}.sstats div{border:1px solid var(--line);border-radius:8px;padding:4px 10px;background:var(--card);font-size:12.5px;color:var(--muted)}.sstats b{display:block;font-size:18px;color:var(--text)}
+/* ---- form (reference design, verbatim) ---- */
+.form{font-size:16px;line-height:1.6}
+.who{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.who label{flex:1 1 220px;display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted)}
+input[type=text],textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit}
+textarea{min-height:64px;resize:vertical}
+.q{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.q.done{border-color:var(--ok)}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-bottom:6px}
+.q h2{font-size:18px;margin:0 0 6px}
+.why{color:var(--muted);font-size:14px;margin:0 0 12px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.opt:has(input:checked),.opt.picked{border-color:var(--accent);background:var(--accent-soft)}
+.opt input{margin-top:5px} .opt b{display:block} .opt small{color:var(--muted)}
+.rec{font-size:12px;color:var(--ok);margin-inline-start:6px}
+.note{margin-top:8px;display:block} .note span{font-size:13px;color:var(--muted)}
+.bar{position:fixed;inset:auto 0 0 0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px}
+.lang{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;float:inline-end}.lang button{font:inherit;font-size:13px;border:0;padding:4px 10px;background:transparent;color:var(--muted);cursor:pointer}.lang button.on{background:var(--accent);color:#fff}
+.bar div{max-width:820px;margin:0 auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.prog{flex:1;color:var(--muted);font-size:14px}
+.unans{opacity:.6} .readonly .opt{cursor:default} .readonly .opt:not(.picked){opacity:.55}
+.notebox{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:14px}
+</style>
+</head>
+<body>
+<nav class="tabs" id="tabs">
+  <button data-s="s1" class="on">1 · Board: export + upload</button>
+  <button data-s="s2">2 · The form (offline)</button>
+  <button data-s="s3">3 · Answers file</button>
+  <button data-s="s4">4 · Upload answers (board + Claude)</button>
+  <button data-s="s5">5 · Applied on cards</button>
+  <button data-s="s6">6 · Data + MCP</button>
+  <button data-s="s7">7 · Rich questions</button>
+</nav>
+
+<!-- 1 ---------------------------------------------------------------- -->
+<section class="screen on" id="s1">
+  <p class="cap">A built-in Alfred feature. Alfred (backend-board) renders the form and parses the answers file. Three ways to export from the board, one upload. The MCP tool <code>board_questions_form</code> only calls the same Alfred endpoint with board + cards; it builds nothing itself.</p>
+  <div class="ab">
+    <h3 class="abh">A · Board summary bar: the open-questions pill becomes a menu</h3>
+    <div class="abbar">
+      <span class="abt">AB#62565 Q4-CORE-WT1-T3243-001 Portal: Knowledge Base Display &amp; Internal Viewer</span>
+      <span class="abprog"></span><span><b class="c1">17</b> open · <b class="c2">0</b> fixed / verifying · <b class="c2">0</b> done or closed</span>
+      <span class="abpill">❓ 7 open questions on 6 cards ▾</span>
+    </div>
+    <div class="abmenu" style="max-width:100%;margin-inline-start:auto">
+      <div class="it hl">⇩ Questions form: all 7 questions (6 cards)</div>
+      <div class="it">☰ Show the 6 cards</div>
+      <div class="sep"></div>
+      <div class="it">⇧ Upload answers file…</div>
+      <div class="sep"></div>
+      <div class="it dim">Form language: <b>Auto</b> · English · العربية<br><small>Auto = the language most question text is in. The reader can switch inside the form.</small></div><div class="it dim">File: <b>.html</b> · .zip<br><small>.zip = the same one html inside, for mail that blocks .html. Remembered for this board.</small></div>
+    </div>
+
+    <h3 class="abh">B · One card: beside Answer on its question strip, and in the card's ▾ menu</h3>
+    <div class="abcard">
+      <div class="r"><span class="ty">Question</span><span class="dim">#97</span><span class="nd">Needs decision</span><span style="flex:1"></span><span class="you">⌛ you · 1h ▾</span></div>
+      <div class="ti">What does 'deactivating a country' on a Knowledge Base item mean?</div>
+      <div class="qs"><span>❓ 1 question <span class="dim">· ✦ إعدادات البلاد</span></span><span style="flex:1"></span><span class="fm" title="Questions form for this card">⇩ Form</span><span class="an">Answer ›</span></div>
+      <div class="r dim"><span>✓ QA</span><span>◆1</span><span>✦</span><span>💬 4</span><span style="flex:1"></span><span>1h</span></div>
+      <div class="r acts"><span>✓ Fine</span><span>⊘ Not in flow</span><span>→ To do</span><span class="pl">▶ ▾</span></div>
+    </div>
+    <div class="abmenu" style="width:260px;max-width:100%;margin-top:-6px;margin-inline-start:auto">
+      <div class="it">▶ Ask Claude</div>
+      <div class="it hl">⇩ Questions form (1 question)</div>
+      <div class="it">⇧ Upload answers file…</div>
+    </div>
+
+    <h3 class="abh">C · Several cards selected: new action on the selection bar</h3>
+    <div class="absel"><b>2</b> selected <span class="sb">✓ Fine</span><span class="sb">⊘ Not in flow</span><span class="sb">→ To do</span><span class="sb">Mark urgent</span><span class="sb hl2">⇩ Questions form (2)</span><span class="sb del">🗑 Delete…</span><span class="lk">Select all 17</span><span class="sb">✕</span></div>
+    <p class="dim" style="margin:6px 0 0"><small>Shown only when a selected card has an open question. Count = questions, not cards. Cards with none are skipped and said: "#90 has no open questions".</small></p>
+
+    <h3 class="abh">Upload: drop on the chat, on the pill menu, or a card</h3>
+    <p class="dim" style="margin:0"><small>Same check everywhere. An answers file for other cards than the one it was dropped on still applies to its own cards, and the report says so.</small></p>
+  </div>
+</section>
+
+<!-- 2 ---------------------------------------------------------------- -->
+<section class="screen" id="s2">
+  <p class="cap">Opened from disk, offline. Working mock. New: questions grouped by card with a card strip to jump, a top progress bar, follow-up questions that open under the option that needs them, "Not sure, ask me later", "How sure are you?", a free-text question, "Why recommended" details, Only unanswered, Accept all recommended, Next unanswered, keys 1–6 to pick, and a "saved on this device" line.</p>
+  <div class="form" id="form">
+    <div class="fhead">
+      <div class="lang" id="lang"><button data-l="ar">ع</button><button data-l="en">EN</button></div>
+      <h1 id="title" dir="auto"></h1>
+      <div class="meta" id="meta"></div>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="who">
+      <label><span id="lName"></span><input type="text" id="name" dir="auto"></label>
+      <label><span id="lRole"></span><input type="text" id="role" dir="auto"></label>
+    </div>
+    <div class="tools" id="tools">
+      <div class="pbar"><i id="pfill"></i></div>
+      <nav class="cchips" id="cchips"></nav>
+      <div class="trow">
+        <label class="tgl"><input type="checkbox" id="onlyOpen"> <span id="lOnlyOpen"></span></label>
+        <button class="btn ghost sm" id="acceptRec" type="button"></button>
+        <span class="muted keys" id="keys"></span>
+      </div>
+    </div>
+    <div id="qs"></div>
+  </div>
+  <div class="bar" id="bar"><div>
+    <span class="prog"><span id="prog"></span><br><small id="savedAt"></small></span>
+    <button class="btn ghost" id="nextOpen" type="button"></button>
+    <button class="btn ghost" id="reset" type="button"></button>
+    <button class="btn" id="save" type="button"></button>
+    <button class="btn ghost" id="saveZip" type="button"></button>
+  </div></div>
+</section>
+
+<section class="screen" id="s3">
+  <p class="cap">The downloaded <code>AB62565-answers-2026-10-19.html</code>. Read-only page, same design. Written in the UI language the reader had at download (switch to EN in tab 2 and download again to see it). Read-only: no inputs, no script that runs on open (only the JSON block, which browsers never execute).</p>
+  <div id="answersPage" class="form readonly" dir="rtl" lang="ar"><p class="muted">Nothing yet. Answer some questions in tab 2 and press تنزيل الإجابات.</p></div>
+  <h3>Inside that .html: the machine block Alfred reads</h3><p class="muted" style="margin:0 0 6px"><small>Not a separate file. Nobody downloads or uploads JSON: the answers file is .html both ways, and this block sits inside it as <code>&lt;script type="application/json" id="alfred-answers"&gt;</code>.</small></p>
+  <pre id="answersJson">—</pre>
+</section>
+
+<!-- 4 ---------------------------------------------------------------- -->
+<section class="screen" id="s4">
+  <p class="cap">Two ways in. A person uploads the answers file on the board. Claude gets a file path (the user drops it in the terminal or names it) and sends it through MCP. Both end in the same Alfred import: dry run first, Apply after.</p>
+  <div class="ab">
+    <h3 class="abh">A · Board summary bar: the open-questions pill menu</h3>
+    <div class="abbar">
+      <span class="abt">AB#62565 Q4-CORE-WT1-T3243-001 Portal: Knowledge Base Display &amp; Internal Viewer</span>
+      <span class="abpill">❓ 7 open questions on 6 cards ▾</span>
+    </div>
+    <div class="abmenu" style="max-width:100%;margin-inline-start:auto">
+      <div class="it">⇩ Questions form: all 7 questions (6 cards)</div>
+      <div class="it">☰ Show the 6 cards</div>
+      <div class="sep"></div>
+      <div class="it hl">⇧ Upload answers file… <small class="dim">(.html from a questions form)</small></div>
+    </div>
+
+    <h3 class="abh">B · Board chat: 📎 attach, or drop the file on the chat</h3>
+    <div class="abchat">
+      <div class="msg"><b>You</b> <span class="dim">· 14:05</span><br>Ahmed sent his answers
+        <div class="att">📄 AB62565-answers-2026-10-19.html <span class="dim">· 14 KB · download only</span></div>
+      </div>
+      <div class="inp"><span class="dim">Message the board…</span><span style="flex:1"></span><span class="clip">📎</span><span class="send">➤</span></div>
+      <div class="drop">Drop an answers file here</div>
+    </div>
+
+    <h3 class="abh">C · A card: its ▾ menu, or drop the file on the card</h3>
+    <div class="abmenu" style="width:280px;max-width:100%">
+      <div class="it">▶ Ask Claude</div>
+      <div class="it">⇩ Questions form (1 question)</div>
+      <div class="it hl">⇧ Upload answers file…</div>
+    </div>
+    <p class="dim" style="margin:8px 0 0"><small>Wherever it is dropped, the file answers the questions it names. A file dropped on #97 that also answers #88 applies to both, and the report says so.</small></p>
+  </div>
+
+  <h3>Claude: MCP reads the file, Alfred applies</h3>
+  <div class="box">
+    <div class="flow">
+      <div class="st"><b>1 · User</b><br>"Ahmed's answers: C:\Users\me\Downloads\AB62565-answers-2026-10-19.html"</div>
+      <div class="ar">→</div>
+      <div class="st"><b>2 · Claude</b><br><code>board_import_answers</code><br>{ path, dryRun: true }</div>
+      <div class="ar">→</div>
+      <div class="st"><b>3 · MCP server</b><br>reads the file locally, parses HTML, takes only <code>#alfred-answers</code>, <code>JSON.parse</code>, size and schema check. Runs no script.</div>
+      <div class="ar">→</div>
+      <div class="st"><b>4 · Alfred</b><br><code>POST /board/boards/{id}/answers-import</code><br>{ answers JSON, dryRun } → checks formId and ids, returns the report</div>
+    </div>
+    <p style="margin:12px 0 4px"><b>5 · Claude shows the report in chat</b> (same rows as the preview below) and asks: <i>"Apply 3 answers to #87 and #88?"</i></p>
+    <p style="margin:4px 0"><b>6 · User says yes</b> → Claude calls again with <code>dryRun: false, askedIn: "terminal"</code> (or the chat message id). Alfred records each answer on its card as the user's, source "answers file by Ahmed Ghonim, 2026-10-19 14:02".</p>
+    <p style="margin:4px 0"><b>7 · Board</b> → <code>board_changes</code> / <code>board_wait</code> carry the answers block as usual, so alfred-live acts on them.</p>
+    <p class="muted" style="margin:8px 0 0"><small>The MCP server sends only the extracted JSON, not the HTML. Option <code>attach: true</code> also uploads the file to the board chat, so people see what was imported. The MCP server (TypeScript) and Alfred (Java) parse with the same rules and the same shared test files in specs/037; Alfred checks the JSON again whatever sends it.</small></p>
+  </div>
+
+  <h3>Try it: upload the .html or .zip you downloaded in tab 2</h3>
+  <div class="box">
+    <div class="row"><input type="file" id="up" accept=".html,.zip,text/html,application/zip"><span class="muted"><small>Read with DOMParser: scripts never run. Only <code>#alfred-answers</code> is read.</small></span></div>
+    <div id="upOut" style="margin-top:10px"></div>
+  </div>
+  <h3>The preview (board and Claude both see this)</h3>
+  <div class="box">
+    <div class="row"><b>Board chat</b><span class="muted">· AB#62565</span></div>
+    <div style="margin-top:10px" class="row">
+      <span class="file">📄 AB62565-answers-2026-10-19.html <small class="muted">· 14 KB · download only</small></span>
+    </div>
+    <div class="box" style="margin-top:12px;background:var(--bg)">
+      <div class="row"><b>Answers file</b><span class="muted">· Ahmed Ghonim (BA / Product Owner) · 2026-10-19 14:02</span>
+        <span style="flex:1"></span><span class="pill">dry run</span></div>
+      <table style="margin-top:8px">
+        <tr><th>Card</th><th>Question</th><th>Answer</th><th>Result</th></tr>
+        <tr><td>#87</td><td>Viewed · علامة New تختفي عند مين؟</td><td>لكل user لوحده</td><td><span class="pill ok">will apply</span></td></tr>
+        <tr><td>#88</td><td>Link · لينكات Google Docs</td><td>الـ Portal يحوّلها<br><small class="muted">note: بس لو Drive folder اعرض رسالة</small></td><td><span class="pill ok">will apply</span></td></tr>
+        <tr><td>#88</td><td>Blocked · الدوكيومنت private</td><td>إجابة تانية<br><small class="muted">note: الاتنين: رسالة + لينك</small></td><td><span class="pill ok">will apply</span></td></tr>
+        <tr><td>#89</td><td>Back/Exit</td><td>Back يحفظ الحالة</td><td><span class="pill warn">already answered</span><br><small class="muted">on the board: same answer, 10:41</small></td></tr>
+        <tr><td>#96</td><td>Columns</td><td>معاها created at</td><td><span class="pill bad">question withdrawn or changed</span></td></tr>
+        <tr><td>#97</td><td>Country</td><td><span class="muted">—</span></td><td><span class="muted">not answered · stays open</span></td></tr>
+      </table>
+      <div class="row" style="margin-top:12px">
+        <button class="btn">Apply 3 answers</button>
+        <button class="btn ghost">⇩ The answers file (.html)</button>
+        <span class="muted"><small>Apply = <code>dryRun:false</code>. Only the user (this button or a chat request). Claude may only dry-run.</small></span>
+      </div>
+    </div>
+  </div>
+  <h3>Rejected files (whole file, nothing applied)</h3>
+  <table>
+    <tr><td>formId not issued for this board</td><td><span class="pill bad">This answers file belongs to another board (AB#61813)</span></td></tr>
+    <tr><td>version ≠ 1</td><td><span class="pill bad">Unknown answers file version 7</span></td></tr>
+    <tr><td>&gt; 2 MB</td><td><span class="pill bad">An answers file is at most 2 MB</span></td></tr>
+    <tr><td>no #alfred-answers / script only / bad JSON</td><td><span class="pill bad">Not an Alfred answers file</span></td></tr>
+    <tr><td>any other .html</td><td><span class="pill bad">An HTML file is accepted only as an Alfred answers file</span></td></tr>
+  </table>
+</section>
+
+<!-- 5 ---------------------------------------------------------------- -->
+<section class="screen" id="s5">
+  <p class="cap">After Apply. Each answer lands on its question exactly as if picked on the board, as the user, with a source line. Needs-you count drops. alfred-live sees the answers block in <code>board_wait</code> and acts.</p>
+  <div class="box">
+    <div class="row"><b>#87 · New/Edited badge per user</b><span style="flex:1"></span><span class="pill ok">answered</span></div>
+    <div style="margin-top:8px" class="notebox">
+      <b>Viewed</b> — لما حد يفتح item، علامة New تختفي عند مين؟<br>
+      ✔ <b>لكل user لوحده</b> <span class="rec">(مقترح)</span><br>
+      <small class="muted">You · from answers file by Ahmed Ghonim (BA / Product Owner), 2026-10-19 14:02</small>
+    </div>
+    <div style="margin-top:10px" class="notebox">
+      <b>Claude</b> <small class="muted">· 14:03 · alfred-live</small><br>
+      Did: read the answer from Ahmed's file. Found: view history is per user. Next: add Acceptance item "New disappears only for the viewer"; checking <code>kb_item_view</code> keys.
+    </div>
+  </div>
+  <div class="box">
+    <div class="row"><b>Second import of the same file</b></div>
+    <p class="muted" style="margin:6px 0 0">Every row reports <span class="pill warn">already answered</span>. Nothing changes.</p>
+  </div>
+</section>
+
+<!-- 6 ---------------------------------------------------------------- -->
+<section class="screen" id="s6">
+  <p class="cap">Generation, parsing and apply are an Alfred feature. MCP tools are thin callers.</p>
+  <h3>In the form: <code>#alfred-form</code></h3>
+<pre>{ "formId": "qf_7c1e…", "version": 1,
+  "board": "AB#62565", "boardName": "Knowledge Base", "project": "odeysys",
+  "alfredUrl": "http://192.168.1.80:3000",      // optional, display only
+  "createdAt": "2026-10-19T11:20:00Z", "lang": "auto",   // auto | ar | en
+  "questions": [
+    { "id": "q1",                                   // stable in this form
+      "key": "87/14/Viewed", "card": 87, "cardName": "New/Edited badge", "entry": 14,
+      "header": "Viewed", "question": "…", "why": "…", "multiSelect": false,
+      "options": [ { "id": "o1", "label": "لكل user لوحده", "description": "…", "recommended": true },
+                   { "id": "o2", "label": "للـ agency كلها", "description": "…" } ] },
+    { "id": "q2", …, "options": [ { "id": "o1", …, "preview": "why recommended",
+        "followUp": { "id": "q2f", "question": "…", "options": [ { "id": "f1", … }, { "id": "f2", "recommended": true } ] } } ] },
+    { "id": "q4", …, "options": [] }                // free question: the note is the answer
+  ]   // "then" never shipped. Alfred stores this list under formId.
+  ] }</pre>
+  <h3>In the answers file: <code>#alfred-answers</code></h3>
+<pre>{ "formId": "qf_7c1e…", "version": 1, "board": "AB#62565",
+  "answeredBy": "Ahmed Ghonim", "role": "BA / Product Owner",
+  "answeredAt": "2026-10-19T14:02:11Z", "lang": "ar",
+  "answers": [
+    {
+      "q": "q1", "choice": ["o1"], "other": false, "later": false, "note": "", "sure": "sure", "follow": null },
+    { "q": "q2", "choice": ["o1"], "other": false, "later": false, "note": "", "sure": "likely",
+      "follow": { "q": "q2f", "choice": ["f2"] } },
+    { "q": "q3", "choice": [], "other": false, "later": true, "note": "Need to ask Google admin", "sure": null, "follow": null },
+    { "q": "q4", "choice": [], "other": false, "later": false, "note": "Mona (DevOps) can grant it", "sure": null, "follow": null },
+    { "q": "q5", "choice": ["o1","o2","o4"], "other": true, "note": "plus Status", "sure": "unsure", "follow": null } ] }</pre>
+  <h3>Who does what</h3>
+  <table>
+    <tr><th>Part</th><th>Owner</th></tr>
+    <tr><td>Collect open questions, mask, assign <code>formId</code>, render the form HTML (template + inline CSS/JS + JSON)</td><td>Alfred backend, <code>backend-board</code> (<code>QuestionsFormService</code> + one HTML template resource). One renderer for every caller.</td></tr>
+    <tr><td>Answers HTML (read-only page + <code>#alfred-answers</code>)</td><td>The form's own inline JS, offline. Shipped inside the form by Alfred.</td></tr>
+    <tr><td>Parse + check + report + apply</td><td>Alfred backend (<code>AnswersImportService</code>, jsoup, schema check). Apply goes through the same path as answering on the board.</td></tr>
+    <tr><td>Buttons: pill menu, card strip/menu, selection bar, upload</td><td>Alfred frontend. Calls the endpoints, saves the file, shows the report from JSON.</td></tr>
+    <tr><td>MCP <code>board_questions_form</code></td><td>Thin: passes board + cards + lang to the endpoint, writes the returned file to the export folder, returns its path.</td></tr>
+    <tr><td>MCP <code>board_import_answers</code></td><td>{ path | fileId | text, board?, dryRun = true, askedIn?, attach? }. With a path the MCP server reads the file and extracts <code>#alfred-answers</code> itself (HTML parser, no script), then sends only the JSON to Alfred. Board comes from the file when not given. Returns Alfred's joined JSON + report. <code>dryRun:false</code> needs <code>askedIn</code> (user chat message id or "terminal").</td></tr>
+  </table>
+  <h3>Endpoints</h3>
+  <table>
+    <tr><td><code>POST /board/boards/{id}/questions-form</code></td><td>{cards?, lang?, title?} → the HTML file (attachment). Records formId + keys + question hash (board.db table <code>question_forms</code>).</td></tr>
+    <tr><td><code>POST /board/files</code></td><td>.html accepted only when it parses as an answers file; stored; served <code>Content-Disposition: attachment</code>, <code>application/octet-stream</code>, <code>nosniff</code>, CSP sandbox. Never inlined.</td></tr>
+    <tr><td><code>GET /board/files/{id}/answers.json</code></td><td>parsed JSON.</td></tr>
+    <tr><td><code>POST /board/boards/{id}/answers-import</code></td><td>{fileId | text, dryRun=true} → JSON + per-answer report. dryRun:false records as user, with source line.</td></tr>
+  </table>
+  <h3>Open points I'd decide in the spec</h3>
+  <ul>
+    <li>Answers point by id only: <code>q</code> = question id, <code>choice</code> = option ids. Alfred resolves them through the questions it stored under <code>formId</code> (question id → card/entry/header, option id → label). A label edit in the file cannot change the meaning.</li><li><code>GET /board/files/{id}/answers.json</code> returns the joined view: each answer with its card, question text and chosen labels beside the ids.</li><li>"Changed" = the board question now differs from the stored one (text or options) → withdrawn-or-changed.</li>
+    <li>"Already answered": any answer on the board for that key, even a different one. File never overwrites.</li>
+    <li>UI strings: Arabic kept from the reference (Egyptian), English new. Page dir = UI language; every board-written text <code>dir="auto"</code>, names in <code>&lt;bdi&gt;</code>. Board buttons follow the same rule (the repo's <code>autoDir</code> directive).</li><li>"Other answer" = <code>other: true</code>; its text is the note (no second box). Download warns when it is empty.</li><li>"Not sure, ask me later" = <code>later: true</code>: nothing is applied, the question stays open, and the board shows "Ahmed: later" on it.</li><li><code>sure</code> (sure / likely / not sure) goes on the card with the answer, so Claude knows how hard to lean on it. A follow-up answer is applied with its parent.</li><li>Answers file tags each answer "As recommended" or "Not the recommended" and counts them at the top, so the user sees at a glance where the BA disagreed.</li>
+    <li>Upload of html also allowed on a card (same check); preview always from JSON.</li>
+  </ul>
+</section>
+
+<section class="screen" id="s7">
+  <p class="cap">Questions that carry their evidence. Claude puts a screenshot (marked), a chart, a table of data, the call and the spec line into one question's Details, so the person answering sees everything and needs nothing else. Same Details show on the board and in the offline form.</p>
+
+  <div class="ab">
+    <h3 class="abh">On the board: the card's question, Details open</h3>
+    <div class="abq">
+      <div class="r"><span class="ty">Question</span><span class="dim">#87</span><span class="nd">Needs decision</span><span style="flex:1"></span><span class="you">⌛ you · 1h</span></div>
+      <div class="hd">Viewed</div>
+      <div class="qq" dir="auto">لما حد يفتح item، علامة New تختفي عند مين؟</div>
+      <div class="dim" dir="auto"><b>Why I ask:</b> البند 8 بيقول agency، والبند 10 بيقول لكل user لوحده.</div>
+      <details open class="abdet"><summary>▾ Details · 1 screenshot · 1 chart · 1 table · 2 calls · spec</summary>
+        <div class="dgrid">
+          <figure><img id="shotB" alt="Portal home, New badge marked"><figcaption>Portal home as user <b>mona</b> after <b>ahmed</b> (same agency) opened "Onboarding guide". Badge still shown (red box).</figcaption></figure>
+          <div>
+            <div class="dlabel">Badge state in the recorded cycle</div>
+            <div id="chartB"></div>
+            <div class="dlabel">kb_item_view rows after the 2 opens</div>
+            <table class="dt"><tr><th>item_id</th><th>user_id</th><th>agency_id</th><th>viewed_at</th></tr>
+              <tr><td>412</td><td>ahmed</td><td>A-17</td><td>10:02:11</td></tr><tr><td>412</td><td>mona</td><td>A-17</td><td>—</td></tr></table>
+            <div class="dlabel">Calls</div>
+            <div class="chips"><span class="mc">⇄ GET /kb/items/412 · 200 · 84 ms</span><span class="mc">⇄ GET /kb/home · 200 · New=1</span></div>
+            <div class="dlabel">Spec</div>
+            <blockquote class="sq" dir="auto">AC8: "New disappears once the agency views the item" · AC10: "New is tracked per user"</blockquote>
+          </div>
+        </div>
+      </details>
+      <div class="ao rec"><b>● Per user</b> <span class="recm">recommended</span><div class="dim">Hover: AC10 wins; AC8 reworded; no schema change (table already per user).</div></div>
+      <div class="ao"><b>○ For the whole agency</b><div class="dim">Hover: needs agency_id in the badge query; AC10 removed.</div></div>
+    </div>
+  </div>
+
+  <h3>In the offline form (tab 2, question 1)</h3>
+  <p class="muted" style="margin-top:0">Same Details, made static by Alfred when it builds the form: pictures embedded as <code>data:</code> (downscaled to 1600 px, JPEG/PNG), <code>```chart</code> and <code>```stats</code> drawn as inline SVG / HTML, <code>```calls</code> and call mentions as a masked table (method, path, status, time), file links as their name. Live snippets (<code>```html live</code>, <code>```python live</code>) are not run offline: Claude adds a picture of them, or the form says "open on the board". Still no network request anywhere. The answers file does not carry the Details (stays small); it names the question.</p>
+
+  <h3>MCP changes</h3>
+  <table>
+    <tr><th>Tool</th><th>Change</th></tr>
+    <tr><td><code>board_ask</code></td><td>Each question gets <code>details</code>: board text (Markdown, or HTML when Markdown cannot say it), up to 64 KB, with pictures <code>![…](/board/images/&lt;id&gt;)</code>, <code>```chart</code>, <code>```stats</code>, <code>```calls</code>, tables, <code>@[call:…]</code> / spec mentions, file links. <code>why</code> stays the one-line reason. Option <code>preview</code> stays per-option detail (same text rules).</td></tr>
+    <tr><td><code>board_image_put</code> (new)</td><td>{ <code>path</code> | <code>base64</code>, name, number? } → <code>/board/images/&lt;id&gt;</code>. Claude uploads a screenshot (browser pane, app window, a file on disk). PNG / JPEG / WebP, ≤ 10 MB. MCP reads the path; only an image passes (magic bytes). Masked? Pictures cannot be masked, so the tool says: "check no secret is on screen".</td></tr>
+    <tr><td><code>board_attach</code></td><td>Also takes <code>path</code> (text files as today). A csv attached to the card can feed a <code>```chart</code> in the details.</td></tr>
+    <tr><td><code>board_ask_get</code> / <code>board_get</code></td><td>Return <code>details</code> as written, so another session sees what was shown.</td></tr>
+    <tr><td><code>board_questions_form</code></td><td>Embeds each question's details (rules above). Says how big the file came out and which live snippets it could not include.</td></tr>
+  </table>
+
+  <h3>Skill rules (skills/_shared/rules.md, "Asking well")</h3>
+<pre>Asking well - a question must stand on its own for someone who was not there:
+- question: one line, the decision only. why: one line, what it blocks.
+- details: the evidence, in this order, only what helps decide:
+  1. what the user sees - a screenshot, boxes/arrows on the part that matters (board_image_put)
+  2. what happened - the call(s) as @[call:…] or ```calls, the rows as a small table
+  3. how much / how often - ```stats or ```chart from real numbers, never made up
+  4. what the spec says - the Acceptance lines quoted, with their ids
+- each option: then (what you will do), preview (what changes, the calls and items it touches).
+- mark the one you advise recommended, and say why in its preview.
+- no secrets or variable values in text or on a picture - crop or blur before board_image_put.
+- for someone outside Alfred: board_questions_form; an uploaded answers file: board_import_answers.</pre>
+  <p class="muted">Skills that ask (<code>alfred-setup</code>, <code>alfred-triage</code>, <code>alfred-live</code>, <code>alfred-listen</code>, <code>alfred-review</code>, <code>alfred-verify</code>) point to this section instead of repeating it. <code>test_alfred_skill.py</code> already fails if a skill names a tool that does not exist, so <code>board_image_put</code> lands with the skills.</p>
+</section>
+
+<script>
+document.getElementById('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===b.dataset.s));
+  document.getElementById('bar').style.display=b.dataset.s==='s2'?'block':'none';};
+document.getElementById('bar').style.display='none';
+const setTh=()=>document.documentElement.style.setProperty('--th',document.getElementById('tabs').offsetHeight+'px');setTh();addEventListener('resize',setTh);
+
+const T={
+ ar:{title:b=>`أسئلة ${b}`,sub:b=>`اختار إجابة لكل سؤال. لو مفيش اختيار مناسب، اختار "إجابة تانية" واكتبها في الملاحظات. لو محتاج تسأل حد، اختار "مش متأكد، بعدين". إجاباتك بتتحفظ على الجهاز ده لوحدها. لما تخلّص، دوس "تنزيل الإجابات" وابعت الملف.`,
+  meta:(q,c,d)=>[`${q} سؤال`,`${c} كارت`,`اتعمل ${d}`],
+  name:"اسمك",role:"الدور",namePh:"مثال: Ahmed Ghonim",rolePh:"مثال: BA / Product Owner",rec:"(مقترح)",other:"إجابة تانية",otherHint:"اكتبها في الملاحظات تحت.",
+  later:"مش متأكد، بعدين",laterHint:"السؤال يفضل مفتوح على الـ board.",notes:"ملاحظات (اختياري)",freeNotes:"إجابتك",
+  prog:(n,l,t)=>`اتجاوب ${n} من ${t}`+(l?` · ${l} بعدين`:""),reset:"مسح الإجابات",save:"تنزيل الإجابات",resetQ:"تمسح كل الإجابات؟",
+  missing:(m,o)=>(m?`فيه ${m} سؤال من غير إجابة. `:"")+(o?`فيه ${o} "إجابة تانية" من غير ملاحظات. `:"")+"تنزّل الملف برضه؟",
+  asZip:"كـ .zip",details:"التفاصيل",ansTitle:b=>`إجابات ${b}`,by:"جاوب",none:"من غير إجابة",more:"ليه ده المقترح؟",sure:"متأكد قد إيه؟",sureOpts:{sure:"متأكد",likely:"غالبًا",unsure:"مش متأكد"},
+  onlyOpen:"اللي لسه بس",acceptRec:"اختار كل المقترح",acceptRecQ:n=>`هيتختار المقترح في ${n} سؤال لسه من غير إجابة. تكمل؟`,next:"السؤال الجاي",
+  saved:t=>`اتحفظ على الجهاز ده · ${t}`,notSaved:"المتصفح مش بيحفظ: نزّل الإجابات قبل ما تقفل",otherEmpty:"اكتب إجابتك في الملاحظات",follow:"سؤال تابع",
+  keys:"اختصارات: 1–6 للاختيار، N للسؤال الجاي",sumAnswered:"اتجاوب",sumLater:"بعدين",sumOpen:"من غير إجابة",sumDiff:"غير المقترح",
+  asRec:"زي المقترح",diffRec:"غير المقترح",otherOpts:n=>`${n} اختيار تاني`,laterTag:"بعدين"},
+ en:{title:b=>`Questions: ${b}`,sub:b=>`Pick an answer for each question. If none fits, choose "Other answer" and write it in the notes. If you need to check with someone, choose "Not sure, ask me later". Your answers are saved on this device as you go. When done, press "Download answers" and send the file.`,
+  meta:(q,c,d)=>[`${q} questions`,`${c} cards`,`made ${d}`],
+  name:"Your name",role:"Role",namePh:"e.g. Ahmed Ghonim",rolePh:"e.g. BA / Product Owner",rec:"(recommended)",other:"Other answer",otherHint:"Write it in the notes below.",
+  later:"Not sure, ask me later",laterHint:"The question stays open on the board.",notes:"Notes (optional)",freeNotes:"Your answer",
+  prog:(n,l,t)=>`${n} of ${t} answered`+(l?` · ${l} later`:""),reset:"Clear answers",save:"Download answers",resetQ:"Clear all answers?",
+  missing:(m,o)=>(m?`${m} question(s) have no answer. `:"")+(o?`${o} "Other answer" have no notes. `:"")+"Download anyway?",
+  asZip:"as .zip",details:"Details",ansTitle:b=>`Answers: ${b}`,by:"Answered by",none:"Not answered",more:"Why is this recommended?",sure:"How sure are you?",sureOpts:{sure:"Sure",likely:"Likely",unsure:"Not sure"},
+  onlyOpen:"Only unanswered",acceptRec:"Accept all recommended",acceptRecQ:n=>`Pick the recommended option in ${n} unanswered question(s)?`,next:"Next unanswered",
+  saved:t=>`Saved on this device · ${t}`,notSaved:"This browser does not save: download your answers before closing",otherEmpty:"Write your answer in the notes",follow:"Follow-up",
+  keys:"Keys: 1–6 to pick, N for next unanswered",sumAnswered:"Answered",sumLater:"Later",sumOpen:"Not answered",sumDiff:"Not the recommended",
+  asRec:"As recommended",diffRec:"Not the recommended",otherOpts:n=>`${n} other option(s)`,laterTag:"Later"}};
+
+const FORM={formId:"qf_7c1e",version:1,board:"AB#62565",boardName:"Knowledge Base",project:"odeysys",createdBy:"Fathy",createdAt:"2026-10-19T11:20:00Z",lang:"auto",
+ cards:[{card:87,name:"New/Edited badge",type:"Question"},{card:88,name:"Google Docs viewer",type:"Question"},{card:90,name:"Parent AB#60766 not readable",type:"Question"},{card:96,name:"Admin list",type:"Question"}],
+ questions:[
+ {id:"q1",key:"87/14/Viewed",card:87,entry:14,header:"Viewed",question:"لما حد يفتح item، علامة New تختفي عند مين؟",why:"البند 8 بيقول agency، والبند 10 بيقول لكل user لوحده. لازم نعرف الـ view history هيتسجّل على مين.",multiSelect:false,
+  options:[{id:"o1",label:"لكل user لوحده",description:"كل user له حالة New و Edited خاصة بيه.",recommended:true,preview:"البند 10 أوضح، والـ DB فيها جدول view لكل user أصلًا. الـ Acceptance 8 هيتعدّل."},
+           {id:"o2",label:"للـ agency كلها",description:"أول ما أي حد في الـ agency يفتح الـ item، تختفي New عند الكل."}]},
+ {id:"q2",key:"88/9/Link",card:88,entry:9,header:"Link",question:"لينكات Google Docs و Drive هتتعرض جوه الـ iframe إزاي؟",why:"Google بيمنع أغلب اللينكات جوه iframe، غير لو بصيغة /preview.",multiSelect:false,
+  options:[{id:"o1",label:"الـ Portal يحوّلها",description:"الـ Admin يحط لينك share عادي، والـ Portal يحوّله لـ /preview.",recommended:true,preview:"أسهل على الـ Admin، ومفيش لينكات هتترفض.",
+            followUp:{id:"q2f",header:"Folder",question:"ولو اللينك Drive folder مش ملف؟",options:[{id:"f1",label:"رسالة جوه الـ viewer"},{id:"f2",label:"يفتح في tab جديدة",recommended:true}]}},
+           {id:"o2",label:"الـ Admin يحط لينك embed",description:"اللينك العادي يترفض عند الحفظ."}]},
+ {id:"q3",key:"88/11/Blocked",card:88,entry:11,header:"Blocked",question:"لو الدوكيومنت private أو متقفل، الـ user يشوف إيه؟",why:"لازم نعرف الـ fallback لما Google يرفض يعرض الدوكيومنت.",multiSelect:false,
+  options:[{id:"o1",label:"رسالة جوه الـ viewer",description:"تظهر رسالة، والـ user يفضل في الـ Portal."},{id:"o2",label:"يفتح في tab جديدة",description:"لينك احتياطي يفتح الدوكيومنت في tab جديدة."}]},
+ {id:"q4",key:"90/3/Access",card:90,entry:3,header:"Access",question:"Who can give the Alfred token read access to AB#60766?",why:"The parent item may hold shared acceptance criteria for both stories.",multiSelect:false,options:[]},
+ {id:"q5",key:"96/4/Columns",card:96,entry:4,header:"Columns",question:"Which columns does the Admin list show?",why:"The acceptance says Label, Link, created at and Actions; the business rules leave out created at.",multiSelect:true,
+  options:[{id:"o1",label:"Label",recommended:true},{id:"o2",label:"Link",recommended:true},{id:"o3",label:"created at",recommended:true},{id:"o4",label:"Actions",recommended:true}]}
+]};
+
+// ---- demo assets: what Alfred embeds (data: picture, inline SVG chart)
+const SHOT=`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" font-family="Segoe UI,Arial" font-size="13"><rect width="640" height="360" fill="#f4f6fa"/><rect width="640" height="44" fill="#1f3a68"/><text x="16" y="28" fill="#fff" font-size="15" font-weight="700">Odeys Portal · Knowledge Base</text><text x="560" y="28" fill="#cfe0ff">mona ▾</text>`+
+ [0,1,2].map(i=>`<rect x="${16+i*206}" y="64" width="194" height="120" rx="8" fill="#fff" stroke="#d6dbe5"/><rect x="${28+i*206}" y="78" width="120" height="10" rx="3" fill="#c7cfdd"/><rect x="${28+i*206}" y="98" width="160" height="8" rx="3" fill="#e1e6ee"/><rect x="${28+i*206}" y="112" width="140" height="8" rx="3" fill="#e1e6ee"/>`).join("")+
+ `<text x="28" y="160" fill="#1d2330" font-weight="700">Onboarding guide</text><rect x="150" y="146" width="40" height="20" rx="10" fill="#2f6fde"/><text x="158" y="160" fill="#fff" font-size="11">New</text><rect x="140" y="138" width="60" height="36" rx="6" fill="none" stroke="#e5332a" stroke-width="3"/><path d="M230 230 L196 176" stroke="#e5332a" stroke-width="3"/><text x="236" y="246" fill="#e5332a" font-weight="700">still New for mona after ahmed opened it</text>`+
+ [0,1,2].map(i=>`<rect x="${16+i*206}" y="200" width="194" height="20" rx="4" fill="#e9edf4"/>`).join("")+`</svg>`;
+const SHOT_URI="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(SHOT);
+const CHART=`<svg viewBox="0 0 300 120" width="100%" height="120" font-family="Segoe UI,Arial" font-size="11"><line x1="30" y1="96" x2="296" y2="96" stroke="#8a90a0"/>`+
+ [["ahmed",0,"#4cc27e"],["mona",1,"#e0a640"],["sara",1,"#e0a640"],["omar",1,"#e0a640"]].map(([u,v,c],i)=>`<rect x="${44+i*62}" y="${v?26:86}" width="38" height="${v?70:10}" rx="3" fill="${c}"/><text x="${63+i*62}" y="112" text-anchor="middle" fill="#8a90a0">${u}</text>`).join("")+
+ `<text x="30" y="16" fill="#8a90a0">New badge shown (agency A-17, item 412)</text></svg>`;
+const D1=`<figure><img src="${SHOT_URI}" alt="Portal home, New badge marked"><figcaption>Portal home as mona after ahmed (same agency) opened "Onboarding guide". The badge is still there (red box).</figcaption></figure>`+
+ `<div class="sstats"><div><b>4</b>users in agency A-17</div><div><b>1</b>opened item 412</div><div><b>3</b>still see New</div></div>`+
+ `<div class="dlabel">New badge per user</div>${CHART}`+
+ `<div class="dlabel">kb_item_view rows after the open</div><table><tr><th>item_id</th><th>user_id</th><th>agency_id</th><th>viewed_at</th></tr><tr><td>412</td><td>ahmed</td><td>A-17</td><td>10:02:11</td></tr></table>`+
+ `<div class="dlabel">Calls</div><table><tr><th></th><th>call</th><th>status</th><th>time</th></tr><tr><td>⇄</td><td>GET /kb/items/412</td><td>200</td><td>84 ms</td></tr><tr><td>⇄</td><td>GET /kb/home (mona)</td><td>200</td><td>61 ms</td></tr></table>`+
+ `<div class="dlabel">Spec</div><blockquote dir="auto">AC8: "New disappears once the agency views the item"<br>AC10: "New is tracked per user"</blockquote>`;
+const D2=`<div class="dlabel">What Google answers inside an iframe</div><table><tr><th>link form</th><th>X-Frame-Options</th><th>shows?</th></tr><tr><td>/document/d/…/edit</td><td>SAMEORIGIN</td><td>✗</td></tr><tr><td>/document/d/…/preview</td><td>—</td><td>✓</td></tr><tr><td>/drive/folders/…</td><td>SAMEORIGIN</td><td>✗</td></tr></table>`;
+FORM.questions[0].details=D1;FORM.questions[1].details=D2;
+document.getElementById("shotB").src=SHOT_URI;document.getElementById("chartB").innerHTML=CHART;
+const $=id=>document.getElementById(id);
+const nameEl=$("name"),roleEl=$("role"),prog=$("prog"),save=$("save"),reset=$("reset"),answersPage=$("answersPage"),answersJson=$("answersJson");
+const KEY="alfred-form-"+FORM.formId;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cardOf=n=>FORM.cards.find(c=>c.card===n);
+// auto: the language most questions are written in (per question: Arabic letters vs Latin letters)
+function detect(){const ar=FORM.questions.filter(q=>(q.question.match(/[؀-ۿ]/g)||[]).length>=(q.question.match(/[A-Za-z]/g)||[]).length).length;
+ return ar*2>=FORM.questions.length?"ar":"en";}
+let L=FORM.lang==="auto"?detect():FORM.lang;
+try{L=localStorage.getItem(KEY+":lang")||L}catch(e){}
+
+// ---- build once
+const optHtml=(q,o,t,name,n)=>`<label class="opt"><input type="${t}" name="${name}" value="${o.id}"><span class="k">${n}</span><span><b dir="auto">${esc(o.label)}${o.recommended?'<span class="rec" data-t="rec"></span>':''}</b>${o.description?`<small dir="auto">${esc(o.description)}</small>`:''}${o.preview?`<details class="why2"><summary data-t="more"></summary><div dir="auto">${esc(o.preview)}</div></details>`:''}</span></label>`;
+const root=$("qs");let num=0;
+FORM.cards.forEach(c=>{const qs=FORM.questions.filter(q=>q.card===c.card);if(!qs.length)return;
+ const g=document.createElement("section");g.className="grp";g.id="card-"+c.card;
+ g.innerHTML=`<div class="ghead"><span class="gnum">#${c.card}</span><b dir="auto">${esc(c.name)}</b><span class="gtype">${esc(c.type)}</span><span class="gcount" data-gc="${c.card}"></span></div>`;
+ qs.forEach(q=>{num++;const t=q.multiSelect?"checkbox":"radio";const el=document.createElement("div");el.className="q";el.id="q-"+q.id;el.tabIndex=-1;
+  const free=!q.options.length;
+  el.innerHTML=`<span class="tag" dir="auto">${esc(q.header)}${q.multiSelect?' · ☑☑':''}</span><span class="ltag" data-t="laterTag"></span><h2 dir="auto">${num}. ${esc(q.question)}</h2><p class="why" dir="auto">${esc(q.why)}</p>`+(q.details?`<details class="det" open><summary data-t="details"></summary><div class="dbody" dir="auto">${q.details}</div></details>`:"")+
+   q.options.map((o,i)=>optHtml(q,o,t,q.id,i+1)).join("")+
+   (free?"":`<label class="opt"><input type="${t}" name="${q.id}" value="__other"><span class="k">${q.options.length+1}</span><span><b data-t="other"></b><small data-t="otherHint"></small></span></label>`)+
+   `<label class="opt later"><input type="${t}" name="${q.id}" value="__later"><span class="k">${q.options.length+(free?1:2)}</span><span><b data-t="later"></b><small data-t="laterHint"></small></span></label>`+
+   q.options.filter(o=>o.followUp).map(o=>`<div class="fu" data-fu="${q.id}" data-for="${o.id}"><span class="tag" data-t="follow"></span><h3 dir="auto">${esc(o.followUp.question)}</h3>`+
+     o.followUp.options.map((f,i)=>optHtml(o.followUp,f,"radio",q.id+".f","")).join("")+`</div>`).join("")+
+   `<label class="note"><span data-t="${free?"freeNotes":"notes"}"></span><textarea dir="auto" data-note="${q.id}"${free?' class="free"':''}></textarea></label><p class="hint err" data-oe="${q.id}" data-t="otherEmpty"></p>`+
+   (free?"":`<div class="sure"><span data-t="sure"></span>${["sure","likely","unsure"].map(v=>`<label><input type="radio" name="${q.id}.s" value="${v}"><span data-s="${v}"></span></label>`).join("")}</div>`);
+  g.appendChild(el);});
+ root.appendChild(g);});
+
+// ---- read state
+function readQ(q){const picked=[...document.querySelectorAll(`input[name="${q.id}"]:checked`)].map(x=>x.value);
+ const note=document.querySelector(`[data-note="${q.id}"]`).value.trim();const s=document.querySelector(`input[name="${q.id}.s"]:checked`);
+ const choice=picked.filter(v=>!v.startsWith("__"));const fo=q.options.find(o=>o.followUp&&choice.includes(o.id));
+ let follow=null;if(fo){const f=document.querySelector(`input[name="${q.id}.f"]:checked`);follow={q:fo.followUp.id,choice:f?[f.value]:[]};}
+ return{q:q.id,choice,other:picked.includes("__other"),later:picked.includes("__later"),note,sure:s?s.value:null,follow};}
+const isAns=(q,a)=>!a.later&&(a.choice.length||a.other||(!q.options.length&&a.note));
+function collect(){return{formId:FORM.formId,version:1,board:FORM.board,lang:L,answeredBy:nameEl.value.trim(),role:roleEl.value.trim(),answeredAt:new Date().toISOString(),
+ answers:FORM.questions.map(readQ)};}
+
+function applyLang(){const t=T[L];const dir=L==="ar"?"rtl":"ltr";
+ [$("form"),$("bar"),answersPage].forEach(e=>{e.dir=dir;e.lang=L});
+ $("title").textContent=t.title(FORM.boardName);
+ $("meta").innerHTML=[FORM.board,FORM.project,...t.meta(FORM.questions.length,FORM.cards.length,new Date(FORM.createdAt).toLocaleDateString(L==="ar"?"ar-EG":"en-GB"))].map(x=>`<span>${esc(x)}</span>`).join("");
+ $("sub").textContent=t.sub();$("lName").textContent=t.name;$("lRole").textContent=t.role;nameEl.placeholder=t.namePh;roleEl.placeholder=t.rolePh;
+ reset.textContent=t.reset;save.textContent=t.save;$("saveZip").textContent=t.asZip;$("nextOpen").textContent=t.next;$("lOnlyOpen").textContent=t.onlyOpen;$("acceptRec").textContent=t.acceptRec;$("keys").textContent=t.keys;
+ document.querySelectorAll("#qs [data-t]").forEach(e=>e.textContent=t[e.dataset.t]);
+ document.querySelectorAll("#qs [data-s]").forEach(e=>e.textContent=t.sureOpts[e.dataset.s]);
+ document.querySelectorAll("#lang button").forEach(b=>b.classList.toggle("on",b.dataset.l===L));refresh();}
+$("lang").onclick=e=>{const b=e.target.closest("button");if(!b)return;L=b.dataset.l;try{localStorage.setItem(KEY+":lang",L)}catch(x){}applyLang();};
+
+function refresh(){const d=collect(),t=T[L];let n=0,l=0;
+ FORM.questions.forEach((q,i)=>{const a=d.answers[i],el=$("q-"+q.id),ok=isAns(q,a);if(ok)n++;if(a.later)l++;
+  el.classList.toggle("done",!!ok);el.classList.toggle("islater",a.later);
+  el.classList.toggle("hidden",$("onlyOpen").checked&&(ok||a.later)&&!el.contains(document.activeElement));
+  el.querySelectorAll(".fu").forEach(f=>f.classList.toggle("show",a.choice.includes(f.dataset.for)));
+  el.querySelector(`[data-oe]`).classList.toggle("show",a.other&&!a.note);
+  if(a.later&&q.multiSelect)el.querySelectorAll(`input[name="${q.id}"]:not([value="__later"])`).forEach(x=>x.checked=false);});
+ prog.textContent=t.prog(n,l,FORM.questions.length);$("pfill").style.width=(100*(n+l)/FORM.questions.length)+"%";
+ $("cchips").innerHTML=FORM.cards.map(c=>{const qs=FORM.questions.filter(q=>q.card===c.card);const k=qs.filter(q=>{const a=d.answers[FORM.questions.indexOf(q)];return isAns(q,a)||a.later}).length;
+  return `<a href="#card-${c.card}" class="${k===qs.length?"ok":""}">#${c.card} <small>${k}/${qs.length}</small></a>`}).join("");
+ document.querySelectorAll("[data-gc]").forEach(e=>{const qs=FORM.questions.filter(q=>q.card==e.dataset.gc);e.textContent=`${qs.filter(q=>isAns(q,d.answers[FORM.questions.indexOf(q)])).length}/${qs.length}`});
+ try{localStorage.setItem(KEY,JSON.stringify(d));$("savedAt").textContent=t.saved(new Date().toLocaleTimeString(L==="ar"?"ar-EG":"en-GB",{hour:"2-digit",minute:"2-digit"}))}catch(e){$("savedAt").textContent=t.notSaved}}
+function restore(){try{const s=JSON.parse(localStorage.getItem(KEY)||"null");if(!s)return;nameEl.value=s.answeredBy||"";roleEl.value=s.role||"";
+ s.answers.forEach(a=>{const set=(n,v)=>{const r=[...document.querySelectorAll(`input[name="${n}"]`)].find(x=>x.value===v);if(r)r.checked=true};
+  a.choice.forEach(v=>set(a.q,v));if(a.other)set(a.q,"__other");if(a.later)set(a.q,"__later");if(a.sure)set(a.q+".s",a.sure);if(a.follow)a.follow.choice.forEach(v=>set(a.q+".f",v));
+  const t=document.querySelector(`[data-note="${a.q}"]`);if(t)t.value=a.note||""})}catch(e){}}
+restore();applyLang();document.addEventListener("input",refresh);document.addEventListener("change",e=>{
+ const i=e.target;if(i.type==="checkbox"&&i.name&&!i.name.includes(".")&&i.value!=="__later"&&i.checked){const l=document.querySelector(`input[name="${i.name}"][value="__later"]`);if(l)l.checked=false}refresh();});
+$("onlyOpen").onchange=refresh;
+function firstOpen(){const d=collect();return FORM.questions.find((q,i)=>!isAns(q,d.answers[i])&&!d.answers[i].later)}
+$("nextOpen").onclick=()=>{const q=firstOpen();if(!q)return;const el=$("q-"+q.id);el.scrollIntoView({behavior:"smooth",block:"center"});el.focus({preventScroll:true})};
+$("acceptRec").onclick=()=>{const d=collect();const todo=FORM.questions.filter((q,i)=>!isAns(q,d.answers[i])&&!d.answers[i].later&&q.options.some(o=>o.recommended));
+ if(!todo.length||!confirm(T[L].acceptRecQ(todo.length)))return;
+ todo.forEach(q=>q.options.filter(o=>o.recommended).forEach(o=>{document.querySelector(`input[name="${q.id}"][value="${o.id}"]`).checked=true;
+  if(o.followUp){const r=o.followUp.options.find(f=>f.recommended);if(r)document.querySelector(`input[name="${q.id}.f"][value="${r.id}"]`).checked=true}}));refresh();};
+document.addEventListener("keydown",e=>{if(!$("s2").classList.contains("on")||/TEXTAREA|INPUT/.test(e.target.tagName)&&e.target.type==="text"||e.target.tagName==="TEXTAREA"||e.ctrlKey||e.metaKey||e.altKey)return;
+ if(e.key==="n"||e.key==="N"){$("nextOpen").click();e.preventDefault();return}
+ const q=e.target.closest&&e.target.closest(".q");if(!q||!/^[1-6]$/.test(e.key))return;
+ const ins=[...q.querySelectorAll(`:scope > label.opt input`)];const x=ins[+e.key-1];if(x){x.click();x.focus();e.preventDefault()}});
+
+// ---- answers page (read-only, no script)
+function buildAnswers(d){const t=T[L];let n=0,l=0,o=0,diff=0;
+ const body=FORM.cards.map(c=>{const qs=FORM.questions.filter(q=>q.card===c.card);if(!qs.length)return"";
+  return `<section class="grp"><div class="ghead"><span class="gnum">#${c.card}</span><b dir="auto">${esc(c.name)}</b><span class="gtype">${esc(c.type)}</span></div>`+qs.map(q=>{
+   const a=d.answers.find(x=>x.q===q.id),ok=isAns(q,a);if(ok)n++;else if(a.later)l++;else o++;
+   const rec=q.options.filter(x=>x.recommended).map(x=>x.id).sort().join();const mine=a.choice.slice().sort().join();
+   const vs=!ok||!rec||a.other?"":(rec===mine?`<span class="pill ok">${t.asRec}</span>`:(diff++,`<span class="pill warn">${t.diffRec}</span>`));
+   const pk=q.options.filter(x=>a.choice.includes(x.id)),rest=q.options.filter(x=>!a.choice.includes(x.id));
+   const row=(x,on)=>`<div class="opt ${on?'picked':''}"><span>${on?'✔':'○'}</span><span><b dir="auto">${esc(x.label)}${x.recommended?`<span class="rec">${t.rec}</span>`:''}</b>${x.description?`<small dir="auto">${esc(x.description)}</small>`:''}</span></div>`;
+   const fq=a.follow&&q.options.find(x=>x.followUp&&x.followUp.id===a.follow.q);
+   return `<div class="q ${ok?'done':a.later?'islater':'unans'}"><span class="tag" dir="auto">${esc(q.header)}</span> ${vs}${a.later?`<span class="pill warn">${t.laterTag}</span>`:''}<h2 dir="auto">${esc(q.question)}</h2>`+
+    pk.map(x=>row(x,true)).join("")+(a.other?`<div class="opt picked"><span>✔</span><span><b>${t.other}</b></span></div>`:'')+
+    (fq?`<div class="fu show"><span class="tag">${t.follow}</span><h3 dir="auto">${esc(fq.followUp.question)}</h3>${fq.followUp.options.filter(f=>a.follow.choice.includes(f.id)).map(f=>row(f,true)).join("")||`<p class="why">${t.none}</p>`}</div>`:'')+
+    (a.note?`<blockquote class="notebox" dir="auto">${esc(a.note)}</blockquote>`:'')+
+    (a.sure?`<p class="why">${t.sure} <b>${t.sureOpts[a.sure]}</b></p>`:'')+
+    (!ok&&!a.later?`<p class="why">${t.none}</p>`:'')+
+    (rest.length?`<details class="why2"><summary>${t.otherOpts(rest.length)}</summary>${rest.map(x=>row(x,false)).join("")}</details>`:'')+`</div>`}).join("")+`</section>`}).join("");
+ const head=`<h1 dir="auto">${esc(t.ansTitle(FORM.boardName))}</h1><div class="meta"><span>${esc(FORM.board)}</span><span>${esc(FORM.project)}</span><span>${t.by} <bdi>${esc(d.answeredBy||"—")}</bdi>${d.role?` (<bdi>${esc(d.role)}</bdi>)`:''}</span><span>${new Date(d.answeredAt).toLocaleString(L==="ar"?"ar-EG":"en-GB")}</span></div>`+
+  `<div class="stats"><div><b>${n}</b>${t.sumAnswered}</div><div><b>${l}</b>${t.sumLater}</div><div><b>${o}</b>${t.sumOpen}</div><div><b>${diff}</b>${t.sumDiff}</div></div>`;
+ return head+body;}
+
+// one-entry stored zip (no compression), so the offline form needs no library
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function zipOne(name,data){const n=new TextEncoder().encode(name),crc=crc32(data),sz=data.length;
+ const h=(sig,len)=>{const b=new DataView(new ArrayBuffer(len));b.setUint32(0,sig,true);return b};
+ const lh=h(0x04034b50,30);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,n.length,true);
+ const cd=h(0x02014b50,46);cd.setUint16(4,20,true);cd.setUint16(6,20,true);cd.setUint16(8,0x0800,true);cd.setUint32(16,crc,true);cd.setUint32(20,sz,true);cd.setUint32(24,sz,true);cd.setUint16(28,n.length,true);
+ const end=h(0x06054b50,22);end.setUint16(8,1,true);end.setUint16(10,1,true);end.setUint32(12,46+n.length,true);end.setUint32(16,30+n.length+sz,true);
+ return new Blob([lh.buffer,n,data,cd.buffer,n,end.buffer]);}
+let asZip=false;
+$("saveZip").onclick=()=>{asZip=true;save.onclick();};
+save.onclick=()=>{const d=collect(),t=T[L];
+ const miss=FORM.questions.filter((q,i)=>!isAns(q,d.answers[i])&&!d.answers[i].later).length,oe=d.answers.filter(a=>a.other&&!a.note).length;
+ if((miss||oe)&&!confirm(t.missing(miss,oe)))return;
+ answersPage.innerHTML=buildAnswers(d);
+ answersJson.textContent=JSON.stringify(d,null,2);
+ const css=document.querySelector("style").textContent;
+ const json=JSON.stringify(d).replace(/</g,"\\u003c");
+ const file=`<!doctype html><html lang="${L}" dir="${L==="ar"?"rtl":"ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(t.ansTitle(FORM.boardName))}</title><style>${css}</style></head><body><main class="screen on"><div class="form readonly">${answersPage.innerHTML}</div></main><script type="application/json" id="alfred-answers">${json}<\/script></body></html>`;
+ const base=`${FORM.board.replace("#","")}-answers-${d.answeredAt.slice(0,10)}`;
+ const blob=asZip?new Blob([zipOne(base+".html",new TextEncoder().encode(file))],{type:"application/zip"}):new Blob([file],{type:"text/html"});
+ const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+ a.download=base+(asZip?".zip":".html");asZip=false;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+ document.querySelector('[data-s="s3"]').click();};
+
+// ---- upload (what Alfred / the MCP server do, in short)
+function readAnswers(text){
+ if(text.length>2*1024*1024)throw "An answers file is at most 2 MB";
+ const doc=new DOMParser().parseFromString(text,"text/html");   // inert: no script runs
+ const el=doc.getElementById("alfred-answers");
+ if(!el||el.type!=="application/json")throw "Not an Alfred answers file";
+ let d;try{d=JSON.parse(el.textContent)}catch(e){throw "Not an Alfred answers file"}
+ if(d.version!==1)throw `Unknown answers file version ${d.version}`;
+ if(d.formId!==FORM.formId)throw "This answers file belongs to another form";
+ return d;}
+async function unzipOne(buf){const v=new DataView(buf);if(v.getUint32(0,true)!==0x04034b50)throw "Not an Alfred answers file";
+ const method=v.getUint16(8,true),flags=v.getUint16(6,true),csz=v.getUint32(18,true),nl=v.getUint16(26,true),xl=v.getUint16(28,true);
+ if(flags&1)throw "A .zip is accepted only when it holds one Alfred answers file";
+ const name=new TextDecoder().decode(new Uint8Array(buf,30,nl));if(!/\.html?$/i.test(name)||name.includes(".."))throw "A .zip is accepted only when it holds one Alfred answers file";
+ const raw=new Uint8Array(buf,30+nl+xl,csz);if(method===0)return new TextDecoder().decode(raw);
+ const s=new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));return await new Response(s).text();}
+$("up").onchange=async e=>{const f=e.target.files[0];if(!f)return;const out=$("upOut");
+ try{const text=/\.zip$/i.test(f.name)?await unzipOne(await f.arrayBuffer()):await f.text();const d=readAnswers(text);
+  out.innerHTML=`<div class="row"><b>${esc(f.name)}</b><span class="muted">· <bdi>${esc(d.answeredBy||"—")}</bdi> · ${esc(d.answeredAt)}</span><span class="pill">dry run</span></div><table style="margin-top:8px"><tr><th>Card</th><th>Question</th><th>Answer</th><th>Result</th></tr>`+
+   d.answers.map(a=>{const q=FORM.questions.find(x=>x.id===a.q);if(!q)return `<tr><td>—</td><td>${esc(a.q)}</td><td></td><td><span class="pill bad">unknown key</span></td></tr>`;
+    const labels=a.choice.map(id=>(q.options.find(o=>o.id===id)||{label:"?"+id}).label);if(a.other)labels.push(T[L].other);
+    const fq=a.follow&&q.options.find(x=>x.followUp&&x.followUp.id===a.follow.q);if(fq)labels.push("→ "+fq.followUp.options.filter(x=>a.follow.choice.includes(x.id)).map(x=>x.label).join(", "));
+    const ok=isAns(q,a);const ans=ok?esc(labels.join(", "))||esc(a.note):'<span class="muted">—</span>';
+    return `<tr><td>#${q.card}</td><td dir="auto">${esc(q.header)} · ${esc(q.question)}</td><td dir="auto">${ans}${a.note&&labels.length?`<br><small class="muted">note: ${esc(a.note)}</small>`:""}${a.sure?`<br><small class="muted">${esc(a.sure)}</small>`:""}</td><td>${ok?'<span class="pill ok">will apply</span>':a.later?'<span class="pill warn">later · stays open</span>':'<span class="muted">not answered · stays open</span>'}</td></tr>`}).join("")+`</table>`;
+ }catch(err){out.innerHTML=`<span class="pill bad">${esc(err)}</span>`}};
+reset.onclick=()=>{if(!confirm(T[L].resetQ))return;try{localStorage.removeItem(KEY)}catch(e){}
+ document.querySelectorAll('#qs input').forEach(r=>r.checked=false);document.querySelectorAll('#qs textarea,#name,#role').forEach(t=>t.value="");refresh();};
+</script>
+</body>
+</html>

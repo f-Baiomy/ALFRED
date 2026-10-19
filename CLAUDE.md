@@ -211,6 +211,14 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   /ws/* reach the reader's pages on /ws/links (no polling). Environments (STG…) keep their marks on their own Alfred.
   Discovery is the native supervisor's multicast (`239.255.70.70:47070`); Docker says it cannot. Never through the tunnel.
 
+- **Questions go offline as one form.html Alfred builds, and come back as an answers file Alfred reads** (specs/037,
+  docs/board.md "Questions form"): `QuestionsFormService` fills `resources/board/questions-form.html` (masked by
+  `ProseMask`, pictures as `data:` URIs, ids q/o/f plus a hash per question, `question_forms` table); `AnswersFile`
+  reads only `script#alfred-answers` with jsoup (the MCP server with jsdom, `answers-file.ts`) - never a script run,
+  2 MB, a .zip holding exactly one answers file. A stored html/zip is only ever an answers file and always an
+  attachment. Dry run first; applying as Claude needs `askedIn`. New question data stays new JSON keys in the
+  ```` ```questions ```` / ```` ```answers ```` blocks (`details`, `via`, `sure`) - no enum, actor or column.
+
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination
 - docs/frontend-architecture.md — frontend state, WebSocket-driven fetch-on-demand, component-sharing patterns

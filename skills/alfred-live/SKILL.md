@@ -11,6 +11,8 @@ the answering (docs/mcp.md "Live answers"):
 
 **Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board") - `task_context` resolves it; the runner takes the cycle id `task_context` gives. A bare `#n` is a card.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 **Board sessions** (specs/031, specs/032): the board's **Claude button** (▶ Start Claude) does all of this for the user -
 their Alfred helper opens the board's session on their PC - a **Claude Desktop chat** in the board's folder (the
 default), else a **terminal** - whose first message asks it to read the task and run this skill. **That session is the

@@ -10,6 +10,8 @@ import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
   Resolution, SCOPE_LABELS, STATUS_LABELS, Scope, TextVersion,
 } from '../../../core/models/board.models';
+import { defaultBoardId } from '../../../core/models/board.models';
+import { QuestionsFormService } from '../../../core/services/questions-form.service';
 import { SessionCyclesApiService } from '../../../core/services/session-cycles-api.service';
 import { TimelineFilter, after, dayLabel, isNewEntry } from '../../../shared/utils/timeline-view';
 import { reactionsOf } from '../../../shared/utils/board-threads';
@@ -133,6 +135,12 @@ function writeJson(key: string, value: unknown): void {
               @if (c.openQuestions; as n) {
                 <button type="button" class="board-qpill" [disabled]="!editable()" title="Claude's open questions - answer them in one go"
                         (click)="answering.set(true)">❓ {{ n }}</button>
+                <button type="button" class="board-qform" [disabled]="forms.busy()" title="This card's questions as an offline form - for someone outside Alfred"
+                        (click)="forms.download(c.boardId || defaultBoard(c.project), [c.number])">⇩ Form</button>
+                @if (editable()) {
+                  <button type="button" class="board-qform" [disabled]="forms.busy()" title="Upload the answers file a questions form downloaded (.html or .zip)"
+                          (click)="forms.pick(c.boardId || defaultBoard(c.project), c.project)">⇧ Answers</button>
+                }
               }
               <span class="cd-grow"></span>
               @if (skill(); as cmd) {
@@ -505,6 +513,9 @@ function writeJson(key: string, value: unknown): void {
 
 })
 export class CardDrawerComponent {
+  /** The questions form and answers file of this card (specs/037). */
+  readonly forms = inject(QuestionsFormService);
+  readonly defaultBoard = defaultBoardId;
   private readonly api = inject(BoardApiService);
   private readonly teamApi = inject(TeamApiService);
   /** The card's linked work items (from "Linked in …") and whether a comment also goes to them. */

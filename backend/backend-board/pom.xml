@@ -43,6 +43,17 @@
       <artifactId>jsoup</artifactId>
       <version>1.18.1</version>
     </dependency>
+    <!-- questions form (specs/037): a question's Markdown details made static HTML for the offline form -->
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark</artifactId>
+      <version>0.22.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark-ext-gfm-tables</artifactId>
+      <version>0.22.0</version>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

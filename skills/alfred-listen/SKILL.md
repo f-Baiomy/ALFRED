@@ -32,6 +32,8 @@ does the listening (docs/mcp.md "Listen runner"):
 - Every event is a line in the runner's full log; only each judged batch's findings (with their evidence), the live
   lane's answers, failures, start and stop go to its chat log, which this session watches. A clean batch adds nothing.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 
 Boards (specs/027): a board's cycle is what you listen to - given a board, listen to the cycle it records into (`board_boards` lists its cycles; `board_record` starts one). A cycle shared by several boards judges every board's requirements; each finding goes where `board_home` says (rules section 0, "Boards and cycles").
 

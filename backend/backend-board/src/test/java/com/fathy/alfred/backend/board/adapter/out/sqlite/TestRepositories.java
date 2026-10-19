@@ -43,6 +43,11 @@ public final class TestRepositories {
         return new SqliteBoardModelRepository((SqliteBoardRepository) store, json);
     }
 
+    /** The questions forms' table in the same board.db as {@code store} (specs/037). */
+    public static com.fathy.alfred.backend.board.application.port.out.QuestionFormStorePort questionForms(BoardStorePort store) {
+        return new SqliteQuestionFormRepository((SqliteBoardRepository) store);
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

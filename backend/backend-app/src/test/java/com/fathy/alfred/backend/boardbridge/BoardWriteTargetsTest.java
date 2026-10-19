@@ -59,6 +59,15 @@ class BoardWriteTargetsTest {
     }
 
     @Test
+    void aQuestionsFormAndADryRunImportAreNotLockedApplyingIs() throws Exception {
+        // specs/037: making the form and reading an answers file change no card
+        assertThat(of("POST", "/board/boards/b1/questions-form", "{\"cards\":[3]}").boards()).isEmpty();
+        assertThat(of("POST", "/board/boards/b1/answers-import", "{\"fileId\":\"f-12345678\"}").boards()).isEmpty();
+        assertThat(of("POST", "/board/boards/b1/answers-import", "{\"fileId\":\"f-12345678\",\"dryRun\":true}").boards()).isEmpty();
+        assertThat(of("POST", "/board/boards/b1/answers-import", "{\"fileId\":\"f-12345678\",\"dryRun\":false}").boards()).containsExactly("b1");
+    }
+
+    @Test
     void aCardMovedHomeLocksBothBoards() throws Exception {
         assertThat(of("PUT", "/board/cards/card-1/home", "{\"boardId\":\"b9\"}").boards()).containsExactlyInAnyOrder("b-card", "b9");
     }

@@ -59,7 +59,7 @@ class BoardFilesAndWidgetsTest {
     @Test
     void theBytesMustBeWhatTheNameSays() {
         String id = card.card().id();
-        assertThat(f.files.attach(Actor.USER, id, null, null, "page.html", text("<b>x</b>")).message()).contains("one of");
+        assertThat(f.files.attach(Actor.USER, id, null, null, "page.html", text("<b>x</b>")).message()).isEqualTo("An HTML file is accepted only as an Alfred answers file");
         assertThat(f.files.attach(Actor.USER, id, null, null, "app.exe", new byte[] {'M', 'Z'}).outcome()).isEqualTo(Outcome.INVALID);
         assertThat(f.files.attach(Actor.USER, id, null, null, "shot.png", text("not a png")).message()).contains("not a PNG");
         assertThat(f.files.attach(Actor.USER, id, null, null, "doc.pdf", text("hello")).message()).contains("not a PDF");

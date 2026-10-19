@@ -5,7 +5,7 @@ import { ActivityEntry, BoardQuestion, CardDetail, EntryAnswers, QuestionAnswer 
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardSocketService } from '../../../core/services/board-socket.service';
 import { messageOf } from '../../../core/state/board-state.service';
-import { AskOption, DialogQuestion, dialogQuestions } from '../../../shared/utils/question-blocks';
+import { AskOption, DialogQuestion, detailsSummary, dialogQuestions } from '../../../shared/utils/question-blocks';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 
 /** What the user has given one question so far - nothing is sent until Send. */
@@ -50,6 +50,10 @@ const EMPTY: Draft = { pick: [], other: '', note: '', later: false };
               @else if (becauseText(q)) { <div class="board-qa-fu">✦ New from Claude · because {{ becauseText(q) }}</div> }
               <div class="board-qa-q"><app-markdown-view [text]="q.ask.question" />@if (q.ask.multiSelect) { <span class="board-dim"> (choose any)</span> }</div>
               @if (q.ask.why) { <div class="board-qa-why"><b>Why I ask:</b> <app-markdown-view [text]="q.ask.why" /></div> }
+              @if (q.ask.details; as d) {
+                <details class="board-qa-details" open><summary>Details@if (detailsLine(d); as sm) { <span class="board-dim"> · {{ sm }}</span> }</summary>
+                  <app-markdown-view [text]="d" /></details>
+              }
               @if (q.ask.checked || q.ask.severity || q.ask.group?.length) {
                 <div class="board-qa-triage">
                   @if (q.ask.severity; as s) { <span class="board-sev" [title]="s.note ?? ''">▲ {{ s.rank }}{{ s.of ? ' of ' + s.of : '' }}{{ s.note ? ' · ' + s.note : '' }}</span> }
@@ -139,6 +143,7 @@ const EMPTY: Draft = { pick: [], other: '', note: '', later: false };
     </div>`,
 })
 export class QuickAnswerComponent {
+  readonly detailsLine = detailsSummary;
   private readonly api = inject(BoardApiService);
   readonly cardId = input.required<string>();
   readonly closed = output<void>();

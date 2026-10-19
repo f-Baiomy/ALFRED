@@ -58,6 +58,12 @@ final class BoardWriteTargets {
             return Target.NONE;
         }
         String[] seg = rest.split("/");
+        // specs/037: building a questions form and a dry-run import change no card - anyone who may read the board may do them;
+        // applying answers is a write like answering on the board
+        if (seg.length == 3 && "boards".equals(seg[0]) && ("questions-form".equals(seg[2])
+                || ("answers-import".equals(seg[2]) && (body == null || !body.path("dryRun").isBoolean() || body.path("dryRun").asBoolean())))) {
+            return Target.NONE;
+        }
         Set<String> out = new LinkedHashSet<>();
         WriteDecision.Kind kind = WriteDecision.Kind.EDIT;
         Function<String, String> field = name -> text(params.get(name), body == null ? null : body.path(name));

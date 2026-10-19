@@ -580,6 +580,48 @@ question with no options.
 - Claude reads the answers whole: `board_get`/`board_changes`/`board_wait`/`board_live` show the ```` ```answers ````
   block on one line and each question's state; it acts only on the answered ones.
 
+### Details on questions (specs/037)
+
+A question (and a follow-up) may carry `details`: Markdown with the board's blocks - a screenshot
+(`![…](/board/images/<id>)`, uploaded with `board_image_put`), a table, ```` ```stats ````, ```` ```chart ````, call
+and spec mentions. At most 32 KB per question, in the ```` ```questions ```` block like every other key (no column). The
+quick-answer dialog shows it as a collapsible Details block; a live block (```` ```calls ````, a snippet, a timeline)
+stays live on the board and becomes a note in the form.
+
+### Questions form - the offline round trip (specs/037)
+
+For someone who is not on Alfred (a BA, the business), Alfred builds **one self-contained form.html** and reads the
+**answers file** that comes back. Alfred owns both files; the MCP tools only pass data.
+
+- **Making it**: the ❓ pill menu ("Questions form: all N questions"), a card's **⇩ Form**, or the selection bar's
+  **⇩ Questions form (N)** - `POST /board/boards/{id}/questions-form` with `{cards, lang, title, format}`. Only open
+  top-level questions (and follow-ups still pending) go in; cards without one are skipped and named
+  (`X-Alfred-Form-Left-Out`). The language (Arabic or English) follows most of the questions (a tie is Arabic), RTL/LTR
+  with it; the pill menu remembers the language and file type per board. Every text is masked (secret values from the
+  global variables, Bearer/JWT/password patterns, `ProseMask`); pictures are embedded as `data:` URIs (scaled to
+  1600 px), so the file needs nothing else. Over 10 MB it warns. `format: "zip"` gives the same page in a .zip for mail
+  that blocks .html. Each form is recorded (`question_forms`, the ids and a hash per question) - never exported.
+- **Ids**: questions `q1…`, options `o1…`, follow-ups `f1…`; the answers name them by id, and each carries the
+  question's hash, so an answer to a question changed since is reported, never applied.
+- **The form** (opened offline in any browser): grouped by card, chips per option, "as recommended", follow-ups,
+  "ask me later", "how sure", a note, progress, a summary; it keeps a draft in the browser. **Save answers** gives
+  `…-answers-<date>.html` (or .zip): a read-only page whose only data is `<script type="application/json"
+  id="alfred-answers">`.
+- **Reading it**: upload in the pill menu, a card's **⇧ Answers**, or the chat (📎 or drop). The file is kept on the
+  board (`html`/`zip` are accepted only as an answers file, always served as an attachment, never shown inline), then
+  `POST /board/boards/{id}/answers-import` with `dryRun: true` reports per answer APPLY / ALREADY_ANSWERED / CHANGED /
+  UNKNOWN_KEY / LATER / NOT_ANSWERED. Apply records them as the user's answers ("from answers file by NAME (ROLE)"),
+  clears Needs decision, and a "later" answer leaves a comment and the question open. Parsing is jsoup (Java) / jsdom
+  (MCP) - no script ever runs, only `#alfred-answers` is read, at most 2 MB; a .zip must hold exactly one answers file
+  (at most 20 entries, `__MACOSX` skipped, no paths outside, inflate capped). A file from another Alfred or another
+  board is refused.
+- **Claude**: `board_questions_form` may build a form and `board_import_answers` may dry-run on its own; applying
+  (`dryRun: false`) needs `askedIn` naming the user's chat message (or "terminal"). The MCP server reads an answers file
+  from a path itself and sends only the answers JSON.
+- **Access**: building and dry runs are reads - a held board does not refuse them (`BoardWriteTargets`); apply is a
+  write. The tunnel is read-only, so it cannot apply; `GET /board/files/{id}/answers.json` is never streamed to other
+  Alfreds (`StreamRoutes.NEVER`).
+
 ## Claude working from anywhere
 
 Read-only endpoints in `BoardInsightsService` / `BoardInsightsController` let a new session pick the work up without the user repeating it:

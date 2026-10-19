@@ -9,6 +9,8 @@ argument-hint: "[AB#1234 | <board name or id> | <conn>/1234 | project \"what the
 Read `rules.md` in this skill's folder first and follow it - §0a holds the stages, the item-type and child-type rules
 this skill applies.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 ## 1. Check Alfred
 
 1. `list_projects` - Alfred answers and the project exists. No project given: if there is one, use it; if several,

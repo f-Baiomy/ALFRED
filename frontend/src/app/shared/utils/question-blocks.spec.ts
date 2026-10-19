@@ -1,5 +1,5 @@
 import { ActivityEntry } from '../../core/models/board.models';
-import { allAnswered, askBlock, answersBlock, questionLines, withoutBlocks } from './question-blocks';
+import { allAnswered, askBlock, answersBlock, detailsSummary, questionLines, withoutBlocks } from './question-blocks';
 import { historyThreads } from './board-threads';
 
 function entry(id: number, text: string, actor: 'USER' | 'CLAUDE' = 'CLAUDE', replyTo: number | null = null): ActivityEntry {
@@ -60,5 +60,18 @@ describe('question-blocks (specs/019)', () => {
     expect(historyThreads(whole)[0].answered).toBeTrue();
     // a plain question: any reply answers it
     expect(historyThreads([entry(1, '**Question** plain?'), entry(2, 'yes', 'USER', 1)])[0].answered).toBeTrue();
+  });
+});
+
+describe('question details (specs/037)', () => {
+  it('a question carries its details, and the summary says what they hold', () => {
+    const text = 'Which?\n\n```questions\n' + JSON.stringify({ questions: [{ header: 'Pick', question: 'Which?',
+      details: '![badge](/board/images/img-12345678)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```chart\n{"values":[1]}\n```\n\n@[call:in:x|GET /a]',
+      options: [{ label: 'A' }, { label: 'B' }] }] }) + '\n```';
+    const q = askBlock(text)!.questions[0];
+    expect(q.details).toContain('/board/images/img-12345678');
+    expect(detailsSummary(q.details)).toBe('1 screenshot · 1 chart · 1 table · 1 call');
+    expect(detailsSummary('')).toBe('');
+    expect(askBlock('Q\n\n```questions\n{"questions":[{"header":"H","question":"Q","options":[]}]}\n```')!.questions[0].details).toBeUndefined();
   });
 });

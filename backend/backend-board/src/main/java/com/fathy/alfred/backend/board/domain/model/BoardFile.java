@@ -20,7 +20,14 @@ public record BoardFile(String id, String project, String cardId, String cycleId
             Map.entry("csv", "text/csv"), Map.entry("json", "application/json"), Map.entry("txt", "text/plain"),
             Map.entry("log", "text/plain"), Map.entry("har", "application/json"), Map.entry("xml", "application/xml"),
             Map.entry("sql", "text/plain"), Map.entry("md", "text/markdown"), Map.entry("pdf", "application/pdf"),
-            Map.entry("png", "image/png"), Map.entry("jpg", "image/jpeg"), Map.entry("jpeg", "image/jpeg"));
+            Map.entry("png", "image/png"), Map.entry("jpg", "image/jpeg"), Map.entry("jpeg", "image/jpeg"),
+            // specs/037: only an Alfred answers file (checked on upload), and always served as a download
+            Map.entry("html", "text/html"), Map.entry("zip", "application/zip"));
+
+    /** An answers file (specs/037): kept as a download only - never shown as a page, never read inline. */
+    public boolean isAnswersFile() {
+        return mime.equals("text/html") || mime.equals("application/zip");
+    }
 
     public static String extension(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
@@ -29,7 +36,7 @@ public record BoardFile(String id, String project, String cardId, String cycleId
 
     /** Text a snippet or Claude can read as it is (the rest are read as bytes). */
     public boolean isText() {
-        return mime.startsWith("text/") || mime.equals("application/json") || mime.equals("application/xml");
+        return !isAnswersFile() && mime.startsWith("text/") || mime.equals("application/json") || mime.equals("application/xml");
     }
 
     public BoardFile withoutData() {

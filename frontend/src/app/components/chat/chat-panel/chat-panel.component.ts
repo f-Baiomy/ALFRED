@@ -14,6 +14,8 @@ import { ChatMute, ChatStateService } from '../../../core/state/chat-state.servi
 import { LiveWorkStateService } from '../../../core/state/live-work-state.service';
 import { ReturnPointService } from '../../../core/services/return-point.service';
 import { MentionRef } from '../../../core/models/board.models';
+import { QuestionsFormService } from '../../../core/services/questions-form.service';
+import { isAnswersFile } from '../../../core/models/questions-form.models';
 import { MentionChipComponent } from '../../board/mention-chip/mention-chip.component';
 import { cardChip, withChip } from '../../../shared/utils/chat-context';
 import { CHAT_SKILLS, slashSkill } from '../../../shared/utils/chat-skills';
@@ -249,7 +251,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
         </div>
 
         @if (editable()) {
-          <div class="chat-composer">
+          <div class="chat-composer" [class.chat-drop]="answersDrag()" (dragover)="onDragOver($event)" (dragleave)="answersDrag.set(false)" (drop)="onDrop($event, sc)">
             @if (quote(); as q) { <div class="chat-quote"><span>❝ {{ q }}</span><button type="button" (click)="quote.set(null)">✕</button></div> }
             @if (chips().length) {
               <div class="chat-chips" title="Sent with your message so Claude sees what you are looking at - ✕ to leave one out">
@@ -263,6 +265,8 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                                 [rows]="1" [compact]="true" submitLabel="Send" [placeholder]="placeholder()" (submitted)="send($event)" (valueChange)="state.draftChanged()">
               <button editorTools type="button" class="board-editor-cbtn urgent" [class.on]="urgent()" (mousedown)="$event.preventDefault()" (click)="urgent.set(!urgent())"
                       [title]="urgent() ? 'Answered before the waiting messages - click to send normally' : 'Answer first: Claude answers this before the waiting messages'">⚡</button>
+              <button editorTools type="button" class="board-editor-cbtn" [disabled]="forms.busy()" (mousedown)="$event.preventDefault()" (click)="forms.pick(boardOf(sc), state.project())"
+                      title="Attach an answers file - the .html (or .zip) a questions form downloaded; you see what it answers before anything is applied">📎</button>
             </app-mention-editor>
             @if (isProject() && state.cycles().length) {
               <div class="chat-crow">
@@ -271,6 +275,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               </div>
             }
             @if (urgent()) { <div class="chat-hint">⚡ answered before the waiting messages</div> }
+            @if (answersDrag()) { <div class="chat-hint">Drop the answers file - you see what it answers before anything is applied</div> }
           </div>
         }
 
@@ -338,6 +343,31 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
 })
 export class ChatPanelComponent implements AfterViewChecked {
   readonly state = inject(ChatStateService);
+  /** An answers file dropped or attached here goes to its board's import (specs/037 D16). */
+  readonly forms = inject(QuestionsFormService);
+  readonly answersDrag = signal(false);
+
+  boardOf(scope: string): string {
+    return boardOfScope(this.state.project(), scope === PROJECT_SCOPE ? null : scope);
+  }
+
+  /** Only a dragged .html / .zip is taken here - a picture still goes to the editor. */
+  onDragOver(e: DragEvent): void {
+    const items = Array.from(e.dataTransfer?.items ?? []);
+    if (items.some((i) => i.kind === 'file' && /^(text\/html|application\/(x-)?zip(-compressed)?)$/.test(i.type))) {
+      e.preventDefault();
+      this.answersDrag.set(true);
+    }
+  }
+
+  onDrop(e: DragEvent, scope: string): void {
+    this.answersDrag.set(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (!file || !isAnswersFile(file)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void this.forms.importFile(file, this.boardOf(scope), this.state.project());
+  }
   private readonly api = inject(ChatApiService);
   private readonly board = inject(BoardApiService);
   private readonly desk = inject(DesktopNotificationsService);

@@ -63,6 +63,10 @@ const AskFollowUp = z.object({
   header: z.string().min(1).max(24).describe('A short chip label, unique on this ask, e.g. "Steps"'),
   question: z.string().min(1).max(4000),
   why: z.string().max(2000).optional().describe('Why you need the answer'),
+  details: z.string().max(32 * 1024).optional().describe('The evidence, so the question stands on its own for someone who was not there '
+    + '(Markdown, HTML only when Markdown cannot say it; shown under the question and in the offline questions form): a screenshot '
+    + '![what it shows](/board/images/<id>) from board_image_put, the calls (@[call:...] mentions or a ```calls block), the rows as a small '
+    + 'table, ```stats / ```chart from real numbers, the Acceptance lines quoted with their ids. No secrets or variable values'),
   multiSelect: z.boolean().optional(),
   options: z.array(AskOptionBase).max(4).default([]).describe('2-4 options, or none for a free answer'),
 });
@@ -1192,8 +1196,10 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'on hover - what changes, what it does to the recorded calls, which acceptance items it covers, why. An option\'s `followUp` is '
       + 'asked at once when the user picks it. The user may answer some and leave the rest open or "later": act only on the answered '
       + 'ones. A question already open on the card is not asked twice. `about` / `because` tie the question to a comment (an answer '
-      + 'that raised it). Answers arrive in board_wait / board_changes / board_live as an answers block; take a question back with '
-      + 'board_withdraw_question.',
+      + 'that raised it). Give each question its evidence in `details` (a marked screenshot, the calls, the rows, a chart, the spec lines) '
+      + 'so it can be answered by someone who was not there - also offline, in a questions form (board_questions_form). Answers arrive in '
+      + 'board_wait / board_changes / board_live as an answers block (an answer from an answers file says so: "from answers file by ..."); '
+      + 'take a question back with board_withdraw_question.',
     inputSchema: {
       project: Project, number: CardNumber,
       question: z.string().min(1).max(16 * 1024).optional().describe('One free question (no options) - or use `questions`'),
@@ -1218,7 +1224,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       const headers = new Set<string>();
       // Every text of the questions made readable first (specs/021) - the building below stays synchronous
       const readableTexts = new Map<string, string>();
-      const texts = (q: z.infer<typeof AskFollowUp>): string[] => [q.question, q.why ?? '', ...q.options.flatMap((o) => [o.description ?? '', o.then ?? '',
+      const texts = (q: z.infer<typeof AskFollowUp>): string[] => [q.question, q.why ?? '', q.details ?? '', ...q.options.flatMap((o) => [o.description ?? '', o.then ?? '',
         o.preview ?? '', ...((o as z.infer<typeof AskOption>).followUp ? texts((o as z.infer<typeof AskOption>).followUp!) : [])])];
       for (const s of input.questions.flatMap((q) => texts(q))) if (s && !readableTexts.has(s)) readableTexts.set(s, await w.text(s));
       const conv = (s: string | undefined) => {
@@ -1237,7 +1243,8 @@ export function register(server: McpServer, client: AlfredClient): void {
         const t = q as z.infer<typeof AskQuestion>;
         if (t.group?.includes(card.number)) throw invalid(`Question "${q.header}": group lists the other cards - not #${card.number} itself.`);
         return {
-          header: q.header, question: conv(q.question), ...(q.why ? { why: conv(q.why) } : {}), ...(q.multiSelect ? { multiSelect: true } : {}),
+          header: q.header, question: conv(q.question), ...(q.why ? { why: conv(q.why) } : {}), ...(q.details ? { details: conv(q.details) } : {}),
+          ...(q.multiSelect ? { multiSelect: true } : {}),
           options: q.options.map((o) => ({
             label: o.label, ...(o.description ? { description: conv(o.description) } : {}), ...(o.then ? { then: conv(o.then) } : {}),
             ...(o.recommended ? { recommended: true } : {}), ...(o.recommended && o.confidence ? { confidence: o.confidence } : {}),

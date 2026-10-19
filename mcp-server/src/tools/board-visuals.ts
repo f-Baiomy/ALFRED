@@ -1,3 +1,5 @@
+import { readFile, stat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts';
@@ -164,16 +166,26 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_attach', {
-    description: 'Attach a text file you made (csv, json, md, txt, log, sql, xml, har - at most 10 MB) to a card (number) or a cycle '
+    description: 'Attach a text file you made or one on this machine (`path`; csv, json, md, txt, log, sql, xml, har - at most 10 MB) to a card (number) or a cycle '
       + '(cycleId): a table of numbers for a snippet to read with alfred.files(name), a query, an extract. Link it in a comment as '
       + '[📎 name](/board/files/<id>).',
     inputSchema: { project: Project, number: z.number().int().min(1).optional(), cycleId: z.string().optional(),
-      name: z.string().min(3).max(120), text: z.string().min(1).max(10 * 1024 * 1024) },
+      name: z.string().min(3).max(120), text: z.string().min(1).max(10 * 1024 * 1024).optional(),
+      path: z.string().min(1).optional().describe('Or an absolute path to a text file on this machine (read here, sent as its text)') },
   }, (input) => run(async () => {
+    if (!input.text === !input.path) throw invalid('Give text or path.');
+    let text = input.text;
+    if (input.path) {
+      if (!isAbsolute(input.path)) throw invalid('path must be absolute');
+      const info = await stat(input.path).catch(() => null);
+      if (!info?.isFile()) throw invalid(`No file at ${input.path}`);
+      if (info.size > 10 * 1024 * 1024) throw invalid('A file is at most 10 MB');
+      text = await readFile(input.path, 'utf8');
+    }
     const query = input.number != null ? { card: (await cardByNumber(client, input.project, input.number)).id, name: input.name }
       : input.cycleId ? { cycle: input.cycleId, project: input.project, name: input.name } : null;
     if (!query) throw invalid('Name a card (number) or a cycle (cycleId)');
-    const f = await client.post<FileRow>('/board/files', { ...AS_CLAUDE, query, rawBody: input.text });
+    const f = await client.post<FileRow>('/board/files', { ...AS_CLAUDE, query, rawBody: text });
     return ok({ attached: fileLine(f), link: `[📎 ${f.name}](/board/files/${f.id})` });
   }));
 

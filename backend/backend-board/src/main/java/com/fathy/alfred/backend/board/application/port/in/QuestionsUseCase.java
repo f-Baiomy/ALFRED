@@ -16,11 +16,23 @@ import java.util.Map;
  */
 public interface QuestionsUseCase {
 
-    /** One question's answer: the options picked, the user's own words, a note - or put off until {@code later}. */
-    record AnswerIn(List<String> chose, String other, String note, Instant later) {
+    /**
+     * One question's answer: the options picked, the user's own words, a note - or put off until {@code later}.
+     * {@code via}: where it came from when not picked on the board ("answers file by …", specs/037), {@code sure}: how
+     * sure the person was (sure, likely, unsure) - both null for an answer given on the board.
+     */
+    record AnswerIn(List<String> chose, String other, String note, Instant later, String via, String sure) {
+
+        public static final List<String> SURENESS = List.of("sure", "likely", "unsure");
 
         public AnswerIn {
             chose = chose == null ? List.of() : List.copyOf(chose);
+            via = via == null || via.isBlank() ? null : via.strip();
+            sure = sure != null && SURENESS.contains(sure) ? sure : null;
+        }
+
+        public AnswerIn(List<String> chose, String other, String note, Instant later) {
+            this(chose, other, note, later, null, null);
         }
     }
 

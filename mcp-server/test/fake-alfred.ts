@@ -211,6 +211,8 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 export class FakeAlfred {
   /** A test's own answers, tried before the fake's routes: [status, body], or null to fall through. */
   extra?: (method: string, parts: string[], query: URLSearchParams, body: unknown) => [number, unknown] | null;
+  /** Answers a file instead of JSON when it returns something (a questions form, an upload of bytes). */
+  raw?: (method: string, path: string, body: Buffer, headers: IncomingMessage['headers']) => { status: number; headers: Record<string, string>; body: Buffer | string } | undefined;
   readonly state: FakeState = emptyState();
   /** /teamboards answers (specs/027), set by a test. */
   team?: (method: string, p: string[], q: URLSearchParams, body: any) => [number, unknown?] | undefined;
@@ -305,9 +307,16 @@ export class FakeAlfred {
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const raw = Buffer.concat(chunks).toString('utf8');
     const isJson = !String(req.headers['content-type'] ?? '').startsWith('text/plain');
-    const body = raw ? (isJson ? JSON.parse(raw) : raw) : undefined;
+    const body = raw ? (isJson ? (() => { try { return JSON.parse(raw); } catch { return raw; } })() : raw) : undefined;
     this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
     if (url.pathname === '/board/changes/wait' && this.board.waitGate) await this.board.waitGate;
+    // a route that answers a file, not JSON (specs/037: a questions form)
+    const rawAnswer = this.raw?.(req.method!, url.pathname, Buffer.concat(chunks), req.headers);
+    if (rawAnswer) {
+      res.writeHead(rawAnswer.status, rawAnswer.headers);
+      res.end(rawAnswer.body);
+      return;
+    }
     if ((url.pathname.startsWith('/board/images/') || url.pathname.endsWith('/shot.png')) && req.method === 'GET') {
       // a 1x1 PNG for any id but "gone"
       const gone = url.pathname.endsWith('/gone-0000');

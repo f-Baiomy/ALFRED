@@ -58,8 +58,11 @@ public class BoardFilesController {
     public ResponseEntity<byte[]> file(@PathVariable String id, @RequestParam(defaultValue = "false") boolean inline) {
         return files.file(id).map(f -> {
             boolean text = inline && f.isText();
+            // an answers file (specs/037 D19) is bytes to save, whatever the request asks - never a page
+            MediaType type = f.isAnswersFile() ? MediaType.APPLICATION_OCTET_STREAM
+                    : text ? new MediaType("text", "plain", StandardCharsets.UTF_8) : MediaType.parseMediaType(f.mime());
             return ResponseEntity.ok()
-                    .contentType(text ? new MediaType("text", "plain", StandardCharsets.UTF_8) : MediaType.parseMediaType(f.mime()))
+                    .contentType(type)
                     .header("Content-Disposition", (text ? ContentDisposition.inline() : ContentDisposition.attachment())
                             .filename(f.name(), StandardCharsets.UTF_8).build().toString())
                     .header("X-Content-Type-Options", "nosniff")

@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="{{LANG}}" dir="{{DIR}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="Alfred questions form (specs/037)">
+<title>{{TITLE}}</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#5d6678;--line:#dde1e8;--accent:#2f6fde;--accent-soft:#e8f0fd;--ok:#1f8a4c;--warn:#b26b00;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1d2129;--text:#e6e9ef;--muted:#9aa3b2;--line:#2e3440;--accent:#6aa0ff;--accent-soft:#1f2b40;--ok:#4cc27e;--warn:#e0a640;--bad:#ff7a6b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 "Segoe UI",Tahoma,Arial,sans-serif}
+main{max-width:820px;margin:0 auto;padding:24px 16px 140px}
+h1{font-size:26px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.meta{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px}.meta span{font-size:12.5px;padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted);background:var(--card)}
+.who{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.who label{flex:1 1 220px;display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted)}
+input[type=text],textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit}
+textarea{min-height:64px;resize:vertical}textarea.free{min-height:90px}
+.lang{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;float:inline-end}
+.lang button{font:inherit;font-size:13px;border:0;padding:4px 10px;background:transparent;color:var(--muted);cursor:pointer}.lang button.on{background:var(--accent);color:#fff}
+.tools{position:sticky;top:0;z-index:3;background:var(--bg);padding:8px 0 10px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.pbar{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.pbar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.cchips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.cchips a{font-size:13px;text-decoration:none;color:var(--accent);border:1px solid var(--line);background:var(--card);border-radius:99px;padding:2px 10px}
+.cchips a.ok{border-color:var(--ok);color:var(--ok)}.cchips a.ok::after{content:" \2713"}
+.trow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px}.tgl{display:inline-flex;gap:6px;align-items:center;cursor:pointer}.keys{font-size:12px;margin-inline-start:auto;color:var(--muted)}
+.grp{margin:18px 0 6px}.ghead{display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:15px}
+.gnum{font-weight:700;color:var(--accent)}.gtype{font-size:12px;color:var(--warn);border:1px solid var(--line);border-radius:6px;padding:0 6px}.gcount{margin-inline-start:auto;font-size:13px;color:var(--muted)}
+.q{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.q.done{border-color:var(--ok)}.q.islater{border-color:var(--warn)}.q.hidden{display:none}.q:focus{outline:2px solid var(--accent);outline-offset:2px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-bottom:6px}
+.ltag{display:none;font-size:12px;color:var(--warn);margin-inline-start:6px}.q.islater .ltag{display:inline}
+.q h2{font-size:18px;margin:0 0 6px}
+.why{color:var(--muted);font-size:14px;margin:0 0 12px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.opt:has(input:checked),.opt.picked{border-color:var(--accent);background:var(--accent-soft)}
+.opt input{margin-top:5px}.opt b{display:block}.opt small{color:var(--muted);display:block}.opt.later{border-style:dashed}
+.opt .k{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;min-width:18px;text-align:center;margin-top:4px;height:18px;line-height:16px}
+.rec{font-size:12px;color:var(--ok);margin-inline-start:6px}
+.why2{margin-top:4px;font-size:13px;color:var(--muted)}.why2 summary{cursor:pointer;color:var(--accent)}.why2 div{padding:4px 0}
+.fu{display:none;margin:4px 0 10px;padding:10px 12px;border-inline-start:3px solid var(--accent);background:var(--accent-soft);border-radius:8px}.fu.show{display:block}.fu h3{font-size:15px;margin:4px 0 8px}
+.note{margin-top:8px;display:block}.note span{font-size:13px;color:var(--muted)}
+.hint{display:none;font-size:13px;margin:4px 0 0}.hint.err{color:var(--bad)}.hint.show{display:block}
+.sure{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--muted)}
+.sure label{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:99px;padding:2px 10px;cursor:pointer}.sure label:has(input:checked){border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}.sure input{margin:0}
+.det{margin:0 0 12px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--bg)}.det summary{cursor:pointer;color:var(--accent);font-size:14px}
+.dbody{margin-top:8px;font-size:14px;overflow-wrap:anywhere}.dbody img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--line)}.dbody figure{margin:0 0 10px}.dbody figcaption{font-size:12.5px;color:var(--muted)}
+.dbody table{border-collapse:collapse;font-size:13px;margin:4px 0 10px;display:block;overflow-x:auto}.dbody td,.dbody th{border:1px solid var(--line);padding:4px 8px;text-align:start}
+.dbody blockquote{margin:6px 0;border-inline-start:3px solid var(--ok);padding:4px 10px;background:var(--card)}.dbody pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px;overflow:auto;font-size:12.5px}
+.fd-stats{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}.fd-stats div{border:1px solid var(--line);border-radius:8px;padding:4px 10px;background:var(--card);font-size:12.5px;color:var(--muted)}.fd-stats b{display:block;font-size:18px;color:var(--text)}.fd-stats small{display:block}
+.fd-chartbox{margin:4px 0 10px}.fd-chart{width:100%;max-width:560px;height:auto}.fd-chart .fd-axis{stroke:var(--muted)}.fd-chart .fd-cl{fill:var(--muted);font-size:11px}.fd-chart .fd-ct{fill:var(--text);font-size:12px;font-weight:600}
+.fd-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.fd-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-inline-end:4px}
+.fd-note{font-size:13px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:6px 10px}
+.bar{position:fixed;inset:auto 0 0 0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px}
+.bar div{max-width:820px;margin:0 auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.prog{flex:1;color:var(--muted);font-size:14px}
+button{font:inherit;padding:10px 18px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}button.sm{padding:4px 10px;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:0 0 16px}.stats div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--muted);font-size:13px}.stats b{display:block;font-size:22px;color:var(--text)}
+.pill{font-size:12px;padding:2px 8px;border-radius:99px;margin-inline-start:6px}.pill.ok{background:#e3f5ea;color:var(--ok)}.pill.warn{background:#fff3df;color:var(--warn)}
+@media (prefers-color-scheme:dark){.pill.ok{background:#173325}.pill.warn{background:#3a2e17}}
+.notebox{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin:8px 0 0;font-size:14px;white-space:pre-wrap}
+.unans{opacity:.65}.readonly .opt{cursor:default}.readonly .opt:not(.picked){opacity:.6}
+noscript p{background:#fff3df;color:#7a4a00;padding:12px;border-radius:8px}
+@media (max-height:720px){.tools{position:static}}
+@media (max-width:640px){main{padding:16px 12px 190px}.bar{padding:10px 12px}.bar div{gap:8px}.prog{flex:1 1 100%}button{padding:8px 12px}.keys{display:none}.q{padding:14px}}
+@media print{.bar,.tools,.lang{display:none!important}.q{break-inside:avoid}}
+</style>
+</head>
+<body>
+<main>
+  <noscript><p>This form needs JavaScript. Open it in a browser such as Edge, Chrome or Firefox. / الفورم ده محتاج JavaScript: افتحه في Edge أو Chrome أو Firefox.</p></noscript>
+  <div class="lang" id="lang"><button type="button" data-l="ar">ع</button><button type="button" data-l="en">EN</button></div>
+  <h1 id="title" dir="auto">{{TITLE}}</h1>
+  <div class="meta" id="meta"></div>
+  <p class="sub" id="sub"></p>
+  <div class="who">
+    <label><span id="lName"></span><input type="text" id="name" dir="auto" maxlength="200" autocomplete="name"></label>
+    <label><span id="lRole"></span><input type="text" id="role" dir="auto" maxlength="200"></label>
+  </div>
+  <div class="tools">
+    <div class="pbar"><i id="pfill"></i></div>
+    <nav class="cchips" id="cchips"></nav>
+    <div class="trow">
+      <label class="tgl"><input type="checkbox" id="onlyOpen"> <span id="lOnlyOpen"></span></label>
+      <button class="ghost sm" id="acceptRec" type="button"></button>
+      <span class="keys" id="keys"></span>
+    </div>
+  </div>
+  <div id="qs"></div>
+</main>
+<div class="bar" id="bar"><div>
+  <span class="prog"><span id="prog"></span><br><small id="savedAt"></small></span>
+  <button class="ghost" id="nextOpen" type="button"></button>
+  <button class="ghost" id="reset" type="button"></button>
+  <button id="save" type="button"></button>
+  <button class="ghost" id="saveZip" type="button"></button>
+</div></div>
+<script type="application/json" id="alfred-form">{{FORM_JSON}}</script>
+<script>
+(function () {
+"use strict";
+var T = {
+ ar: {title: function (b) { return "أسئلة " + b; },
+  sub: "اختار إجابة لكل سؤال. لو مفيش اختيار مناسب، اختار \"إجابة تانية\" واكتبها في الملاحظات. لو محتاج تسأل حد، اختار \"مش متأكد، بعدين\". إجاباتك بتتحفظ على الجهاز ده لوحدها. لما تخلّص، دوس \"تنزيل الإجابات\" وابعت الملف.",
+  meta: function (q, c, d) { return [q + " سؤال", c + " كارت", "اتعمل " + d]; },
+  name: "اسمك", role: "الدور", namePh: "مثال: Ahmed Ghonim", rolePh: "مثال: BA / Product Owner", rec: "(مقترح)", other: "إجابة تانية", otherHint: "اكتبها في الملاحظات تحت.",
+  later: "مش متأكد، بعدين", laterHint: "السؤال يفضل مفتوح على الـ board.", notes: "ملاحظات (اختياري)", freeNotes: "إجابتك",
+  prog: function (n, l, t) { return "اتجاوب " + n + " من " + t + (l ? " · " + l + " بعدين" : ""); },
+  reset: "مسح الإجابات", save: "تنزيل الإجابات", asZip: "كـ .zip", resetQ: "تمسح كل الإجابات؟",
+  missing: function (m, o) { return (m ? "فيه " + m + " سؤال من غير إجابة. " : "") + (o ? "فيه " + o + " \"إجابة تانية\" من غير ملاحظات. " : "") + "تنزّل الملف برضه؟"; },
+  ansTitle: function (b) { return "إجابات " + b; }, by: "جاوب", none: "من غير إجابة", more: "ليه ده المقترح؟", details: "التفاصيل",
+  sure: "متأكد قد إيه؟", sureOpts: {sure: "متأكد", likely: "غالبًا", unsure: "مش متأكد"},
+  onlyOpen: "اللي لسه بس", acceptRec: "اختار كل المقترح", acceptRecQ: function (n) { return "هيتختار المقترح في " + n + " سؤال لسه من غير إجابة. تكمل؟"; },
+  next: "السؤال الجاي", saved: function (t) { return "اتحفظ على الجهاز ده · " + t; }, notSaved: "المتصفح مش بيحفظ: نزّل الإجابات قبل ما تقفل",
+  otherEmpty: "اكتب إجابتك في الملاحظات", follow: "سؤال تابع", keys: "اختصارات: 1–6 للاختيار، N للسؤال الجاي",
+  sumAnswered: "اتجاوب", sumLater: "بعدين", sumOpen: "من غير إجابة", sumDiff: "غير المقترح", asRec: "زي المقترح", diffRec: "غير المقترح",
+  otherOpts: function (n) { return n + " اختيار تاني"; }, laterTag: "بعدين", noQuestions: "مفيش أسئلة في الفورم ده."},
+ en: {title: function (b) { return "Questions: " + b; },
+  sub: "Pick an answer for each question. If none fits, choose \"Other answer\" and write it in the notes. If you need to check with someone, choose \"Not sure, ask me later\". Your answers are saved on this device as you go. When done, press \"Download answers\" and send the file.",
+  meta: function (q, c, d) { return [q + " questions", c + " cards", "made " + d]; },
+  name: "Your name", role: "Role", namePh: "e.g. Ahmed Ghonim", rolePh: "e.g. BA / Product Owner", rec: "(recommended)", other: "Other answer", otherHint: "Write it in the notes below.",
+  later: "Not sure, ask me later", laterHint: "The question stays open on the board.", notes: "Notes (optional)", freeNotes: "Your answer",
+  prog: function (n, l, t) { return n + " of " + t + " answered" + (l ? " · " + l + " later" : ""); },
+  reset: "Clear answers", save: "Download answers", asZip: "as .zip", resetQ: "Clear all answers?",
+  missing: function (m, o) { return (m ? m + " question(s) have no answer. " : "") + (o ? o + " \"Other answer\" have no notes. " : "") + "Download anyway?"; },
+  ansTitle: function (b) { return "Answers: " + b; }, by: "Answered by", none: "Not answered", more: "Why is this recommended?", details: "Details",
+  sure: "How sure are you?", sureOpts: {sure: "Sure", likely: "Likely", unsure: "Not sure"},
+  onlyOpen: "Only unanswered", acceptRec: "Accept all recommended", acceptRecQ: function (n) { return "Pick the recommended option in " + n + " unanswered question(s)?"; },
+  next: "Next unanswered", saved: function (t) { return "Saved on this device · " + t; }, notSaved: "This browser does not save: download your answers before closing",
+  otherEmpty: "Write your answer in the notes", follow: "Follow-up", keys: "Keys: 1–6 to pick, N for next unanswered",
+  sumAnswered: "Answered", sumLater: "Later", sumOpen: "Not answered", sumDiff: "Not the recommended", asRec: "As recommended", diffRec: "Not the recommended",
+  otherOpts: function (n) { return n + " other option(s)"; }, laterTag: "Later", noQuestions: "This form has no questions."}
+};
+
+var FORM = JSON.parse(document.getElementById("alfred-form").textContent);
+var QS = FORM.questions || [], CARDS = FORM.cards || [];
+var KEY = "alfred-form-" + FORM.formId;
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[c]; }); }
+function store(fn) { try { return fn(); } catch (e) { return undefined; } }
+// auto: the language most questions are written in (per question: Arabic letters against Latin letters)
+function detect() {
+  var ar = 0;
+  QS.forEach(function (q) { var t = String(q.question || ""); if ((t.match(/[؀-ۿ]/g) || []).length >= (t.match(/[A-Za-z]/g) || []).length) ar++; });
+  return QS.length && ar * 2 >= QS.length ? "ar" : (QS.length ? "en" : "ar");
+}
+var L = FORM.lang === "ar" || FORM.lang === "en" ? FORM.lang : detect();
+var keptLang = store(function () { return localStorage.getItem(KEY + ":lang"); });
+if (keptLang === "ar" || keptLang === "en") L = keptLang;
+var nameEl = $("name"), roleEl = $("role");
+
+function optHtml(o, type, name, n) {
+  return "<label class=\"opt\"><input type=\"" + type + "\" name=\"" + esc(name) + "\" value=\"" + esc(o.id) + "\"><span class=\"k\">" + n + "</span><span><b dir=\"auto\">" + esc(o.label) +
+    (o.recommended ? "<span class=\"rec\" data-t=\"rec\"></span>" : "") + "</b>" + (o.description ? "<small dir=\"auto\">" + esc(o.description) + "</small>" : "") +
+    (o.preview ? "<details class=\"why2\"><summary data-t=\"more\"></summary><div dir=\"auto\">" + esc(o.preview) + "</div></details>" : "") + "</span></label>";
+}
+
+// ---- build once
+var root = $("qs"), num = 0;
+if (!QS.length) root.innerHTML = "<p class=\"why\" data-t=\"noQuestions\"></p>";
+CARDS.forEach(function (c) {
+  var qs = QS.filter(function (q) { return q.card === c.card; });
+  if (!qs.length) return;
+  var g = document.createElement("section");
+  g.className = "grp"; g.id = "card-" + c.card;
+  g.innerHTML = "<div class=\"ghead\"><span class=\"gnum\">#" + c.card + "</span><b dir=\"auto\">" + esc(c.name) + "</b><span class=\"gtype\">" + esc(c.type) + "</span><span class=\"gcount\" data-gc=\"" + c.card + "\"></span></div>";
+  qs.forEach(function (q) {
+    num++;
+    var t = q.multiSelect ? "checkbox" : "radio", free = !(q.options && q.options.length), opts = q.options || [];
+    var el = document.createElement("div");
+    el.className = "q"; el.id = "q-" + q.id; el.tabIndex = -1;
+    var h = "<span class=\"tag\" dir=\"auto\">" + esc(q.header) + "</span><span class=\"ltag\" data-t=\"laterTag\"></span><h2 dir=\"auto\">" + num + ". " + esc(q.question) + "</h2>" +
+      (q.why ? "<p class=\"why\" dir=\"auto\">" + esc(q.why) + "</p>" : "") +
+      // details: static HTML Alfred made from the question's board text (pictures embedded, no link, no script)
+      (q.details ? "<details class=\"det\" open><summary data-t=\"details\"></summary><div class=\"dbody\" dir=\"auto\">" + q.details + "</div></details>" : "");
+    opts.forEach(function (o, i) { h += optHtml(o, t, q.id, i + 1); });
+    if (!free) h += "<label class=\"opt\"><input type=\"" + t + "\" name=\"" + esc(q.id) + "\" value=\"__other\"><span class=\"k\">" + (opts.length + 1) + "</span><span><b data-t=\"other\"></b><small data-t=\"otherHint\"></small></span></label>";
+    h += "<label class=\"opt later\"><input type=\"" + t + "\" name=\"" + esc(q.id) + "\" value=\"__later\"><span class=\"k\">" + (opts.length + (free ? 1 : 2)) + "</span><span><b data-t=\"later\"></b><small data-t=\"laterHint\"></small></span></label>";
+    opts.forEach(function (o) {
+      if (!o.followUp) return;
+      var f = o.followUp;
+      h += "<div class=\"fu\" data-for=\"" + esc(o.id) + "\"><span class=\"tag\" data-t=\"follow\"></span><h3 dir=\"auto\">" + esc(f.question) + "</h3>" +
+        (f.why ? "<p class=\"why\" dir=\"auto\">" + esc(f.why) + "</p>" : "");
+      (f.options || []).forEach(function (fo) { h += optHtml(fo, "radio", q.id + ".f." + o.id, ""); });
+      h += "</div>";
+    });
+    h += "<label class=\"note\"><span data-t=\"" + (free ? "freeNotes" : "notes") + "\"></span><textarea dir=\"auto\" maxlength=\"16000\" data-note=\"" + esc(q.id) + "\"" + (free ? " class=\"free\"" : "") + "></textarea></label>" +
+      "<p class=\"hint err\" data-oe=\"" + esc(q.id) + "\" data-t=\"otherEmpty\"></p>";
+    if (!free) h += "<div class=\"sure\"><span data-t=\"sure\"></span>" + ["sure", "likely", "unsure"].map(function (v) { return "<label><input type=\"radio\" name=\"" + esc(q.id) + ".s\" value=\"" + v + "\"><span data-s=\"" + v + "\"></span></label>"; }).join("") + "</div>";
+    el.innerHTML = h;
+    g.appendChild(el);
+  });
+  root.appendChild(g);
+});
+
+function inputs(name) { return Array.prototype.slice.call(document.querySelectorAll("input")).filter(function (x) { return x.name === name; }); }
+function picked(name) { return inputs(name).filter(function (x) { return x.checked; }).map(function (x) { return x.value; }); }
+function readQ(q) {
+  var p = picked(q.id), note = (document.querySelector("[data-note=\"" + q.id + "\"]") || {value: ""}).value.trim();
+  var s = picked(q.id + ".s")[0] || null;
+  var choice = p.filter(function (v) { return v.indexOf("__") !== 0; });
+  var follow = null;
+  (q.options || []).forEach(function (o) {
+    if (!follow && o.followUp && choice.indexOf(o.id) >= 0) follow = {q: o.followUp.id, choice: picked(q.id + ".f." + o.id).slice(0, 1)};
+  });
+  return {q: q.id, choice: choice, other: p.indexOf("__other") >= 0, later: p.indexOf("__later") >= 0, note: note, sure: s, follow: follow};
+}
+function isAns(q, a) { return !a.later && (a.choice.length > 0 || a.other || (!(q.options && q.options.length) && a.note.length > 0)); }
+function collect() {
+  return {formId: FORM.formId, version: 1, board: FORM.board, boardName: FORM.boardName, lang: L,
+    answeredBy: nameEl.value.trim(), role: roleEl.value.trim(), answeredAt: new Date().toISOString(), answers: QS.map(readQ)};
+}
+function locale() { return L === "ar" ? "ar-EG" : "en-GB"; }
+
+function applyLang() {
+  var t = T[L];
+  document.documentElement.lang = L; document.documentElement.dir = L === "ar" ? "rtl" : "ltr";
+  $("title").textContent = FORM.title || t.title(FORM.boardName);
+  document.title = $("title").textContent;
+  var made = store(function () { return new Date(FORM.createdAt).toLocaleDateString(locale()); }) || FORM.createdAt;
+  $("meta").innerHTML = [FORM.boardLabel, FORM.project].filter(Boolean).concat(t.meta(QS.length, CARDS.length, made)).map(function (x) { return "<span dir=\"auto\">" + esc(x) + "</span>"; }).join("");
+  $("sub").textContent = t.sub; $("lName").textContent = t.name; $("lRole").textContent = t.role; nameEl.placeholder = t.namePh; roleEl.placeholder = t.rolePh;
+  $("reset").textContent = t.reset; $("save").textContent = t.save; $("saveZip").textContent = t.asZip; $("nextOpen").textContent = t.next;
+  $("lOnlyOpen").textContent = t.onlyOpen; $("acceptRec").textContent = t.acceptRec; $("keys").textContent = t.keys;
+  Array.prototype.forEach.call(document.querySelectorAll("[data-t]"), function (e) { e.textContent = t[e.getAttribute("data-t")]; });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-s]"), function (e) { e.textContent = t.sureOpts[e.getAttribute("data-s")]; });
+  Array.prototype.forEach.call(document.querySelectorAll("#lang button"), function (b) { b.classList.toggle("on", b.getAttribute("data-l") === L); });
+  refresh();
+}
+$("lang").addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return;
+  L = b.getAttribute("data-l"); store(function () { localStorage.setItem(KEY + ":lang", L); }); applyLang();
+});
+
+function refresh() {
+  var d = collect(), t = T[L], n = 0, l = 0;
+  QS.forEach(function (q, i) {
+    var a = d.answers[i], el = $("q-" + q.id), ok = isAns(q, a);
+    if (!el) return;
+    if (ok) n++;
+    if (a.later) l++;
+    el.classList.toggle("done", !!ok); el.classList.toggle("islater", a.later);
+    el.classList.toggle("hidden", $("onlyOpen").checked && (ok || a.later) && !el.contains(document.activeElement));
+    Array.prototype.forEach.call(el.querySelectorAll(".fu"), function (f) { f.classList.toggle("show", a.choice.indexOf(f.getAttribute("data-for")) >= 0); });
+    var oe = el.querySelector("[data-oe]"); if (oe) oe.classList.toggle("show", a.other && !a.note);
+  });
+  $("prog").textContent = t.prog(n, l, QS.length);
+  $("pfill").style.width = (QS.length ? 100 * (n + l) / QS.length : 0) + "%";
+  $("cchips").innerHTML = CARDS.map(function (c) {
+    var qs = QS.filter(function (q) { return q.card === c.card; });
+    var k = qs.filter(function (q) { var a = d.answers[QS.indexOf(q)]; return isAns(q, a) || a.later; }).length;
+    return qs.length ? "<a href=\"#card-" + c.card + "\" class=\"" + (k === qs.length ? "ok" : "") + "\">#" + c.card + " <small>" + k + "/" + qs.length + "</small></a>" : "";
+  }).join("");
+  Array.prototype.forEach.call(document.querySelectorAll("[data-gc]"), function (e) {
+    var qs = QS.filter(function (q) { return String(q.card) === e.getAttribute("data-gc"); });
+    e.textContent = qs.filter(function (q) { return isAns(q, d.answers[QS.indexOf(q)]); }).length + "/" + qs.length;
+  });
+  var saved = store(function () { localStorage.setItem(KEY, JSON.stringify(d)); return true; });
+  $("savedAt").textContent = saved ? t.saved(new Date().toLocaleTimeString(locale(), {hour: "2-digit", minute: "2-digit"})) : t.notSaved;
+}
+function restore() {
+  var s = store(function () { return JSON.parse(localStorage.getItem(KEY) || "null"); });
+  if (!s || !s.answers) return;
+  nameEl.value = s.answeredBy || ""; roleEl.value = s.role || "";
+  function set(n, v) { inputs(n).forEach(function (x) { if (x.value === v) x.checked = true; }); }
+  s.answers.forEach(function (a) {
+    var q = QS.filter(function (x) { return x.id === a.q; })[0]; if (!q) return;
+    (a.choice || []).forEach(function (v) { set(a.q, v); });
+    if (a.other) set(a.q, "__other");
+    if (a.later) set(a.q, "__later");
+    if (a.sure) set(a.q + ".s", a.sure);
+    if (a.follow) (q.options || []).forEach(function (o) { if (o.followUp && o.followUp.id === a.follow.q) (a.follow.choice || []).forEach(function (v) { set(a.q + ".f." + o.id, v); }); });
+    var t = document.querySelector("[data-note=\"" + a.q + "\"]"); if (t) t.value = a.note || "";
+  });
+}
+restore(); applyLang();
+document.addEventListener("input", refresh);
+document.addEventListener("change", function (e) {
+  var i = e.target;
+  if (i.type === "checkbox" && i.name && i.name.indexOf(".") < 0 && i.checked) {
+    // "later" and an answer exclude each other in a multi-select question too
+    inputs(i.name).forEach(function (x) { if (i.value === "__later" ? x.value !== "__later" : x.value === "__later") x.checked = false; });
+  }
+  refresh();
+});
+function firstOpen() { var d = collect(); return QS.filter(function (q, i) { return !isAns(q, d.answers[i]) && !d.answers[i].later; })[0]; }
+$("nextOpen").addEventListener("click", function () {
+  var q = firstOpen(); if (!q) return;
+  var el = $("q-" + q.id); el.scrollIntoView({behavior: "smooth", block: "center"}); el.focus({preventScroll: true});
+});
+$("acceptRec").addEventListener("click", function () {
+  var d = collect();
+  var todo = QS.filter(function (q, i) { return !isAns(q, d.answers[i]) && !d.answers[i].later && (q.options || []).some(function (o) { return o.recommended; }); });
+  if (!todo.length || !confirm(T[L].acceptRecQ(todo.length))) return;
+  todo.forEach(function (q) {
+    (q.options || []).filter(function (o) { return o.recommended; }).slice(0, q.multiSelect ? 99 : 1).forEach(function (o) {
+      inputs(q.id).forEach(function (x) { if (x.value === o.id) x.checked = true; });
+      if (o.followUp) { var r = (o.followUp.options || []).filter(function (f) { return f.recommended; })[0]; if (r) inputs(q.id + ".f." + o.id).forEach(function (x) { if (x.value === r.id) x.checked = true; }); }
+    });
+  });
+  refresh();
+});
+document.addEventListener("keydown", function (e) {
+  var tag = e.target.tagName;
+  if (tag === "TEXTAREA" || (tag === "INPUT" && e.target.type === "text") || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "n" || e.key === "N") { $("nextOpen").click(); e.preventDefault(); return; }
+  var q = e.target.closest && e.target.closest(".q");
+  if (!q || !/^[1-6]$/.test(e.key)) return;
+  var ins = Array.prototype.slice.call(q.querySelectorAll(":scope > label.opt input"));
+  var x = ins[+e.key - 1]; if (x) { x.click(); x.focus(); e.preventDefault(); }
+});
+
+// ---- the answers file: a read-only page in the same design, the answers as JSON inside it
+function buildAnswers(d) {
+  var t = T[L], n = 0, l = 0, o = 0, diff = 0;
+  function row(x, on) {
+    return "<div class=\"opt " + (on ? "picked" : "") + "\"><span>" + (on ? "&#10004;" : "&#9675;") + "</span><span><b dir=\"auto\">" + esc(x.label) +
+      (x.recommended ? "<span class=\"rec\">" + t.rec + "</span>" : "") + "</b>" + (x.description ? "<small dir=\"auto\">" + esc(x.description) + "</small>" : "") + "</span></div>";
+  }
+  var body = CARDS.map(function (c) {
+    var qs = QS.filter(function (q) { return q.card === c.card; });
+    if (!qs.length) return "";
+    return "<section class=\"grp\"><div class=\"ghead\"><span class=\"gnum\">#" + c.card + "</span><b dir=\"auto\">" + esc(c.name) + "</b><span class=\"gtype\">" + esc(c.type) + "</span></div>" + qs.map(function (q) {
+      var a = d.answers.filter(function (x) { return x.q === q.id; })[0], ok = isAns(q, a), opts = q.options || [];
+      if (ok) n++; else if (a.later) l++; else o++;
+      var rec = opts.filter(function (x) { return x.recommended; }).map(function (x) { return x.id; }).sort().join(), mine = a.choice.slice().sort().join();
+      var vs = "";
+      if (ok && rec && !a.other) { if (rec === mine) vs = "<span class=\"pill ok\">" + t.asRec + "</span>"; else { diff++; vs = "<span class=\"pill warn\">" + t.diffRec + "</span>"; } }
+      var pk = opts.filter(function (x) { return a.choice.indexOf(x.id) >= 0; }), rest = opts.filter(function (x) { return a.choice.indexOf(x.id) < 0; });
+      var fq = a.follow && opts.filter(function (x) { return x.followUp && x.followUp.id === a.follow.q; })[0];
+      return "<div class=\"q " + (ok ? "done" : a.later ? "islater" : "unans") + "\"><span class=\"tag\" dir=\"auto\">" + esc(q.header) + "</span>" + vs +
+        (a.later ? "<span class=\"pill warn\">" + t.laterTag + "</span>" : "") + "<h2 dir=\"auto\">" + esc(q.question) + "</h2>" +
+        pk.map(function (x) { return row(x, true); }).join("") + (a.other ? "<div class=\"opt picked\"><span>&#10004;</span><span><b>" + t.other + "</b></span></div>" : "") +
+        (fq ? "<div class=\"fu show\"><span class=\"tag\">" + t.follow + "</span><h3 dir=\"auto\">" + esc(fq.followUp.question) + "</h3>" +
+          ((fq.followUp.options || []).filter(function (f) { return a.follow.choice.indexOf(f.id) >= 0; }).map(function (f) { return row(f, true); }).join("") || "<p class=\"why\">" + t.none + "</p>") + "</div>" : "") +
+        (a.note ? "<p class=\"notebox\" dir=\"auto\">" + esc(a.note) + "</p>" : "") +
+        (a.sure ? "<p class=\"why\">" + t.sure + " <b>" + t.sureOpts[a.sure] + "</b></p>" : "") +
+        (!ok && !a.later ? "<p class=\"why\">" + t.none + "</p>" : "") +
+        (rest.length ? "<details class=\"why2\"><summary>" + t.otherOpts(rest.length) + "</summary>" + rest.map(function (x) { return row(x, false); }).join("") + "</details>" : "") + "</div>";
+    }).join("") + "</section>";
+  }).join("");
+  var when = store(function () { return new Date(d.answeredAt).toLocaleString(locale()); }) || d.answeredAt;
+  var head = "<h1 dir=\"auto\">" + esc(t.ansTitle(FORM.boardName)) + "</h1><div class=\"meta\"><span dir=\"auto\">" + esc(FORM.boardLabel) + "</span>" +
+    (FORM.project ? "<span dir=\"auto\">" + esc(FORM.project) + "</span>" : "") + "<span>" + t.by + " <bdi>" + esc(d.answeredBy || "—") + "</bdi>" +
+    (d.role ? " (<bdi>" + esc(d.role) + "</bdi>)" : "") + "</span><span>" + esc(when) + "</span></div>" +
+    "<div class=\"stats\"><div><b>" + n + "</b>" + t.sumAnswered + "</div><div><b>" + l + "</b>" + t.sumLater + "</div><div><b>" + o + "</b>" + t.sumOpen + "</div><div><b>" + diff + "</b>" + t.sumDiff + "</div></div>";
+  var css = document.querySelector("style").textContent;
+  // "<" written as <: no text anyone typed can end the block
+  var json = JSON.stringify(d).replace(/</g, "\\u003c");
+  return "<!doctype html>\n<html lang=\"" + L + "\" dir=\"" + (L === "ar" ? "rtl" : "ltr") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+    "<meta name=\"generator\" content=\"Alfred answers file (specs/037)\"><title>" + esc(t.ansTitle(FORM.boardName)) + "</title><style>" + css + "</style></head><body><main class=\"readonly\">" +
+    head + body + "</main><script type=\"application/json\" id=\"alfred-answers\">" + json + "<\/script></body></html>";
+}
+
+// one-entry stored zip (no compression), so the offline form needs no library
+var CRC = (function () { var t = [], n, c, k; for (n = 0; n < 256; n++) { c = n; for (k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { var c = 0xFFFFFFFF; for (var i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipOne(name, data) {
+  var nm = new TextEncoder().encode(name), crc = crc32(data), sz = data.length;
+  function hdr(sig, len) { var v = new DataView(new ArrayBuffer(len)); v.setUint32(0, sig, true); return v; }
+  var lh = hdr(0x04034b50, 30); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true);
+  var cd = hdr(0x02014b50, 46); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true); cd.setUint32(16, crc, true); cd.setUint32(20, sz, true); cd.setUint32(24, sz, true); cd.setUint16(28, nm.length, true);
+  var end = hdr(0x06054b50, 22); end.setUint16(8, 1, true); end.setUint16(10, 1, true); end.setUint32(12, 46 + nm.length, true); end.setUint32(16, 30 + nm.length + sz, true);
+  return new Blob([lh.buffer, nm, data, cd.buffer, nm, end.buffer], {type: "application/zip"});
+}
+function download(asZip) {
+  var d = collect(), t = T[L];
+  var miss = QS.filter(function (q, i) { return !isAns(q, d.answers[i]) && !d.answers[i].later; }).length;
+  var oe = d.answers.filter(function (a) { return a.other && !a.note; }).length;
+  if ((miss || oe) && !confirm(t.missing(miss, oe))) return;
+  var html = buildAnswers(d);
+  var base = (FORM.fileBase || "questions") + "-answers-" + d.answeredAt.slice(0, 10);
+  var blob = asZip ? zipOne(base + ".html", new TextEncoder().encode(html)) : new Blob([html], {type: "text/html"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = base + (asZip ? ".zip" : ".html");
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1500);
+}
+$("save").addEventListener("click", function () { download(false); });
+$("saveZip").addEventListener("click", function () { download(true); });
+$("reset").addEventListener("click", function () {
+  if (!confirm(T[L].resetQ)) return;
+  store(function () { localStorage.removeItem(KEY); });
+  Array.prototype.forEach.call(document.querySelectorAll("#qs input"), function (r) { r.checked = false; });
+  Array.prototype.forEach.call(document.querySelectorAll("#qs textarea"), function (x) { x.value = ""; });
+  nameEl.value = ""; roleEl.value = "";
+  refresh();
+});
+window.AlfredForm = {collect: collect, buildAnswers: buildAnswers, zipOne: zipOne};
+})();
+</script>
+</body>
+</html>

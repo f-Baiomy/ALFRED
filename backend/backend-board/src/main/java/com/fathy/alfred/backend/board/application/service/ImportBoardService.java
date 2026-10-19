@@ -615,7 +615,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         } catch (IllegalArgumentException e) {
             return;
         }
-        if (data.length == 0 || data.length > BoardFile.MAX_BYTES || BoardFilesService.content(mime, data) != null) {
+        if (data.length == 0 || data.length > BoardFile.MAX_BYTES || BoardFilesService.problem(mime, name, data) != null) {
             return;
         }
         String cycle = cardId != null ? store.find(cardId).map(Card::cycleId).orElse(null) : cycleId;

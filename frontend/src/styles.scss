@@ -13423,3 +13423,50 @@ app-card-peek { position: fixed; top: 0; left: 0; z-index: 1003; }
 .card-peek-keys { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.6rem; padding: 0.5rem 0 0.65rem;
   background: var(--popover-solid); border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.68rem;
   kbd { font: inherit; font-size: 0.62rem; padding: 0 0.3rem; border-radius: 4px; border: 1px solid var(--border-strong); color: var(--text); } }
+
+// ---------- Questions form and answers file (specs/037) ----------
+.qmenu { position: relative; display: inline-flex; }
+.qmenu-pop { position: absolute; top: calc(100% + 4px); inset-inline-end: 0; z-index: 60; min-width: 300px; max-width: min(360px, 92vw);
+  display: flex; flex-direction: column; padding: 0.3rem; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--popover-solid);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  > button { font: inherit; font-size: 0.82rem; text-align: start; color: var(--text); background: none; border: 0; border-radius: 6px; padding: 0.42rem 0.6rem; cursor: pointer;
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--purple) 18%, transparent); } &:disabled { color: var(--text-faint); cursor: default; } } }
+.qmenu-sep { height: 1px; background: var(--border); margin: 0.25rem 0; }
+.qmenu-opts { display: flex; gap: 0.6rem; flex-wrap: wrap; padding: 0.3rem 0.6rem; font-size: 0.76rem; color: var(--text-dim);
+  label { display: inline-flex; gap: 0.35rem; align-items: center; }
+  select { font: inherit; color: var(--text); background: var(--card-inner); border: 1px solid var(--border); border-radius: 6px; padding: 0.1rem 0.3rem; } }
+.qmenu-hint { margin: 0.1rem 0.6rem 0.35rem; font-size: 0.7rem; color: var(--text-faint); }
+.board-qform { font: inherit; font-size: 0.72rem; font-weight: 600; color: var(--purple-light); background: none; cursor: pointer; margin: 0.25rem 0 0.25rem 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--purple) 45%, transparent); border-radius: 99px; padding: 0.02rem 0.5rem;
+  &:hover:not(:disabled) { border-color: var(--purple-light); } &:disabled { opacity: 0.5; cursor: default; } }
+.board-qa-details { margin: 0.4rem 0 0.6rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.6rem; background: var(--card-inner);
+  > summary { cursor: pointer; font-size: 0.78rem; font-weight: 600; color: var(--purple-light); }
+  img { max-width: 100%; height: auto; border-radius: 6px; } }
+.chat-composer.chat-drop { outline: 2px dashed color-mix(in srgb, var(--green) 70%, transparent); outline-offset: 2px; border-radius: 10px; }
+.dialog-card.aimp { max-width: min(860px, 96vw); }
+.aimp-who { margin: 0 0 0.7rem; font-size: 0.82rem; color: var(--text-dim); }
+.aimp-mode { margin-inline-start: 0.5rem; font-size: 0.7rem; padding: 0.05rem 0.5rem; border-radius: 99px; border: 1px solid var(--border-strong); color: var(--purple-light);
+  &.done { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); } }
+.aimp-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.aimp-row { display: grid; grid-template-columns: 3.4rem minmax(0, 1.6fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 0.6rem; padding: 0.45rem 0.6rem;
+  border-top: 1px solid var(--border); font-size: 0.8rem; align-items: start; overflow-wrap: anywhere;
+  &:first-child { border-top: 0; } }
+.aimp-head { font-size: 0.7rem; font-weight: 700; color: var(--text-dim); letter-spacing: 0.04em; background: var(--card-inner); }
+.aimp-note { display: block; color: var(--text-faint); font-size: 0.72rem; }
+.aimp-pill { display: inline-block; font-size: 0.7rem; font-weight: 650; padding: 0.05rem 0.5rem; border-radius: 99px; border: 1px solid var(--border-strong); color: var(--text-dim); }
+.aimp-apply, .aimp-applied { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+.aimp-already_answered, .aimp-later { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); }
+.aimp-changed, .aimp-unknown_key, .aimp-refused { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.aimp-ok { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--green); }
+.aimp-foot { margin: 0.7rem 0 0; font-size: 0.72rem; }
+.aimp-toast { position: fixed; inset-inline-end: 1rem; bottom: 1rem; z-index: 120; max-width: min(460px, calc(100vw - 2rem)); display: flex; gap: 0.6rem; align-items: start;
+  padding: 0.6rem 0.8rem; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--popover-solid); color: var(--text); font-size: 0.82rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  &.aimp-toast-ok { border-color: color-mix(in srgb, var(--green) 55%, transparent); }
+  &.aimp-toast-warn { border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
+  &.aimp-toast-error { border-color: color-mix(in srgb, var(--red) 60%, transparent); } }
+@media (max-width: 640px) {
+  .aimp-row { grid-template-columns: 2.6rem minmax(0, 1fr); }
+  .aimp-row > :nth-child(3), .aimp-row > :nth-child(4) { grid-column: 2; }
+  .aimp-head > :nth-child(3), .aimp-head > :nth-child(4) { display: none; }
+}

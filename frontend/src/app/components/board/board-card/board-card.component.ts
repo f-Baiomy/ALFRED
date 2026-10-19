@@ -3,7 +3,7 @@ import { userLabel } from '../../../core/links/remote-ref';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
   CardStatus, CardSummary, FLAG_LABELS, Flag, MENTION_ICONS, Proposal, mentionTypeOf, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
-  retestChip, workedChip,
+  retestChip, workedChip, defaultBoardId,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { RefTextComponent } from '../mention-chip/ref-text.component';
@@ -18,6 +18,7 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { actionText, adviceAction, confidenceLabel, confidenceOf } from '../../../shared/utils/triage-advice';
 import { homeLabel, placementOf } from '../../../shared/utils/board-cards-visibility';
 import { AutoDirDirective } from '../../../shared/directives/auto-dir.directive';
+import { QuestionsFormService } from '../../../core/services/questions-form.service';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -178,6 +179,8 @@ export type CardAction =
       @if (questionCount(); as n) {
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
+        <button type="button" class="board-qform" [disabled]="forms.busy()" title="This card's questions as an offline form - for someone outside Alfred"
+                (click)="$event.stopPropagation(); questionsForm()">⇩ Form</button>
         @if (card().advice; as a) {
           <span class="board-advice" [title]="adviceTitle()">✦ advises: <bdi [appAutoDir]="a">{{ a }}</bdi>@if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</span>
           @if (card().adviceDetail?.reason; as why) {
@@ -271,6 +274,13 @@ export type CardAction =
 })
 export class BoardCardComponent {
   readonly card = input.required<CardSummary>();
+  readonly forms = inject(QuestionsFormService);
+
+  /** This card's open questions as a questions form (specs/037 D2). */
+  questionsForm(): void {
+    const c = this.card();
+    void this.forms.download(c.boardId || defaultBoardId(c.project), [c.number]);
+  }
   readonly selected = input(false);
   readonly focused = input(false);
   readonly editable = input(true);

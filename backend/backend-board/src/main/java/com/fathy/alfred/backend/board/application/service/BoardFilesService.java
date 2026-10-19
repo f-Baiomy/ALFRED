@@ -1,5 +1,7 @@
 package com.fathy.alfred.backend.board.application.service;
 
+import com.fathy.alfred.backend.board.domain.AnswersFile;
+
 import com.fathy.alfred.backend.board.application.port.in.BoardFilesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.SnippetsUseCase.Result;
 import com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort;
@@ -74,7 +76,7 @@ public class BoardFilesService implements BoardFilesUseCase {
         if (data.length > BoardFile.MAX_BYTES) {
             return Result.refused(Outcome.INVALID, "A file can be at most 10 MB");
         }
-        String problem = content(mime, data);
+        String problem = problem(mime, clean, data);
         if (problem != null) {
             return Result.refused(Outcome.INVALID, problem);
         }
@@ -130,16 +132,36 @@ public class BoardFilesService implements BoardFilesUseCase {
             Optional<Card> c = cards.find(cardId.strip());
             return c.map(x -> Result.ok(new Place(x.project(), x.id(), x.cycleId()))).orElseGet(() -> Result.refused(Outcome.NOT_FOUND, "No such card"));
         }
-        if (!ID.matcher(cycleId.strip()).matches()) {
+        // a project's default board (specs/027 default:<project>) holds files too - an answers file sent to its chat (specs/037)
+        boolean defaultBoard = project != null && cycleId.strip().equals(com.fathy.alfred.backend.board.domain.model.BoardIds.defaultOf(project.strip()));
+        if (!defaultBoard && !ID.matcher(cycleId.strip()).matches()) {
             return Result.refused(Outcome.INVALID, "Not a cycle id");
         }
         return project == null ? Result.refused(Outcome.INVALID, "A cycle's file needs its project")
                 : Result.ok(new Place(project.strip(), null, cycleId.strip()));
     }
 
+    /** An html or zip file is taken only as an Alfred answers file (specs/037 D16a, D19): why not, or null. */
+    static String answersProblem(String mime, String name, byte[] data) {
+        AnswersFile.Read read = AnswersFile.read(name, data);
+        if (read.ok()) {
+            return null;
+        }
+        if (read.problem().equals(AnswersFile.TOO_BIG)) {
+            return read.problem();
+        }
+        return mime.equals("application/zip") ? AnswersFile.BAD_ZIP : "An HTML file is accepted only as an Alfred answers file";
+    }
+
     /** Why the bytes are not what the name says, or null. */
+    /** Why these bytes cannot be kept as a file of this type, or null - an html or zip only ever as an answers file. */
+    static String problem(String mime, String name, byte[] data) {
+        return mime.equals("text/html") || mime.equals("application/zip") ? answersProblem(mime, name, data) : content(mime, data);
+    }
+
     static String content(String mime, byte[] data) {
         return switch (mime) {
+            case "text/html", "application/zip" -> null; // checked as an answers file by attach()
             case "image/png", "image/jpeg" -> BoardImagesService.looksLike(mime, data) ? null : "The file is not a " + (mime.endsWith("png") ? "PNG" : "JPEG") + " picture";
             case "application/pdf" -> data.length > 4 && data[0] == '%' && data[1] == 'P' && data[2] == 'D' && data[3] == 'F' ? null : "The file is not a PDF";
             default -> isText(data) ? null : "The file is not text (UTF-8)";

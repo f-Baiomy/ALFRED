@@ -1,0 +1,60 @@
+{
+  "formId": "qf_bba1424664e14d79916ed1c1080603a6",
+  "version": 1,
+  "board": "2cb59645-31e5-4fec-be59-047509e13063",
+  "boardName": "Portal: Knowledge Base",
+  "lang": "en",
+  "answeredBy": "Ahmed </script><b>Ghonim</b>",
+  "role": "BA",
+  "answeredAt": "2026-10-19T15:11:40.406Z",
+  "answers": [
+    {
+      "q": "q1",
+      "choice": [
+        "o1"
+      ],
+      "other": false,
+      "later": false,
+      "note": "",
+      "sure": "sure",
+      "follow": null
+    },
+    {
+      "q": "q2",
+      "choice": [
+        "o1"
+      ],
+      "other": false,
+      "later": false,
+      "note": "",
+      "sure": null,
+      "follow": {
+        "q": "f1",
+        "choice": [
+          "o2"
+        ]
+      }
+    },
+    {
+      "q": "q3",
+      "choice": [
+        "o1",
+        "o3"
+      ],
+      "other": true,
+      "later": false,
+      "note": "plus Status",
+      "sure": null,
+      "follow": null
+    },
+    {
+      "q": "q4",
+      "choice": [],
+      "other": false,
+      "later": false,
+      "note": "Mona from DevOps",
+      "sure": null,
+      "follow": null
+    }
+  ]
+}

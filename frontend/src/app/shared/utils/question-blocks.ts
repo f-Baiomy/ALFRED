@@ -23,6 +23,8 @@ export interface AskQuestion {
   readonly header: string;
   readonly question: string;
   readonly why?: string;
+  /** The evidence under the question (specs/037): board text - pictures, tables, charts, calls, spec lines. */
+  readonly details?: string;
   readonly multiSelect?: boolean;
   readonly options: readonly AskOption[];
   /** Triage: what Claude checked before advising. */
@@ -81,6 +83,7 @@ export function askBlock(text: string | null | undefined): AskBlock | null {
   if (!Array.isArray(qs) || !qs.length) return null;
   const question = (q: any): AskQuestion => ({
     header: String(q?.header ?? '').trim(), question: String(q?.question ?? ''), why: q?.why ? String(q.why) : undefined,
+    ...(typeof q?.details === 'string' && q.details.trim() ? { details: String(q.details) } : {}),
     multiSelect: !!q?.multiSelect,
     options: (Array.isArray(q?.options) ? q.options : []).map((o: any): AskOption => ({
       label: String(o?.label ?? ''), description: o?.description ? String(o.description) : undefined, then: o?.then ? String(o.then) : undefined,
@@ -211,3 +214,22 @@ export function allAnswered(entry: ActivityEntry, replies: readonly ActivityEntr
   const lines = questionLines(entry, replies);
   return lines ? lines.every((l) => l.state === 'answered' || l.state === 'withdrawn') : null;
 }
+
+/** What a question's details hold, for its summary line: "1 screenshot · 1 chart · 1 table" (specs/037). */
+export function detailsSummary(details: string | null | undefined): string {
+  if (!details) return '';
+  const count = (re: RegExp) => (details.match(re) ?? []).length;
+  const parts: string[] = [];
+  const pictures = count(/!\[[^\]]*\]\(\/board\/images\/[^)]+\)|<img\b/gi);
+  const charts = count(/^```chart\b/gim);
+  const stats = count(/^```stats\b/gim);
+  const tables = count(/^[ \t]*\|[^\n]*\|[ \t]*\n[ \t]*\|[ \t]*:?-{3,}/gm) + count(/<table\b/gi);
+  const calls = count(/@\[call:/g) + count(/^```calls\b/gim);
+  if (pictures) parts.push(`${pictures} screenshot${pictures === 1 ? '' : 's'}`);
+  if (charts) parts.push(`${charts} chart${charts === 1 ? '' : 's'}`);
+  if (stats) parts.push(`${stats} stat block${stats === 1 ? '' : 's'}`);
+  if (tables) parts.push(`${tables} table${tables === 1 ? '' : 's'}`);
+  if (calls) parts.push(`${calls} call${calls === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+

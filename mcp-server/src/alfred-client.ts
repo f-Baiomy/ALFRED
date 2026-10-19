@@ -210,6 +210,42 @@ export class AlfredClient {
     return { mime: (response.headers.get('content-type') ?? 'application/octet-stream').split(';')[0], data: Buffer.from(await response.arrayBuffer()) };
   }
 
+  /**
+   * A request whose answer (or body) is a file, not JSON: a questions form back (specs/037), a picture up. JSON `body` or raw
+   * `bytes` with their `contentType`; errors are read and thrown as {@link request} does. The user's key goes with it.
+   */
+  async binary(method: string, path: string, options: { query?: Record<string, unknown>; headers?: Record<string, string>; body?: unknown;
+    bytes?: Uint8Array; contentType?: string; timeoutMs?: number } = {}): Promise<{ status: number; headers: Headers; data: Buffer }> {
+    const url = new URL(this.baseUrl + path);
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+    }
+    await this.acquire();
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: { ...(options.bytes !== undefined ? { 'Content-Type': options.contentType ?? 'application/octet-stream' }
+          : options.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...this.identityHeaders, ...(options.headers ?? {}) },
+        body: options.bytes !== undefined ? options.bytes : options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw new AlfredError('unreachable', `Alfred is not reachable at ${this.baseUrl} (${(error as Error).message}).`, undefined, `${method} ${url.pathname}`);
+    } finally {
+      this.release();
+    }
+    this.noteClock(response);
+    if (response.status === 404) throw new AlfredError('not_found', `Not found: ${url.pathname}`, 404, `${method} ${url.pathname}`);
+    if (!response.ok) {
+      const body = await readError(response);
+      const invalid = response.status === 400 || response.status === 409 || response.status === 422;
+      throw new AlfredError(invalid ? 'invalid' : 'backend', invalid ? `Alfred rejected the request (${response.status}): ${body.message}`
+        : `Alfred answered ${response.status}: ${body.message}`, response.status, `${method} ${url.pathname}`, body.code);
+    }
+    return { status: response.status, headers: response.headers, data: Buffer.from(await response.arrayBuffer()) };
+  }
+
   private acquire(): Promise<void> {
     if (this.inFlight < MAX_IN_FLIGHT) {
       this.inFlight++;

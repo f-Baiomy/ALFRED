@@ -157,7 +157,7 @@ final class StreamRoutes {
             Pattern.compile("^/triage/(live|counts)$"),
             Pattern.compile("^/board/(access|agent-status|boards|changes|changes/.+|cycle-chat|board-chat|owners|people/.+|visuals|live-runner|live-work|retest/guards|skill-runs.*|storage|versions"
                     + "|chats|chats/export|chats/messages/.+|chats/[^/]+/(context|settings|terminal|watches)|data/.+|me|me/.+|users.*|helpers.*|holders.*"
-                    + "|browsers.*|sessions.*|helper-commands.*|audit.*|connect.*|import.*|widgets.*|pages|files|teams/.+|asks.*|cards/[^/]+/text-versions"
+                    + "|browsers.*|sessions.*|helper-commands.*|audit.*|connect.*|import.*|widgets.*|pages|files|files/[^/]+/answers[.]json|teams/.+|asks.*|cards/[^/]+/text-versions"
                     + "|cycles/[^/]+/delete-plan|search.*|similar.*|closed-reasons.*|regressions.*|mentions.*|live-strip.*|session-log.*|for-call.*)$"),
             Pattern.compile("^/call-logs/(import)$"));
 

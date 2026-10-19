@@ -27,6 +27,8 @@ import java.util.regex.Pattern;
  * are triage's (the Inbox worst first, cards of one root cause to merge into this one) - all optional.
  * An answer is {@code **Answers** Steps: … · Checks: …} with a {@code ```answers} block: {@code {"Steps": {"chose":
  * ["…"], "other": "…", "note": "…", "later": "<instant>"}}}. The text stays the source of truth - this reads it.
+ * specs/037 adds {@code details} to a question (board text: pictures, charts, tables, the calls, the spec lines) and
+ * {@code via} / {@code sure} to an answer (where it came from - an answers file - and how sure the person was).
  */
 final class QuestionBlocks {
 
@@ -34,6 +36,8 @@ final class QuestionBlocks {
     private static final Pattern FENCE = Pattern.compile("(?ms)^```(questions|answers)[ \\t]*\\n(.*?)\\n```[ \\t]*$");
     static final int MAX_QUESTIONS = 4;
     static final int MAX_OPTIONS = 4;
+    /** A question's {@code details} (specs/037): the evidence shown under it - pictures are references, so 32 KB is a lot of text. */
+    static final int MAX_DETAILS = 32 * 1024;
 
     private QuestionBlocks() {
     }
@@ -164,7 +168,15 @@ final class QuestionBlocks {
         }
         for (JsonNode q : qs) {
             String header = q.path("header").asText("").strip();
+            String details = detailsProblem(header, q);
+            if (details != null) {
+                return details;
+            }
             for (JsonNode o : q.path("options")) {
+                details = detailsProblem(header, o.path("followUp"));
+                if (details != null) {
+                    return details;
+                }
                 String c = o.path("confidence").asText("").strip().toLowerCase(Locale.ROOT);
                 if (o.has("confidence") && !CONFIDENCE.contains(c)) {
                     return "Question " + header + ": confidence is high, medium or low";
@@ -190,6 +202,21 @@ final class QuestionBlocks {
         return null;
     }
 
+    private static String detailsProblem(String header, JsonNode q) {
+        if (!q.has("details") || q.get("details").isNull()) {
+            return null;
+        }
+        if (!q.get("details").isTextual()) {
+            return "Question " + header + ": details is text (Markdown)";
+        }
+        return q.get("details").asText().length() > MAX_DETAILS ? "Question " + header + ": details is larger than " + (MAX_DETAILS / 1024) + " KB" : null;
+    }
+
+    /** The ```questions block of a question comment as written, or empty (a plain question). */
+    static Optional<JsonNode> questionsBlock(String text) {
+        return block(text, "questions");
+    }
+
     /** The user's answers in an answer comment, by header. */
     static Map<String, AnswerIn> answers(String text) {
         Map<String, AnswerIn> out = new LinkedHashMap<>();
@@ -203,7 +230,7 @@ final class QuestionBlocks {
             } catch (RuntimeException ignored) {
                 // not a time: no "later"
             }
-            out.put(e.getKey(), new AnswerIn(chose, text(v, "other"), text(v, "note"), later));
+            out.put(e.getKey(), new AnswerIn(chose, text(v, "other"), text(v, "note"), later, text(v, "via"), text(v, "sure")));
         }));
         return out;
     }
@@ -212,8 +239,16 @@ final class QuestionBlocks {
     static String answerText(Map<String, AnswerIn> answers) {
         List<String> parts = new ArrayList<>();
         ObjectNode block = JSON.createObjectNode();
+        String[] via = {null};
         answers.forEach((header, a) -> {
             ObjectNode v = block.putObject(header);
+            if (a.via() != null) {
+                v.put("via", a.via());
+                via[0] = a.via();
+            }
+            if (a.sure() != null) {
+                v.put("sure", a.sure());
+            }
             if (a.later() != null) {
                 v.put("later", a.later().toString());
                 parts.add(header + ": later");
@@ -230,9 +265,10 @@ final class QuestionBlocks {
             if (a.other() != null) {
                 said.add("\"" + oneLine(a.other()) + "\"");
             }
-            parts.add(header + ": " + String.join(", ", said) + (a.note() == null ? "" : " (note: " + oneLine(a.note()) + ")"));
+            parts.add(header + ": " + String.join(", ", said) + (a.note() == null ? "" : " (note: " + oneLine(a.note()) + ")")
+                    + (a.sure() == null ? "" : " [" + a.sure() + "]"));
         });
-        return "**Answers** " + String.join(" · ", parts) + "\n\n```answers\n" + block.toPrettyString() + "\n```";
+        return "**Answers** " + String.join(" · ", parts) + (via[0] == null ? "" : " - from " + oneLine(via[0])) + "\n\n```answers\n" + block.toPrettyString() + "\n```";
     }
 
     /** The same question asked again: its words, without case, marks or spacing. */

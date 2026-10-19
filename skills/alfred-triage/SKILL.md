@@ -9,6 +9,8 @@ argument-hint: "[AB#1234 | board name or id | project] [--dry]"
 Read `rules.md` in this skill's folder first and follow it. Closing and scope are the user's: you recommend, the user
 decides, and you never close a card yourself.
 
+**Asking** (specs/037): every `board_ask` follows rules "Asking well" - the evidence goes in `details`; questions for someone outside Alfred go out as `board_questions_form`, and an answers file that comes back goes through `board_import_answers` (dry run first, apply on the user's yes).
+
 ## 1. The Inbox
 
 A board given (`AB#1234`, its name or id - rules §0): `task_context` with it, then `board_search` with that `board`
