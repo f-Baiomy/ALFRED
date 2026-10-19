@@ -148,7 +148,7 @@ public class RemoteRefFilter extends OncePerRequestFilter {
         RelayRequest original = new RelayRequest(request.getMethod(), rawPath, query == null ? "" : query, headers, body, RelayContext.hops());
         RelayRequest onward = LoopbackDispatcher.stripped(original, match.get(), slug);
         onward = onward.withHops(RelayContext.hops());
-        RelayPipe.pipe(r, slug, onward, response, new RefTagger(slug));
+        RelayPipe.pipe(r, slug, onward, response, new RefTagger(slug).withKeys(LoopbackDispatcher.askedIds(match.get(), slug)));
     }
 
     /**

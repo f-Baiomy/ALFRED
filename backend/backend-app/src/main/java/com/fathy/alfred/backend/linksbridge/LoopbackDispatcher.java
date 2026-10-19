@@ -27,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -119,18 +118,30 @@ public class LoopbackDispatcher implements LocalDispatchPort {
         }
         Set<String> onlyCycles = req.hops().size() > 1 ? headerList(req.headers().get(SCOPE_HEADER)) : null;
         Optional<Stream> grant;
-        boolean checkAnswer = m.of(StreamRoutes.Kind.STATEMENT).isPresent() || m.of(StreamRoutes.Kind.STORE_COMMAND).isPresent();
-        if (checkAnswer) {
-            grant = Optional.empty(); // decided from the answer's call
+        Optional<StreamRoutes.Found> owned = m.of(StreamRoutes.Kind.STATEMENT).or(() -> m.of(StreamRoutes.Kind.STORE_COMMAND));
+        if (owned.isPresent()) {
+            // a statement or a Redis command (or a page of its rows): covered when its call is
+            String callId;
+            try {
+                callId = callOf(owned.get(), from);
+            } catch (IOException e) {
+                w.error("FAILED", e.getMessage());
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                w.error("FAILED", "Interrupted");
+                return;
+            }
+            grant = callId == null ? Optional.empty() : scope.streamOfCall(offered, callId, null, onlyCycles);
         } else {
             grant = grant(offered, m, onlyCycles);
-            if (grant.isEmpty()) {
-                refuse(w, 403, "NOT_STREAMED", "That is not part of what is streamed to you");
-                return;
-            }
-            if (!passAllowed(req, grant.get(), w)) {
-                return;
-            }
+        }
+        if (grant.isEmpty()) {
+            refuse(w, 403, "NOT_STREAMED", "That is not part of what is streamed to you");
+            return;
+        }
+        if (!passAllowed(req, grant.get(), w)) {
+            return;
         }
         String target = m.found().get(0).value();
         String via = req.hops().size() > 1 ? req.headers().getOrDefault(READER_HEADER, "another Alfred") : null;
@@ -249,26 +260,11 @@ public class LoopbackDispatcher implements LocalDispatchPort {
         InputStream raw = r.body();
         try (raw) {
             InputStream body = raw;
-            Optional<Stream> granted = grant;
-            if (granted.isEmpty()) {
-                // a statement or a Redis command: covered when its call is
-                byte[] whole = readCapped(body);
-                String callId = r.statusCode() < 400 ? callIdIn(whole) : null;
-                granted = callId == null ? Optional.empty() : scope.streamOfCall(offered, callId, null, onlyCycles);
-                if (granted.isEmpty()) {
-                    refuse(w, 403, "NOT_STREAMED", "That is not part of what is streamed to you");
-                    return;
-                }
-                if (req.hops().size() > 1 && !granted.get().passOn()) {
-                    refuse(w, 403, "NOT_PASSED_ON", "The owner does not let this stream be passed on");
-                    return;
-                }
-                body = new ByteArrayInputStream(whole);
-            }
+            Stream granted = grant.orElseThrow();
             record(from, family, target, via);
             w.head(r.statusCode(), headers);
             OutputStream out = new WriterOutputStream(w);
-            if (!granted.get().unmasked() && contentType.toLowerCase(Locale.ROOT).contains("json")) {
+            if (!granted.unmasked() && contentType.toLowerCase(Locale.ROOT).contains("json")) {
                 JsonRewriter.rewrite(body, out, new SourceMasker(redactionList()));
             } else {
                 body.transferTo(out);
@@ -312,6 +308,32 @@ public class LoopbackDispatcher implements LocalDispatchPort {
             out.write(buf, 0, n);
         }
         return out.toByteArray();
+    }
+
+    /** The ids a read asked for by list (callIds=...), as the Alfred behind {@code slug} names them. */
+    static Set<String> askedIds(StreamRoutes.Match m, String slug) {
+        Set<String> out = new LinkedHashSet<>();
+        for (StreamRoutes.Found f : m.found()) {
+            if (f.ref().kind() == StreamRoutes.Kind.CALLS) {
+                for (String v : values(f)) {
+                    RemoteRef.outer(v).filter(sp -> sp.slug().equals(slug)).ifPresent(sp -> out.add(sp.inner()));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The call a statement or a Redis command belongs to, read from its own record on this Alfred; null when there is none. */
+    private String callOf(StreamRoutes.Found f, Link from) throws IOException, InterruptedException {
+        String path = (f.ref().kind() == StreamRoutes.Kind.STATEMENT ? "/db-capture/statements/" : "/db-capture/store-commands/")
+                + java.net.URLEncoder.encode(f.value(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        HttpRequest q = HttpRequest.newBuilder(URI.create(loopback.base() + path)).timeout(Duration.ofSeconds(30))
+                .header(Loopback.TOKEN_HEADER, loopback.token()).header(Loopback.LINK_HEADER, from.id())
+                .header("Accept", "application/json").GET().build();
+        HttpResponse<InputStream> r = http.send(q, HttpResponse.BodyHandlers.ofInputStream());
+        try (InputStream in = r.body()) {
+            return r.statusCode() < 400 ? callIdIn(readCapped(in)) : null;
+        }
     }
 
     /** The first {@code callId} field of a JSON answer (a statement's or a command's call), breadth first. */
@@ -419,7 +441,7 @@ public class LoopbackDispatcher implements LocalDispatchPort {
             String ct = headers.entrySet().stream().filter(e -> e.getKey().equalsIgnoreCase("content-type")).map(Map.Entry::getValue).findFirst()
                     .orElse("");
             if (ct.toLowerCase(Locale.ROOT).contains("json") && status < 400) {
-                JsonRewriter.rewrite(in, out, new RefTagger(slug));
+                JsonRewriter.rewrite(in, out, new RefTagger(slug).withKeys(askedIds(m, slug)));
             } else {
                 in.transferTo(out);
             }

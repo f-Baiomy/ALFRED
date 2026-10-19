@@ -70,4 +70,21 @@ class RefsTest {
         assertThat(out).contains("\"card_token\":\"***\"").hasSize(json.length() + 1);
         assertThat(Set.of(out.substring(out.length() - 3))).containsExactly("x\"}");
     }
+
+    @Test
+    void theAskedIdsAreTaggedWhereTheyAreAnAnswersKeysAndNothingElseIs() {
+        // GET /comments/counts?callIds=c1@stg-83,c2@stg-83 answers keyed by the owner's ids
+        String json = "{\"c1\":{\"total\":2,\"byBlock\":{\"c1\":1}},\"other\":{\"total\":0}}";
+        String out = JsonRewriter.rewrite(json, new RefTagger("stg-83").withKeys(Set.of("c1", "c2")));
+        assertThat(out).isEqualTo("{\"c1@stg-83\":{\"total\":2,\"byBlock\":{\"c1\":1}},\"other\":{\"total\":0}}");
+        // without asked ids no key changes
+        assertThat(JsonRewriter.rewrite(json, new RefTagger("stg-83"))).isEqualTo(json);
+    }
+
+    @Test
+    void aLinksRefIsTaggedLikeAMentionInText() {
+        String json = "{\"links\":[{\"type\":\"call\",\"ref\":\"in:x1@c9@stg-83\",\"label\":\"GET /x\"},{\"type\":\"spec\",\"ref\":\"b1/spec.md#ac1\"}]}";
+        String out = JsonRewriter.rewrite(json, new RefTagger("pc-1"));
+        assertThat(out).contains("\"ref\":\"in:x1@c9@stg-83@pc-1\"").contains("\"ref\":\"b1/spec.md#ac1@pc-1\"").contains("\"label\":\"GET /x\"");
+    }
 }

@@ -641,8 +641,9 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
     private MentionRef callRef(CycleCall c, String cycleId) {
         String label = clip(c.method() + " " + c.path() + " · " + c.status(), 120);
         boolean keyIsCycle = boardModel == null || boardModel.board(cycleId).isEmpty() || boardModel.cyclesOf(cycleId).contains(cycleId);
-        return new MentionRef(MentionType.CALL, keyIsCycle && !judgingLive.contains(c.callId()) ? "in:" + c.callId() + "@" + cycleId
-                : c.liveRef(), label);
+        String ref = keyIsCycle && !judgingLive.contains(c.callId()) ? "in:" + c.callId() + "@" + cycleId
+                : cycleCalls.remoteRef(cycleId, c).orElse(c.liveRef());
+        return new MentionRef(MentionType.CALL, ref, label);
     }
 
     // ------------------------------------------------------------------------------------------------- the view

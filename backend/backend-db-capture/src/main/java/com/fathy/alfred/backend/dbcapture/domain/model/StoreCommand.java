@@ -22,6 +22,8 @@ public record StoreCommand(
         List<String> callers,
         String fingerprint,
         int resp,
-        String argsRawBase64
+        String argsRawBase64,
+        /** The call it ran in - what a stream to another Alfred is checked against (specs/035). */
+        String callId
 ) {
 }

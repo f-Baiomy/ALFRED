@@ -30,11 +30,30 @@ public final class RefTagger implements JsonRewriter.Visitor {
 
     private final String slug;
     private final Set<String> textFields;
+    private final Set<String> keyIds;
 
     /** @param textFields fields whose text may hold mentions (descriptions, comments, briefs) */
     public RefTagger(String slug, Set<String> textFields) {
+        this(slug, textFields, Set.of());
+    }
+
+    private RefTagger(String slug, Set<String> textFields, Set<String> keyIds) {
         this.slug = slug;
         this.textFields = textFields;
+        this.keyIds = keyIds;
+    }
+
+    /**
+     * The same tagger, also tagging the top-level keys that are these ids - the asked ids of a "counts by id" answer
+     * ({@code {"<callId>": {...}}}), which a page looks up by the ids it asked with.
+     */
+    public RefTagger withKeys(Set<String> ids) {
+        return new RefTagger(slug, textFields, Set.copyOf(ids));
+    }
+
+    @Override
+    public String fieldName(Deque<String> path, String field) {
+        return path.isEmpty() && keyIds.contains(field) ? tagId(field) : field;
     }
 
     public RefTagger(String slug) {
@@ -51,6 +70,10 @@ public final class RefTagger implements JsonRewriter.Visitor {
         String field = field(path);
         if (field != null && ID_FIELDS.contains(field)) {
             return tagId(value);
+        }
+        if ("ref".equals(field) && !value.isBlank() && value.length() <= 2000 && value.chars().noneMatch(c -> c <= ' ' || c == '|' || c == ']')) {
+            // a mention or link ({type, ref, label}) - tagged exactly as a mention in text is
+            return RemoteRef.append(value, slug);
         }
         if (field != null && textFields.contains(field) && value.contains("@[")) {
             return tagMentions(value);

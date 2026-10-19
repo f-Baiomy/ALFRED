@@ -55,6 +55,35 @@ public class LinksRequestApplier implements RequestApplyPort {
         this.deleteCallNotes = deleteCallNotes;
     }
 
+    private ObjectProvider<com.fathy.alfred.backend.board.application.port.out.CycleCallsPort> cycleCalls;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setCycleCalls(ObjectProvider<com.fathy.alfred.backend.board.application.port.out.CycleCallsPort> cycleCalls) {
+        this.cycleCalls = cycleCalls;
+    }
+
+    /**
+     * A note's target as this Alfred names it - "POST /refunds/7/approve", and the line when one was picked - never only
+     * what the reader sent; the reader's label when the call is not found in its cycle.
+     */
+    String callLabel(String callId, String cycleId, JsonNode extra, String readerLabel) {
+        String line = extra.path("lineText").asText("").strip();
+        String lineHint = line.isEmpty() ? "" : " · line \"" + (line.length() > 60 ? line.substring(0, 60) + "…" : line) + "\"";
+        com.fathy.alfred.backend.board.application.port.out.CycleCallsPort p = cycleCalls == null ? null : cycleCalls.getIfAvailable();
+        if (p != null && cycleId != null) {
+            try {
+                for (var c : p.ofCycle(cycleId, 20_000)) {
+                    if (callId.equals(c.callId())) {
+                        return c.method() + " " + c.path() + lineHint;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // the reader's label below
+            }
+        }
+        return (readerLabel == null || readerLabel.isBlank() ? "a call" : readerLabel) + (readerLabel == null || readerLabel.isBlank() ? lineHint : "");
+    }
+
     private JsonNode extra(LinkRequest r) {
         try {
             return json.readTree(r.extra() == null || r.extra().isBlank() ? "{}" : r.extra());
@@ -93,7 +122,8 @@ public class LinksRequestApplier implements RequestApplyPort {
                             ? Optional.of(r.targetLabel() == null ? "a call" : r.targetLabel()) : Optional.empty();
                 }
                 return scope.streamOfCall(List.of(stream), r.target(), cycle, null).isPresent()
-                        ? Optional.of(r.targetLabel() == null || r.targetLabel().isBlank() ? "a call" : r.targetLabel()) : Optional.empty();
+                        ? Optional.of(callLabel(r.target(), cycle != null ? cycle : stream.kind() == StreamKind.CYCLE ? stream.target() : null, e, null))
+                        : Optional.empty();
             }
             default -> {
                 return Optional.empty();

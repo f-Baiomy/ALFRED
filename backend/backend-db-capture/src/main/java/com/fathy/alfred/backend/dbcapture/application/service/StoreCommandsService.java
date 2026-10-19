@@ -227,7 +227,8 @@ public class StoreCommandsService implements GetStoreCommandsUseCase, StoreSumma
         }
         KeyWriter writer = "HIT".equals(row.outcome()) && !row.keys().isEmpty() ? writtenBy(c) : null;
         return new StoreCommand(masked(row, mask), argText, reply, before, value, writer, c.server(), c.db(), c.thread(), c.callers(),
-                c.fingerprint(), c.resp(), raw && !masked && c.args() != null ? Base64.getEncoder().encodeToString(c.args()) : null);
+                c.fingerprint(), c.resp(), raw && !masked && c.args() != null ? Base64.getEncoder().encodeToString(c.args()) : null,
+                c.callId());
     }
 
     /** The value a string write stores (SET-like commands) - shown decoded in the detail. */

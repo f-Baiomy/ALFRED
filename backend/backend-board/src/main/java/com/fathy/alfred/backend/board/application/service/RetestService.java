@@ -375,15 +375,16 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
     /** The calls a check reads once for every card: a cycle's, or the newest live ones. */
     private Pool pool(String cycleId) {
         if (cycleId != null && !cycleId.isBlank()) {
-            return new Pool(cycleId, cycleCalls.calls(cycleId, CYCLE_CALLS));
+            return new Pool(cycleId, cycleCalls.calls(cycleId, CYCLE_CALLS), cycleCalls);
         }
-        return new Pool(null, liveCalls.recent(RECENT_CALLS));
+        return new Pool(null, liveCalls.recent(RECENT_CALLS), cycleCalls);
     }
 
-    private record Pool(String cycleId, List<CycleCall> calls) {
+    private record Pool(String cycleId, List<CycleCall> calls, CycleCallsPort port) {
 
         String ref(CycleCall c) {
-            return cycleId == null ? c.liveRef() : c.ref(cycleId);
+            // another Alfred's call keeps its own cycle and link (specs/035)
+            return cycleId == null ? c.liveRef() : port.remoteRef(cycleId, c).orElse(c.ref(cycleId));
         }
     }
 

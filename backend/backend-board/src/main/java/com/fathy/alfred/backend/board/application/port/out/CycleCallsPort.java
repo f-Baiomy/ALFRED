@@ -17,4 +17,13 @@ public interface CycleCallsPort {
     default List<CycleCall> ofCycle(String cycleId, int limit) {
         return calls(cycleId, limit);
     }
+
+    /**
+     * specs/035: the mention ref of a call {@link #calls} listed for {@code taskKey} from another Alfred's cycle -
+     * {@code in:<call>@<cycle>@<link>} - so a card links that call and not a call of this Alfred; empty for this
+     * Alfred's own calls (their usual refs apply).
+     */
+    default java.util.Optional<String> remoteRef(String taskKey, CycleCall call) {
+        return java.util.Optional.empty();
+    }
 }

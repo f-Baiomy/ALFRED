@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.links.domain.JsonRewriter;
 import com.fathy.alfred.backend.redactions.domain.model.Redaction;
 import com.fathy.alfred.backend.redactions.domain.model.RedactionKind;
 
+import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
@@ -40,6 +41,8 @@ final class SourceMasker implements JsonRewriter.Visitor {
     static final Set<String> URL_FIELDS = Set.of("url", "uri", "fullUrl");
     static final Set<String> ROW_CONTAINERS = Set.of("rows", "row", "before", "after", "valueBefore", "beforeImage");
     static final Set<String> PARAM_CONTAINERS = Set.of("params", "parameters", "binds");
+    /** Where captured rows travel as positional arrays ({@code [[{type, value}, ...]]}) beside their {@code columns}. */
+    static final Set<String> POSITIONAL_ROWS = Set.of("rows", "row", "before", "after", "valueBefore", "beforeImage", "beforeImageRows");
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final DefaultPrettyPrinter PRETTY = new DefaultPrettyPrinter().withObjectIndenter(new DefaultIndenter("  ", "\n"));
@@ -48,6 +51,14 @@ final class SourceMasker implements JsonRewriter.Visitor {
     private final Set<String> bodyKeys = new TreeSet<>();
     private final Set<String> urlParams = new TreeSet<>();
     private final Set<String> dbColumns = new TreeSet<>();
+
+    /**
+     * One entry per open object: the column names it holds ({@code columns: [{name}, ...]} or {@code columns: ["a", ...]}),
+     * null while it holds none. A result's columns may sit in its {@code outcome}; they are handed to the object around it.
+     */
+    private final Deque<List<String>> columnsOf = new ArrayDeque<>();
+    /** The position of the cell being read in a positional row. */
+    private int cell = -1;
 
     SourceMasker(List<Redaction> redactions) {
         headers.addAll(ALWAYS);
@@ -97,8 +108,103 @@ final class SourceMasker implements JsonRewriter.Visitor {
         return false;
     }
 
+    // ------------------------------------------------------------------------------------------------ positional rows
+
+    @Override
+    public void startObject(Deque<String> path) {
+        columnsOf.push(NO_COLUMNS);
+    }
+
+    @Override
+    public void endObject(Deque<String> path) {
+        List<String> own = columnsOf.pop();
+        if (own != NO_COLUMNS && "outcome".equals(path.peekLast()) && !columnsOf.isEmpty() && columnsOf.peek() == NO_COLUMNS) {
+            columnsOf.pop();
+            columnsOf.push(own);
+        }
+    }
+
+    private static final List<String> NO_COLUMNS = List.of();
+
+    @Override
+    public void element(Deque<String> path, int index) {
+        if (rowContainer(path, 2) != null) {
+            cell = index;
+        }
+    }
+
+    /** The positional-row container {@code back} levels above the end of {@code path} when every level between is "[]". */
+    private static String rowContainer(Deque<String> path, int back) {
+        Iterator<String> it = path.descendingIterator();
+        for (int i = 0; i < back; i++) {
+            if (!it.hasNext() || !"[]".equals(it.next())) {
+                return null;
+            }
+        }
+        String c = it.hasNext() ? it.next() : null;
+        return c != null && POSITIONAL_ROWS.contains(c) ? c : null;
+    }
+
+    /** A column name: {@code columns[i].name} of the object holding {@code columns}, or a plain {@code columns[i]}. */
+    private void column(Deque<String> path, String value) {
+        Iterator<String> it = path.descendingIterator();
+        String last = it.hasNext() ? it.next() : null;
+        String second = it.hasNext() ? it.next() : null;
+        String third = it.hasNext() ? it.next() : null;
+        if ("name".equals(last) && "[]".equals(second) && "columns".equals(third) && columnsOf.size() >= 2) {
+            // the top is the column object itself; its holder is next
+            List<String> top = columnsOf.pop();
+            addColumn(value);
+            columnsOf.push(top);
+        } else if ("[]".equals(last) && "columns".equals(second)) {
+            addColumn(value);
+        }
+    }
+
+    private void addColumn(String name) {
+        List<String> own = columnsOf.pop();
+        List<String> next = new java.util.ArrayList<>(own);
+        next.add(name == null ? "" : name.toLowerCase(Locale.ROOT));
+        columnsOf.push(next);
+    }
+
+    /** True for a cell of a positional row whose column is masked - or whose column is not known (more, never less). */
+    private boolean maskedCell(Deque<String> path) {
+        if (dbColumns.isEmpty()) {
+            return false;
+        }
+        String container = "value".equals(path.peekLast()) ? rowContainer(withoutLast(path), 2) : null;
+        if (container == null) {
+            container = rowContainer(path, 2);
+        }
+        if (container == null) {
+            return false;
+        }
+        if (!"rows".equals(container) && !"row".equals(container)) {
+            return true; // a before-image's columns are the table's, not the result's: every cell, never a guess
+        }
+        List<String> cols = null;
+        for (List<String> c : columnsOf) {
+            if (c != NO_COLUMNS) {
+                cols = c;
+                break;
+            }
+        }
+        return cols == null || cell < 0 || cell >= cols.size() || dbColumns.contains(cols.get(cell));
+    }
+
+    private static Deque<String> withoutLast(Deque<String> path) {
+        Deque<String> copy = new ArrayDeque<>(path);
+        copy.pollLast();
+        return copy;
+    }
+
     @Override
     public String string(Deque<String> path, String value) {
+        column(path, value);
+        if (maskedCell(path)) {
+            return REDACTED;
+        }
         String[] fp = lastTwo(path);
         String field = fp[0];
         String parent = fp[1];
@@ -127,6 +233,9 @@ final class SourceMasker implements JsonRewriter.Visitor {
     public String scalar(Deque<String> path) {
         if (dbColumns.isEmpty()) {
             return null;
+        }
+        if (maskedCell(path)) {
+            return REDACTED;
         }
         String field = lastTwo(path)[0];
         if (field != null && dbColumns.contains(field.toLowerCase(Locale.ROOT)) && under(path, ROW_CONTAINERS)) {

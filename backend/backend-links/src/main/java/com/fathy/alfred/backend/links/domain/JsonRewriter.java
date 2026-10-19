@@ -41,6 +41,23 @@ public final class JsonRewriter {
         default String scalar(Deque<String> path) {
             return null;
         }
+
+        /** The name to write for {@code field} of the object at {@code path} (the visitor still sees the original). */
+        default String fieldName(Deque<String> path, String field) {
+            return field;
+        }
+
+        /** An object starts at {@code path} (its own field name, or "[]", last). */
+        default void startObject(Deque<String> path) {
+        }
+
+        /** The object at {@code path} ends. */
+        default void endObject(Deque<String> path) {
+        }
+
+        /** The element {@code index} (0-based) of the array at {@code path} starts; {@code path} already ends in its "[]". */
+        default void element(Deque<String> path, int index) {
+        }
     }
 
     private JsonRewriter() {
@@ -72,6 +89,7 @@ public final class JsonRewriter {
     private static void value(JsonParser p, JsonGenerator g, JsonToken t, Deque<String> path, Visitor v) throws IOException {
         switch (t) {
             case START_OBJECT -> {
+                v.startObject(path);
                 g.writeStartObject();
                 JsonToken n;
                 while ((n = p.nextToken()) != JsonToken.END_OBJECT) {
@@ -79,7 +97,7 @@ public final class JsonRewriter {
                         throw new IOException("Expected a field name");
                     }
                     String field = p.currentName();
-                    g.writeFieldName(field);
+                    g.writeFieldName(v.fieldName(path, field));
                     JsonToken vt = p.nextToken();
                     if (!v.descend(path, field)) {
                         g.copyCurrentStructure(p);
@@ -90,12 +108,15 @@ public final class JsonRewriter {
                     path.removeLast();
                 }
                 g.writeEndObject();
+                v.endObject(path);
             }
             case START_ARRAY -> {
                 g.writeStartArray();
                 JsonToken n;
+                int index = 0;
                 while ((n = p.nextToken()) != JsonToken.END_ARRAY) {
                     path.addLast("[]");
+                    v.element(path, index++);
                     value(p, g, n, path, v);
                     path.removeLast();
                 }

@@ -202,9 +202,35 @@ public class LinksEnvBoard implements EnvBoardPort {
 
     @Override
     public String startCycle(String project, String name) {
+        // a test run for an environment records alone: this Alfred's other recordings of the project are paused first
+        // (they may be on no board here, where the recording guard cannot see their project)
+        pauseRecordingsOf(project);
         SessionCycle c = createCycle.getObject().create(new NewSessionCycle(name, project));
         startRecording.getObject().startRecording(c.id(), true);
         return c.id();
+    }
+
+    private ObjectProvider<com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase> listCycles;
+    private ObjectProvider<com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase> pauseRecording;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRecordingControls(ObjectProvider<com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase> listCycles,
+                              ObjectProvider<com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase> pauseRecording) {
+        this.listCycles = listCycles;
+        this.pauseRecording = pauseRecording;
+    }
+
+    private void pauseRecordingsOf(String project) {
+        var list = listCycles == null ? null : listCycles.getIfAvailable();
+        var pause = pauseRecording == null ? null : pauseRecording.getIfAvailable();
+        if (list == null || pause == null || project == null) {
+            return;
+        }
+        for (SessionCycle c : list.listAll()) {
+            if (c.status() == com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus.RECORDING && project.equals(c.assignedTo())) {
+                pause.pauseRecording(c.id());
+            }
+        }
     }
 
     @Override

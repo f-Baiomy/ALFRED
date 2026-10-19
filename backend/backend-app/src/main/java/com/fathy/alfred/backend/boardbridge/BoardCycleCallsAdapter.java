@@ -86,14 +86,32 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
      * The calls of a task (specs/027 research R1 amendment): every cycle related to the board the key names, or the cycle
      * the key itself is when it names no board. A call two cycles both captured is listed once.
      */
+    /** Which streamed cycle a task's call came from ({@code task|in:<call>} -> {@code <cycle>@<slug>}), for its ref. */
+    private final java.util.Map<String, String> remoteCycleOf = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int REMOTE_REFS_KEPT = 100_000;
+
+    @Override
+    public java.util.Optional<String> remoteRef(String taskKey, CycleCall call) {
+        String cycle = remoteCycleOf.get(taskKey + "|" + call.direction() + ":" + call.callId());
+        return cycle == null ? java.util.Optional.empty() : java.util.Optional.of(call.ref(cycle));
+    }
+
     @Override
     public List<CycleCall> calls(String taskKey, int limit) {
         List<CycleCall> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote.getIfAvailable();
         for (String cycleId : cyclesOf(taskKey)) {
+            boolean streamed = r != null && r.isRemote(cycleId);
             for (CycleCall c : cycleCalls(cycleId, limit - out.size())) {
                 if (seen.add(c.direction() + ":" + c.callId())) {
                     out.add(c);
+                    if (streamed) {
+                        if (remoteCycleOf.size() > REMOTE_REFS_KEPT) {
+                            remoteCycleOf.clear();
+                        }
+                        remoteCycleOf.put(taskKey + "|" + c.direction() + ":" + c.callId(), cycleId);
+                    }
                 }
             }
             if (out.size() >= limit) {
