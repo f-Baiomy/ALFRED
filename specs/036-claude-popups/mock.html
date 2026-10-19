@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude popups mock</title>
+<style>
+:root {
+  --bg: #141416; --nav-bg: #141416;
+  --card: rgba(255,255,255,.035); --card-elevated: rgba(255,255,255,.05); --card-inner: rgba(0,0,0,.3);
+  --panel-bg: rgba(0,0,0,.2); --bg-2: rgba(255,255,255,.02);
+  --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+  --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8;
+  --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+  --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a;
+  --popover-solid: #1e1e21;
+  --mono: ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; }
+code, .mono { font-family: var(--mono); }
+
+/* mock-only strip */
+.mockbar { position: sticky; top: 0; z-index: 100; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  padding: 8px 16px; background: #0c0c0e; border-bottom: 1px dashed var(--border-strong); font-size: 12px; }
+.mockbar .lbl { color: var(--text-faint); margin-right: 6px; text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; }
+.mockbar button { background: transparent; border: 1px solid var(--border); border-radius: 99px; padding: 4px 12px; color: var(--text-dim); }
+.mockbar button.on { border-color: var(--purple); color: var(--purple-light); background: rgba(91,141,239,.12); }
+.mockbar .sp { flex: 1; }
+.mockbar label { color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
+
+/* app shell */
+.app { position: relative; min-height: calc(100vh - 41px); overflow: hidden; }
+header.nav { display: flex; align-items: center; gap: 4px; padding: 0 20px; height: 64px; border-bottom: 1px solid var(--border); background: var(--nav-bg); }
+.logo { display: flex; align-items: center; gap: 8px; margin-right: 18px; }
+.logo .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--purple-light); }
+.logo b { font: 800 14.4px Montserrat, "Segoe UI", sans-serif; letter-spacing: .12em; background: linear-gradient(90deg, var(--purple-light), var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tabs { display: flex; height: 100%; }
+.tabs a { display: flex; align-items: center; gap: 6px; padding: 0 14px; color: var(--text-dim); font-size: 14.4px; text-decoration: none; height: 100%; border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs a.active { color: var(--purple-light); font-weight: 600; border-bottom-color: var(--purple-light); }
+.tabs .new { font-size: 10px; padding: 0 6px; border-radius: 99px; background: rgba(91,141,239,.25); color: var(--purple-light); }
+.nav .sp { flex: 1; }
+.me { color: var(--text-dim); font-size: 13px; padding: 0 8px; }
+
+/* the new header control */
+.claude-tray { position: relative; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 8px; border-radius: 99px;
+  border: 1px solid var(--border-strong); background: var(--popover-solid); color: var(--text); font-size: 12.5px; margin-right: 8px; }
+.claude-tray .spark { color: var(--cyan); }
+.claude-tray .count { min-width: 18px; height: 18px; border-radius: 99px; background: var(--amber); color: #1a1205; font-weight: 700; font-size: 11px; display: grid; place-items: center; padding: 0 5px; }
+.claude-tray.muted { color: var(--text-faint); }
+.claude-tray.muted .spark { color: var(--text-faint); }
+
+.page { padding: 18px 24px 90px; transition: margin-right .2s; }
+.page.with-panel { margin-right: 400px; }
+h1 { font-size: 18.4px; font-weight: 650; margin: 0; }
+.sub { color: var(--text-dim); font-size: 12.5px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin: 14px 0; flex-wrap: wrap; }
+.search { flex: 1; min-width: 200px; max-width: 360px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-faint); display: flex; align-items: center; padding: 0 12px; font-size: 13px; }
+.seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg span { padding: 6px 12px; font-size: 13px; color: var(--text-dim); }
+.seg span.on { background: rgba(91,141,239,.18); color: var(--purple-light); }
+.pill { border: 1px solid var(--border); border-radius: 99px; padding: 4px 12px; font-size: 12.5px; color: var(--text-dim); background: var(--card); }
+.pill b { color: var(--text); font-weight: 600; margin-right: 4px; }
+.badge { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 6px; font-size: 11.5px; font-weight: 700; }
+.m-POST, .m-GET { background: rgba(91,141,239,.18); border: 1px solid rgba(91,141,239,.4); color: var(--purple-light); }
+.m-GET { background: rgba(126,227,216,.14); border-color: rgba(126,227,216,.35); color: var(--cyan); }
+.s-2xx { background: rgba(126,227,160,.15); border: 1px solid rgba(126,227,160,.35); color: var(--green); }
+.s-5xx { background: rgba(227,106,106,.15); border: 1px solid rgba(227,106,106,.4); color: var(--red); }
+.db { font: 10.5px var(--mono); color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+
+/* live calls */
+.rows { border-top: 1px solid var(--border); }
+.row { display: grid; grid-template-columns: 22px 62px 52px 110px minmax(0,1fr) 46px 220px 90px; gap: 10px; align-items: center; padding: 7px 10px 7px 6px; border-bottom: 1px solid var(--border); font-size: 12.5px; position: relative; }
+.row .path { font-family: var(--mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .path b { color: var(--text); font-weight: 400; }
+.row .off { color: var(--text-faint); font: 11px var(--mono); }
+.row .wf { height: 12px; border-radius: 3px; background: var(--purple); }
+.row .ms { text-align: right; font: 12px var(--mono); color: var(--text-dim); }
+.row input { accent-color: var(--purple); }
+.row.claude-anchor { background: rgba(227,106,106,.07); box-shadow: inset 0 0 0 1px rgba(126,227,216,.55); border-radius: 6px; }
+.row.claude-anchor::before { content: "✦"; position: absolute; left: -16px; color: var(--cyan); font-size: 12px; }
+
+/* claude popup chrome */
+.cp { position: absolute; z-index: 40; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 13px; display: flex; flex-direction: column; overflow: hidden; }
+.cp-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px; border-bottom: 1px solid var(--border); }
+.cp-who { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+.cp-who .spark { color: var(--cyan); }
+.cp-title { color: var(--text); font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-head .sp { flex: 1; }
+.cp-icon { background: transparent; border: 0; color: var(--text-faint); width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; }
+.cp-icon:hover { background: var(--card-elevated); color: var(--text); }
+.cp-from { padding: 4px 12px; font-size: 11px; color: var(--text-faint); border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+.cp-from .lock { margin-left: auto; }
+.cp-body { padding: 12px; }
+.cp-foot { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice { border: 1px solid var(--border-strong); background: var(--card); border-radius: 8px; padding: 5px 12px; font-size: 12.5px; }
+.choice:hover { border-color: var(--purple); }
+.choice.rec { border-color: rgba(91,141,239,.6); background: rgba(91,141,239,.14); color: var(--purple-light); }
+.choice.picked { border-color: var(--green); background: rgba(126,227,160,.12); color: var(--green); }
+.note-in { width: 100%; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text); padding: 0 10px; font-size: 12.5px; }
+.waits { font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; }
+.sent { display: none; font-size: 12px; color: var(--green); }
+.cp.answered .sent { display: block; }
+.cp.answered .note-in { display: none; }
+.arrow { position: absolute; width: 12px; height: 12px; background: var(--popover-solid); border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); transform: rotate(45deg); }
+
+/* frame content (what Claude drew) */
+.k { font-size: 11px; color: var(--text-faint); }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.kpi { background: var(--card-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.kpi .v { font-size: 18px; font-weight: 600; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 56px; margin: 8px 0 2px; }
+.bars span { flex: 1; background: var(--border-strong); border-radius: 2px 2px 0 0; }
+.bars span.hot { background: var(--red); }
+.tag { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 5px; }
+.t-ok { background: rgba(126,227,160,.15); color: var(--green); }
+.t-err { background: rgba(227,106,106,.15); color: var(--red); }
+.t-now { background: rgba(91,141,239,.18); color: var(--purple-light); }
+.t-wait { background: rgba(227,162,74,.15); color: var(--amber); }
+.diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.diff pre { margin: 0; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font: 12px/1.7 var(--mono); color: var(--text-dim); white-space: pre-wrap; }
+.diff .hl-add { background: rgba(227,106,106,.18); color: var(--red); border-radius: 3px; padding: 0 3px; }
+.diff .hl-miss { background: rgba(91,141,239,.18); color: var(--purple-light); border-radius: 3px; padding: 0 3px; }
+.kk { color: #8fb2f7; } .nn { color: #e3a24a; }
+
+/* board */
+.boardbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--border-strong); background: var(--card); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
+.btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+.cols { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+.col { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--bg-2); min-height: 380px; }
+.col h3 { margin: 0 0 8px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); display: flex; justify-content: space-between; }
+.tile { border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; background: var(--card-elevated); margin-bottom: 8px; font-size: 13px; }
+.tile .num { color: var(--text-faint); font-weight: 700; font-size: 11.5px; margin-right: 6px; }
+.tile .t { font-weight: 600; line-height: 1.35; margin: 4px 0 6px; }
+.tile .mention { font: 11px var(--mono); color: var(--cyan); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; display: inline-block; margin: 2px 0; }
+.tile.focus { box-shadow: 0 0 0 1px var(--cyan); }
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); z-index: 30; }
+
+/* logs */
+.loglines { border: 1px solid var(--border); border-radius: 10px; background: var(--card-inner); padding: 8px 0; font: 12px/1.9 var(--mono); }
+.ll { padding: 0 14px; color: var(--text-dim); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.ll .lv { display: inline-block; width: 46px; }
+.ll.e .lv { color: var(--red); } .ll.w .lv { color: var(--amber); } .ll.i .lv { color: var(--green); }
+.ll.flag { background: rgba(227,106,106,.08); box-shadow: inset 2px 0 0 var(--cyan); }
+.panel { position: absolute; z-index: 35; top: 64px; right: 0; bottom: 0; width: 400px; border-radius: 0; border-top: 0; border-right: 0; border-bottom: 0; }
+.steps { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.step { display: grid; grid-template-columns: 54px minmax(0,1fr) auto; gap: 8px; align-items: center; font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.step .lnk { color: var(--cyan); font: 11px var(--mono); }
+.feed { font: 11.5px/1.7 var(--mono); color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 8px; max-height: 150px; overflow: hidden; }
+.feed div:first-child { color: var(--text); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* cycles */
+.cyc { display: grid; grid-template-columns: 20px minmax(0,1fr) 100px 90px 120px; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--card); font-size: 13px; }
+.cyc .nm { font-weight: 600; } .cyc .dim { color: var(--text-dim); font-size: 12px; }
+.recdot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+.toast { right: 20px; bottom: 76px; width: 330px; animation: rise .25s ease-out; }
+@keyframes rise { from { transform: translateY(10px); opacity: 0; } }
+.toast .bar-t { height: 2px; background: var(--cyan); animation: shrink 12s linear forwards; }
+@keyframes shrink { to { width: 0; } }
+
+/* chat pill (exists today) */
+.chat-pill { position: absolute; right: 20px; bottom: 18px; z-index: 20; display: flex; align-items: center; gap: 8px; height: 42px; padding: 6px 8px 6px 14px; border-radius: 99px;
+  background: var(--popover-solid); border: 1px solid var(--border-strong); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 14px; }
+.chat-pill .u { background: var(--red); color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 99px; padding: 0 6px; }
+.chat-pill .av { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--amber); display: grid; place-items: center; font-size: 10px; color: var(--cyan); }
+
+/* tray menu */
+.tray-menu { right: 70px; top: 58px; width: 360px; }
+.qi { display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.qi:last-child { border-bottom: 0; }
+.qi .dim { color: var(--text-faint); font-size: 11px; }
+.typing-chip { position: absolute; z-index: 38; left: 50%; transform: translateX(-50%); bottom: 22px; background: var(--popover-solid); border: 1px solid rgba(126,227,216,.5); border-radius: 99px; padding: 7px 14px; font-size: 12.5px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.typing-chip .spark { color: var(--cyan); }
+.composer { border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-2); padding: 10px 12px; min-height: 90px; font-size: 13px; color: var(--text); }
+.composer .caret { display: inline-block; width: 1px; height: 15px; background: var(--text); vertical-align: -3px; animation: pulse 1s infinite; }
+
+.explain { position: absolute; z-index: 60; left: 20px; bottom: 18px; max-width: 420px; background: #0c0c0e; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--text-dim); }
+.explain b { color: var(--text); font-weight: 600; }
+.explain pre { margin: 6px 0 0; font: 11px/1.55 var(--mono); color: var(--cyan); white-space: pre-wrap; }
+.hide-explain .explain { display: none; }
+.scn { display: none; }
+.scn.on { display: block; }
+.mockbar .grp { color: var(--text-faint); font-size: 10.5px; margin: 0 2px 0 10px; }
+
+/* limits page */
+.lim-head { display: grid; grid-template-columns: 34px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.2fr) 110px; gap: 14px; padding: 0 14px 6px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.lim { display: grid; grid-template-columns: 34px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.2fr) 110px; gap: 14px; align-items: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); margin-bottom: 8px; font-size: 13px; }
+.lim .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--card-elevated); color: var(--text-dim); font-size: 12px; font-weight: 700; }
+.lim .what { font-weight: 600; }
+.lim .what small { display: block; font-weight: 400; color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.lim .today { font: 11.5px/1.6 var(--mono); color: var(--text-dim); background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; white-space: pre-wrap; }
+.lim .after { color: var(--text); }
+.lim .after b { color: var(--cyan); font-weight: 600; }
+.lim .go { justify-self: end; }
+.stay { border: 1px dashed var(--border-strong); border-radius: 10px; padding: 12px 16px; margin-top: 18px; }
+.stay h3 { margin: 0 0 8px; font-size: 13px; }
+.stay ul { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: 12.5px; columns: 2; column-gap: 32px; }
+.stay li { margin-bottom: 4px; break-inside: avoid; }
+
+/* spotlight */
+.dimmable { transition: opacity .2s; }
+.spot-on .dimmable { opacity: .28; }
+.spot-on .lit { opacity: 1 !important; position: relative; box-shadow: 0 0 0 2px var(--cyan); border-radius: 6px; z-index: 2; }
+.mk { position: absolute; z-index: 5; width: 22px; height: 22px; border-radius: 50%; background: var(--cyan); color: #06201d; font-weight: 800; font-size: 12px; display: grid; place-items: center; box-shadow: 0 0 0 3px var(--bg); }
+.detail { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 0 28px; }
+.detail .pane { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-bg); padding: 10px; }
+.detail pre { margin: 0; font: 12px/1.75 var(--mono); color: var(--text-dim); }
+.fieldlit { display: inline-block; position: relative; }
+.callouts { right: 20px; top: 150px; width: 300px; }
+.callouts .co { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; cursor: pointer; }
+.callouts .co:hover { background: var(--card-elevated); }
+.callouts .co .mk { position: static; box-shadow: none; }
+
+/* tour */
+.tour { left: 50%; transform: translateX(-50%); bottom: 22px; width: 520px; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 22px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+.dots i.on { background: var(--cyan); }
+.tview { display: none; } .tview.on { display: block; }
+
+/* pick mode */
+.pickbar { position: absolute; z-index: 40; left: 50%; top: 76px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; border-radius: 99px; background: var(--popover-solid); border: 1px solid rgba(126,227,216,.55); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 13px; white-space: nowrap; }
+.pickbar .spark { color: var(--cyan); }
+.picking .row { cursor: crosshair; }
+.picking .row:hover { box-shadow: inset 0 0 0 1px rgba(126,227,216,.5); }
+.picking .row.picked { background: rgba(126,227,216,.10); box-shadow: inset 0 0 0 1px var(--cyan); }
+.picking .row.picked input { accent-color: var(--cyan); }
+.picking .row.sugg::after { content: "✦ suggested"; position: absolute; right: 100px; font-size: 10.5px; color: var(--cyan); }
+
+/* overlay on waterfall */
+.wfwrap { position: relative; }
+.ov { position: absolute; z-index: 6; pointer-events: none; }
+.ov-bracket { border: 2px solid var(--amber); border-left: 0; border-radius: 0 8px 8px 0; width: 16px; }
+.ov-label { position: absolute; left: 24px; top: 50%; transform: translateY(-50%); white-space: normal; width: 230px; background: var(--popover-solid); border: 1px solid rgba(227,162,74,.6); color: var(--amber); font-size: 12px; padding: 4px 10px; border-radius: 8px; pointer-events: auto; }
+.ov-line { width: 0; border-left: 2px dashed var(--green); }
+.ov-line span { position: absolute; bottom: -20px; left: -4px; white-space: nowrap; font-size: 11px; color: var(--green); background: var(--bg); padding: 0 4px; }
+.ov-gap { height: 12px; border: 1px dashed var(--red); border-radius: 3px; background: rgba(227,106,106,.08); }
+.ov-gap span { position: absolute; top: 16px; left: 0; white-space: nowrap; font-size: 11px; color: var(--red); }
+.marks-off .ov { display: none; }
+.layerbar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12.5px; }
+.layerchip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 10px; border-radius: 99px; border: 1px solid rgba(126,227,216,.5); color: var(--cyan); background: rgba(126,227,216,.08); }
+
+/* presence */
+.row.reading { background: rgba(126,227,216,.06); }
+.row.reading::after { content: "✦ Claude is reading"; position: absolute; right: 100px; font-size: 10.5px; color: var(--cyan); background: var(--bg); padding: 0 6px; border-radius: 4px; }
+.row.read .path b { color: var(--text-dim); }
+.row.read::before { content: "✓"; position: absolute; left: -14px; color: var(--text-faint); font-size: 11px; }
+.claude-tray .now { color: var(--text-dim); font-size: 11.5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .reading-tag { font-size: 10.5px; color: var(--cyan); }
+
+/* prefill */
+.editor { max-width: 760px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--card-elevated); }
+.editor .eh { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.editor .eb { padding: 14px 16px; display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 10px 14px; align-items: center; font-size: 13px; }
+.editor .eb label { color: var(--text-dim); }
+.fld { height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); display: flex; align-items: center; padding: 0 10px; font: 12.5px var(--mono); position: relative; }
+.fld.cf { border-color: rgba(126,227,216,.55); background: rgba(126,227,216,.05); }
+.fld.cf::after { content: "✦"; position: absolute; right: 10px; color: var(--cyan); font-family: "Segoe UI", sans-serif; }
+.editor .ef { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+.why { margin: 0 16px 14px; padding: 10px 12px; border-left: 2px solid var(--cyan); background: rgba(126,227,216,.05); font-size: 12.5px; color: var(--text-dim); }
+.filterchip { display: inline-flex; gap: 8px; align-items: center; border: 1px solid rgba(126,227,216,.5); border-radius: 99px; padding: 4px 6px 4px 12px; font-size: 12.5px; background: rgba(126,227,216,.06); }
+.filterchip code { color: var(--cyan); }
+
+/* editable diagram */
+.flow { display: flex; align-items: center; flex-wrap: wrap; gap: 0; padding: 18px 6px 8px; }
+.node { border: 1px solid var(--border-strong); background: var(--card-elevated); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; min-width: 112px; text-align: center; position: relative; }
+.node small { display: block; color: var(--text-faint); font: 10.5px var(--mono); margin-top: 2px; }
+.node.wrong { border-color: var(--red); background: rgba(227,106,106,.1); }
+.node.wrong::after { content: "✕ wrong"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--red); }
+.node.added { border-style: dashed; border-color: var(--green); color: var(--green); }
+.node.claude-unsure { box-shadow: 0 0 0 1px var(--amber); }
+.node.claude-unsure::before { content: "? not sure"; position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--amber); white-space: nowrap; }
+.edge { display: flex; align-items: center; color: var(--text-faint); padding: 0 2px; }
+.edge button { background: transparent; border: 1px dashed transparent; color: var(--text-faint); border-radius: 50%; width: 20px; height: 20px; font-size: 13px; line-height: 1; padding: 0; }
+.edge button:hover { border-color: var(--green); color: var(--green); }
+
+/* priority + away */
+.browser { border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+.btabs { display: flex; gap: 2px; background: #0c0c0e; padding: 6px 8px 0; }
+.btab { padding: 6px 14px; border-radius: 8px 8px 0 0; font-size: 12px; color: var(--text-dim); background: #18181b; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btab.on { background: var(--bg); color: var(--text); }
+.bbody { padding: 30px; color: var(--text-faint); font-size: 13px; background: var(--bg); min-height: 120px; }
+.osnote { position: absolute; z-index: 45; right: 22px; top: 82px; width: 340px; background: #2a2a2e; border: 1px solid #3a3a40; border-radius: 10px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.6); font-size: 12.5px; animation: rise .3s ease-out; }
+.osnote .app-n { color: var(--text-dim); font-size: 11px; display: flex; justify-content: space-between; margin-bottom: 4px; }
+.levels { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.lvl { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--card); font-size: 12.5px; }
+.lvl h4 { margin: 0 0 6px; font-size: 13px; }
+.lvl .demo { margin-top: 10px; border-radius: 10px; padding: 10px; background: var(--popover-solid); border: 1px solid var(--border-strong); }
+.lvl.urgent .demo { box-shadow: 0 0 0 2px var(--amber); }
+.lvl p { margin: 0; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span class="lbl">Mock</span>
+  <button data-s="limits" class="on">Limits today → after</button>
+  <span class="grp">Popups</span>
+  <button data-s="anchor">1 · Point at a call</button>
+  <button data-s="modal">2 · Ask with a picture</button>
+  <button data-s="panel">3 · Live side panel</button>
+  <button data-s="toast">4 · Quick news</button>
+  <button data-s="tray">5 · Tray, mute, typing guard</button>
+  <span class="grp">More</span>
+  <button data-s="spot">6 · Spotlight</button>
+  <button data-s="tour">7 · Walkthrough</button>
+  <button data-s="pick">8 · You pick, I read</button>
+  <button data-s="draw">9 · Draw on views</button>
+  <button data-s="presence">10 · See me work</button>
+  <button data-s="prefill">11 · Fill the real editor</button>
+  <button data-s="diagram">12 · Diagram you correct</button>
+  <button data-s="urgent">13 · Loudness and away</button>
+  <span class="sp"></span>
+  <label><input type="checkbox" id="showExplain" checked> what Claude sent / got</label>
+</div>
+
+<div class="app" id="app">
+  <header class="nav">
+    <div class="logo"><span class="dot"></span><b>ALFRED</b></div>
+    <nav class="tabs" id="tabs">
+      <a data-t="calls">Live Calls</a>
+      <a data-t="cycles">Session Cycles</a>
+      <a data-t="board">Board <span class="new">new</span></a>
+      <a data-t="team">Team</a>
+      <a data-t="profiles">Profiles</a>
+      <a data-t="interception">Interception</a>
+      <a data-t="relive">Relive</a>
+      <a data-t="logs">Logs <span class="new">new</span></a>
+      <a data-t="settings">Settings</a>
+    </nav>
+    <span class="sp"></span>
+    <button class="claude-tray" id="tray" title="Claude's popups"><span class="spark">✦</span> Claude <span class="count" id="trayCount">1</span><span class="now" id="trayNow" style="display:none">reading call 1 of 7</span></button>
+    <span class="me">👤 Me</span>
+  </header>
+
+  <!-- 1 · anchored on Live Calls -->
+  <section class="scn" data-s="anchor">
+    <div class="page">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div><h1>Live calls</h1><div class="sub">Every call Alfred intercepted, via backend · ● last call 10:41:12 AM</div></div>
+        <div style="display:flex;gap:6px"><span class="pill"><b>342</b>calls</span><span class="pill" style="color:var(--green)"><b>297</b>2xx/3xx</span><span class="pill" style="color:var(--amber)"><b>37</b>4xx</span><span class="pill" style="color:var(--red)"><b>8</b>errors/5xx</span></div>
+      </div>
+      <div class="toolbar">
+        <div class="search">⌕ Search URL, status, headers, body...</div>
+        <div class="seg"><span class="on">≋ Waterfall</span><span>Nested</span><span>Flat</span></div>
+        <span class="pill">Newest first · 200</span><span class="pill">Filters ▾</span>
+      </div>
+      <div class="rows">
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 41 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/quote</b></span><span class="off">+0ms</span><span class="wf" style="width:22%"></span><span class="ms">184.20 ms</span></div>
+        <div class="row claude-anchor" id="anchorRow"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db" style="color:var(--red)">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>odeysysadmin/Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.1 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/7731</b></span><span class="off">+0ms</span><span class="wf" style="width:6%"></span><span class="ms">61.40 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.7 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/payment-statuses</b></span><span class="off">+0ms</span><span class="wf" style="width:5%"></span><span class="ms">56.62 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 15.7 ms</span><span class="path">odeysys · <b>odeysysadmin/Master2/Branch/lookup/branches</b></span><span class="off">+0ms</span><span class="wf" style="width:7%"></span><span class="ms">61.66 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 2 · 24.8 ms</span><span class="path">odeysys · <b>odeysysadmin/Admin2/agency/by-branch</b></span><span class="off">+0ms</span><span class="wf" style="width:9%"></span><span class="ms">92.95 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 4 · 33 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/init</b></span><span class="off">+0ms</span><span class="wf" style="width:30%"></span><span class="ms">412.10 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 0.9 ms</span><span class="path">odeysys · <b>odeysysadmin/Customer2/me</b></span><span class="off">+0ms</span><span class="wf" style="width:3%"></span><span class="ms">33.08 ms</span></div>
+      </div>
+    </div>
+
+    <div class="cp ask" id="anchorPop" style="left:39%;top:300px;width:360px" data-answer>
+      <span class="arrow" style="left:60px;top:-7px;transform:rotate(135deg)"></span>
+      <div class="cp-head">
+        <span class="cp-who"><span class="spark">✦</span> Claude</span>
+        <span class="cp-title">· about this call</span><span class="sp"></span>
+        <button class="cp-icon" title="Keep as a page on card #14">★</button>
+        <button class="cp-icon" title="Full screen">⤢</button>
+        <button class="cp-icon" title="Close (Esc)" data-close>✕</button>
+      </div>
+      <div class="cp-from"><span>Listen · cycle "Booking flow"</span><span>card #14</span><span class="lock" title="Runs locked, no network">🔒 locked</span></div>
+      <div class="cp-body">
+        <div style="margin-bottom:6px"><span class="tag t-err">500</span> <b style="font-weight:600">confirm</b> ran <code>SELECT … FROM seat</code> <b style="font-weight:600">28×</b>, then a lock timeout</div>
+        <div class="bars" id="sqlBars"></div>
+        <div class="k">SQL statements per booking step · red = this call · live</div>
+      </div>
+      <div class="cp-foot">
+        <div class="choices">
+          <button class="choice rec">Open card #14</button>
+          <button class="choice">Show statements</button>
+          <button class="choice">Not a bug</button>
+        </div>
+        <input class="note-in" placeholder="Add a note for Claude (optional)">
+        <div class="sent">✓ Sent to Claude · also saved on #14 as an Answer</div>
+        <div class="waits"><span>Claude waits for your answer</span><span class="cd" data-sec="582">9:42</span></div>
+      </div>
+    </div>
+
+    <div class="chat-pill">💬 <span class="u">2</span> Chats <span class="av">6Q</span><span class="av">6R</span> ⋯</div>
+    <div class="explain"><b>Claude called</b><pre>alfred_show({
+  placement: "anchor", anchor: { call: "in:7f3a…" },
+  card: 14, title: "about this call",
+  html: "&lt;div&gt;… alfred.data('statements') chart …&lt;/div&gt;",
+  choices: ["Open card #14", "Show statements", "Not a bug"],
+  recommended: 0, wait: true, timeoutSec: 600 })</pre><b class="got">Claude gets</b><pre class="got-v">(waiting…)</pre></div>
+  </section>
+
+  <!-- 2 · modal on Board -->
+  <section class="scn" data-s="modal">
+    <div class="page">
+      <div class="boardbar">
+        <span class="btn">▦ Boards ▾</span><span class="btn">odeysys ▾</span><span class="btn primary">▶ Start Claude ▾</span>
+        <span class="sp" style="flex:1"></span><span class="pill">❓ 1 open question</span>
+      </div>
+      <h1 style="margin-bottom:12px">AB#61444 · Booking confirm</h1>
+      <div class="cols">
+        <div class="col"><h3>Inbox <span>2</span></h3>
+          <div class="tile"><span class="num">#18</span><span class="tag t-now">TASK</span><div class="t">Check refund path on STG</div><span class="mention">⇄ POST /Booking2/refund</span></div>
+          <div class="tile"><span class="num">#19</span><span class="tag t-err">BUG</span><div class="t">Seat lock not released on timeout</div><span class="mention">⇄ POST /Booking2/confirm · 500</span></div>
+        </div>
+        <div class="col"><h3>To do <span>2</span></h3>
+          <div class="tile focus"><span class="num">#17</span><span class="tag t-err">BUG</span><div class="t">Total differs between quote and confirm</div><span class="mention">⇄ POST /Booking2/quote</span><br><span class="mention">⇄ POST /Booking2/confirm</span><div class="k" style="margin-top:6px;color:var(--amber)">❓ Claude asks · popup open</div></div>
+          <div class="tile"><span class="num">#12</span><span class="tag t-now">NOTE</span><div class="t">pax-details loads 30 SQL statements</div></div>
+        </div>
+        <div class="col"><h3>In progress <span>1</span></h3>
+          <div class="tile"><span class="num">#14</span><span class="tag t-err">BUG</span><div class="t">confirm returns 500 after 28 seat lookups</div><div class="k">✦ Claude</div></div>
+        </div>
+        <div class="col"><h3>Fixed <span>1</span></h3>
+          <div class="tile"><span class="num">#9</span><span class="tag t-err">BUG</span><div class="t">Baggage label not renamed</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="scrim"></div>
+    <div class="cp ask" style="left:50%;top:110px;transform:translateX(-50%);width:min(680px,92%)" data-answer>
+      <div class="cp-head">
+        <span class="cp-who"><span class="spark">✦</span> Claude asks</span>
+        <span class="cp-title">· which total is right?</span><span class="sp"></span>
+        <button class="cp-icon" title="Keep as a page on card #17">★</button>
+        <button class="cp-icon" title="Decide later">⏰</button>
+        <button class="cp-icon" title="Close (Esc) · Claude hears 'closed'" data-close>✕</button>
+      </div>
+      <div class="cp-from"><span>/alfred-triage · board AB#61444</span><span>card #17</span><span class="lock">🔒 locked</span></div>
+      <div class="cp-body">
+        <div style="margin-bottom:10px;color:var(--text-dim)">Same booking, two answers. Only <b style="color:var(--text);font-weight:600">fee</b> differs. Calls 10:41:02 and 10:41:03.</div>
+        <div class="diff">
+          <div><div class="k" style="margin-bottom:4px">POST /Booking2/quote · 200</div>
+<pre>{
+  <span class="kk">"base"</span>:  <span class="nn">1180.00</span>,
+  <span class="kk">"tax"</span>:   <span class="nn">60.00</span>,
+  <span class="hl-miss"><span class="kk">"fee"</span>:   —</span>,
+  <span class="kk">"total"</span>: <span class="nn">1240.00</span>
+}</pre></div>
+          <div><div class="k" style="margin-bottom:4px">POST /Booking2/confirm · 200</div>
+<pre>{
+  <span class="kk">"base"</span>:  <span class="nn">1180.00</span>,
+  <span class="kk">"tax"</span>:   <span class="nn">60.00</span>,
+  <span class="hl-add"><span class="kk">"fee"</span>:   62.00</span>,
+  <span class="kk">"total"</span>: <span class="nn">1302.00</span>
+}</pre></div>
+        </div>
+      </div>
+      <div class="cp-foot">
+        <div class="choices">
+          <button class="choice">Quote is right</button>
+          <button class="choice">Confirm is right</button>
+          <button class="choice rec">Both — fee is added at confirm</button>
+        </div>
+        <input class="note-in" placeholder="Something else? Tell Claude">
+        <div class="sent">✓ Sent to Claude · saved on #17 as **Answer** · Needs decision cleared</div>
+        <div class="waits"><span>✦ recommended: Both · confidence medium · checked: spec AC4, both calls</span><span class="cd" data-sec="3540">59:00</span></div>
+      </div>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_show({
+  placement: "modal", card: 17,
+  html: "… two bodies, fields that differ marked …",
+  choices: ["Quote is right", "Confirm is right",
+            "Both — fee is added at confirm"],
+  recommended: 2, wait: true, timeoutSec: 3600 })</pre><b class="got">Claude gets</b><pre class="got-v">(waiting…)</pre></div>
+  </section>
+
+  <!-- 3 · side panel on Logs -->
+  <section class="scn" data-s="panel">
+    <div class="page with-panel">
+      <h1>Logs</h1><div class="sub">odeysys · server.log · following</div>
+      <div class="toolbar"><div class="search">⌕ Search lines…</div><span class="pill">Level ≥ INFO ▾</span><span class="pill">Last 15 min ▾</span></div>
+      <div class="loglines" id="loglines">
+        <div class="ll i"><span class="lv">INFO</span> 10:40:58 BookingController - quote ref=Q-7731 pax=2</div>
+        <div class="ll i"><span class="lv">INFO</span> 10:41:02 PricingService - total=1240.00 currency=SAR</div>
+        <div class="ll flag e"><span class="lv">ERROR</span> 10:41:03 SeatService - lock timeout seat=14C after 2000ms</div>
+        <div class="ll w"><span class="lv">WARN</span> 10:41:03 BookingController - retry 1/3 confirm ref=Q-7731</div>
+        <div class="ll flag e"><span class="lv">ERROR</span> 10:41:04 SeatService - lock timeout seat=14C after 2000ms</div>
+        <div class="ll i"><span class="lv">INFO</span> 10:41:05 BookingService - booking 7731 created</div>
+        <div class="ll i"><span class="lv">INFO</span> 10:41:09 CustomerController - me id=88213</div>
+        <div class="ll i"><span class="lv">INFO</span> 10:41:12 PaymentService - init ref=7731 amount=1302.00</div>
+      </div>
+    </div>
+    <div class="cp panel">
+      <div class="cp-head">
+        <span class="cp-who"><span class="spark">✦</span> Claude</span>
+        <span class="cp-title">· listening to "Booking flow"</span><span class="sp"></span>
+        <button class="cp-icon" title="Fold to the tray">–</button>
+        <button class="cp-icon" title="Keep as a page on the cycle">★</button>
+        <button class="cp-icon" title="Close · listen keeps running" data-close>✕</button>
+      </div>
+      <div class="cp-from"><span><span class="live-dot"></span> live · updated in place</span><span>stays on every tab</span><span class="lock">🔒 locked</span></div>
+      <div class="cp-body" style="overflow:auto">
+        <div class="kpis">
+          <div class="kpi"><div class="k">calls</div><div class="v" id="pCalls">42</div></div>
+          <div class="kpi"><div class="k">flagged</div><div class="v" style="color:var(--red)">3</div></div>
+          <div class="kpi"><div class="k">steps</div><div class="v" id="pSteps">5/8</div></div>
+        </div>
+        <div class="steps" id="steps">
+          <div class="step"><span class="tag t-ok">ok</span><span>4 · Search flights</span><span class="lnk">6 calls</span></div>
+          <div class="step"><span class="tag t-err">bug</span><span>5 · Confirm — seat lock timeout <span class="lnk">→ #19</span></span><span class="lnk">3 calls</span></div>
+          <div class="step" id="step6"><span class="tag t-now">now</span><span>6 · Pay — waiting for you</span><span class="lnk">—</span></div>
+          <div class="step" style="opacity:.55"><span class="tag t-wait">next</span><span>7 · Ticket issue</span><span class="lnk">—</span></div>
+        </div>
+        <div class="k" style="margin-bottom:6px">What I am looking at</div>
+        <div class="feed" id="feed">
+          <div>10:41:12 payment/init 200 · 4 SQL · clean</div>
+          <div>10:41:09 customer/me 200 · clean</div>
+          <div>10:41:05 Booking2/7731 200 · clean</div>
+          <div>10:41:04 2nd lock timeout · same seat 14C → #19</div>
+        </div>
+      </div>
+      <div class="cp-foot" style="margin-top:auto">
+        <div class="choices"><button class="choice">⏸ Pause listen</button><button class="choice">Skip step 6</button><button class="choice">Open #19</button></div>
+        <div class="waits"><span>No answer needed · buttons send a chat message</span><span></span></div>
+      </div>
+    </div>
+    <div class="explain" style="left:20px"><b>Claude called once, then patches it</b><pre>alfred_show({ id: "listen-booking", placement: "panel",
+  cycle: "Booking flow", html: "… dashboard …", wait: false })
+alfred_show({ id: "listen-booking",
+  patch: { state: { calls: 43, step: 6 } } })   // no new popup</pre></div>
+  </section>
+
+  <!-- 4 · toast on Session Cycles -->
+  <section class="scn" data-s="toast">
+    <div class="page">
+      <h1>Session cycles</h1><div class="sub">Recordings of a flow · odeysys</div>
+      <div class="toolbar"><div class="search">⌕ Find a cycle…</div><span class="btn primary">● Record</span></div>
+      <div class="cyc"><span class="recdot"></span><div><div class="nm">Re-test #14 after fix</div><div class="dim">on board AB#61444 · recording</div></div><span class="dim">12 calls</span><span class="dim">0 errors</span><span class="dim">started 10:52</span></div>
+      <div class="cyc"><span></span><div><div class="nm">Booking flow</div><div class="dim">on board AB#61444 · baseline</div></div><span class="dim">42 calls</span><span class="dim" style="color:var(--red)">3 errors</span><span class="dim">10:38 – 10:44</span></div>
+      <div class="cyc"><span></span><div><div class="nm">Refund path</div><div class="dim">no board</div></div><span class="dim">18 calls</span><span class="dim">0 errors</span><span class="dim">yesterday</span></div>
+    </div>
+    <div class="cp toast ask" data-answer>
+      <div class="bar-t"></div>
+      <div class="cp-head">
+        <span class="cp-who"><span class="spark">✦</span> Claude</span><span class="cp-title">· re-test passed</span><span class="sp"></span>
+        <button class="cp-icon" data-close>✕</button>
+      </div>
+      <div class="cp-body" style="padding:10px 12px">
+        <div><span class="tag t-ok">fixed</span> #14 confirm</div>
+        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;margin-top:6px;font:12px var(--mono);color:var(--text-dim)">
+          <span>SQL</span><span style="color:var(--text-faint)">28 →</span><b style="color:var(--green);font-weight:600">3</b>
+          <span>time</span><span style="color:var(--text-faint)">2.4 s →</span><b style="color:var(--green);font-weight:600">190 ms</b>
+          <span>errors</span><span style="color:var(--text-faint)">1 →</span><b style="color:var(--green);font-weight:600">0</b>
+        </div>
+      </div>
+      <div class="cp-foot" style="padding:8px 12px">
+        <div class="choices"><button class="choice rec">Accept Verified…</button><button class="choice">Later</button></div>
+        <div class="sent">✓ Opened the consent dialog — Verified is still your click</div>
+      </div>
+    </div>
+    <div class="chat-pill">💬 Chats <span class="av">6Q</span> ⋯</div>
+    <div class="explain"><b>Claude called</b><pre>alfred_show({ placement: "toast", card: 14,
+  html: "… before → after …",
+  choices: ["Accept Verified…", "Later"], wait: false })
+// Accept opens the normal consent dialog. Claude never marks Verified.</pre></div>
+  </section>
+
+  <!-- 5 · tray, mute and typing guard -->
+  <section class="scn" data-s="tray">
+    <div class="page">
+      <div class="boardbar"><span class="btn">▦ Boards ▾</span><span class="btn">odeysys ▾</span></div>
+      <h1 style="margin-bottom:10px">#17 · Total differs between quote and confirm</h1>
+      <div class="sub" style="margin-bottom:8px">You are writing a comment. Claude has a question ready but waits.</div>
+      <div class="composer">The fee comes from the agency profile, so quote cannot know it until<span class="caret"></span></div>
+    </div>
+    <div class="typing-chip"><span class="spark">✦</span> Claude has a question — opens when you stop typing · <a style="color:var(--purple-light)">open now</a></div>
+    <div class="cp tray-menu">
+      <div class="cp-head"><span class="cp-who"><span class="spark">✦</span> Claude's popups</span><span class="sp"></span><button class="cp-icon" data-close>✕</button></div>
+      <div class="qi"><span class="tag t-wait">❓</span><div>Which total is right? <div class="dim">modal · card #17 · waits 58 min</div></div><button class="choice" style="padding:3px 10px">Open</button></div>
+      <div class="qi"><span class="tag t-now">▤</span><div>Listening to "Booking flow" <div class="dim">panel · folded · live</div></div><button class="choice" style="padding:3px 10px">Show</button></div>
+      <div class="qi"><span class="tag t-ok">✓</span><div>Re-test passed #14 <div class="dim">toast · 10:58 · answered "Later"</div></div><span class="dim">history</span></div>
+      <div class="qi"><span class="tag" style="background:var(--card-elevated);color:var(--text-faint)">⊘</span><div>About this call (confirm 500) <div class="dim">anchor · closed by you · Claude heard "closed"</div></div><span class="dim">history</span></div>
+      <div class="cp-foot" style="flex-direction:row;align-items:center;justify-content:space-between">
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px"><input type="checkbox" id="mute"> Mute Claude popups for 1 h</label>
+        <span class="k">Muted: questions wait here, nothing opens</span>
+      </div>
+    </div>
+    <div class="explain"><b>Rules the host keeps, not Claude</b><pre>one modal at a time · others queue here
+one panel · at most 3 toasts
+never opens while you type (2 s idle)
+only your paired browser · never the tunnel
+every popup is also a line in the chat</pre></div>
+  </section>
+
+  <!-- limits today -> after -->
+  <section class="scn" data-s="limits">
+    <div class="page">
+      <h1>What stops me from showing you ideas today</h1>
+      <div class="sub" style="margin-bottom:16px">Each row: the limit, what I do today because of it, and what I could do after. "See it" opens the mock of that part.</div>
+      <div class="lim-head"><span></span><span>Limit today</span><span>What I do now</span><span>After</span><span></span></div>
+
+      <div class="lim"><span class="n">1</span><div class="what">I only speak inside a card, a brief or the chat<small>You are on Live Calls. I cannot reach you there.</small></div>
+        <div class="today">board_comment(#14, "…")
+→ badge on Chats
+→ you switch tab, open #14</div>
+        <div class="after"><b>Popups on any tab:</b> anchored to the call, a modal, a side panel or a toast, where you are now.</div>
+        <button class="choice go" data-go="anchor">See it →</button></div>
+
+      <div class="lim"><span class="n">2</span><div class="what">I describe places in words<small>"the 2nd confirm call, field fee, 3rd statement"</small></div>
+        <div class="today">"Look at POST confirm
+at 10:41:03, response
+field $.fee"</div>
+        <div class="after"><b>Spotlight:</b> I light up the real row, the real JSON field and the real statement with numbers. The rest dims.</div>
+        <button class="choice go" data-go="spot">See it →</button></div>
+
+      <div class="lim"><span class="n">3</span><div class="what">One finding at a time, no story<small>A root cause crosses calls, logs, SQL and the board.</small></div>
+        <div class="today">4 comments on 3 cards,
+you put the story
+together yourself</div>
+        <div class="after"><b>Walkthrough:</b> a guided tour across tabs. Step 1 the call, step 2 the log line, step 3 the SQL, step 4 the card. You press Next.</div>
+        <button class="choice go" data-go="tour">See it →</button></div>
+
+      <div class="lim"><span class="n">4</span><div class="what">You type ids back to me<small>"Which calls belong to step 3?"</small></div>
+        <div class="today">You copy call ids
+into the chat:
+"in:7f3a, in:8b21 …"</div>
+        <div class="after"><b>Pick mode:</b> I ask, you click the real rows in Live Calls (I pre-select my guess). Done sends me the ids.</div>
+        <button class="choice go" data-go="pick">See it →</button></div>
+
+      <div class="lim"><span class="n">5</span><div class="what">I cannot mark up Alfred's own views<small>The waterfall shows the N+1, but nobody sees it.</small></div>
+        <div class="today">A separate chart in a
+comment that copies
+what the waterfall shows</div>
+        <div class="after"><b>Draw on views:</b> brackets, gaps and lines on the real waterfall, as a layer you turn on and off.</div>
+        <button class="choice go" data-go="draw">See it →</button></div>
+
+      <div class="lim"><span class="n">6</span><div class="what">You cannot see what I am doing<small>One status line on the board strip.</small></div>
+        <div class="today">board_status("checking
+calls 3/12")</div>
+        <div class="after"><b>See me work:</b> the row or card I am reading glows, read rows get ✓, the tray says what I look at now. No extra call: every read tool says it.</div>
+        <button class="choice go" data-go="presence">See it →</button></div>
+
+      <div class="lim"><span class="n">7</span><div class="what">I tell you what to set<small>Filters, interception rules, spacers.</small></div>
+        <div class="today">"Open Interception, add
+a rule, method POST,
+path /confirm, delay…"</div>
+        <div class="after"><b>Fill the real editor:</b> I open Alfred's own rule editor or filter bar already filled. You read it and press Save, or not.</div>
+        <button class="choice go" data-go="prefill">See it →</button></div>
+
+      <div class="lim"><span class="n">8</span><div class="what">My diagrams are pictures<small>A mermaid flow you cannot correct.</small></div>
+        <div class="today">```mermaid
+quote --> confirm --> pay
+```  (you reply in words)</div>
+        <div class="after"><b>Diagram you correct:</b> click a step to mark it wrong, + to add a missing one. I get your edits as data and fix my model.</div>
+        <button class="choice go" data-go="diagram">See it →</button></div>
+
+      <div class="lim"><span class="n">9</span><div class="what">Everything is the same loudness<small>An outage looks like a note. You miss it in another tab.</small></div>
+        <div class="today">Card in Inbox, same as
+a typo finding</div>
+        <div class="after"><b>Loudness:</b> quiet (tray only), normal (popup), urgent (amber ring, and a desktop notification when Alfred's tab is hidden, if you allow it).</div>
+        <button class="choice go" data-go="urgent">See it →</button></div>
+
+      <div class="lim"><span class="n">10</span><div class="what">Questions are text options<small>You compare two JSON bodies in your head.</small></div>
+        <div class="today">board_ask(options:
+["A","B","C"])</div>
+        <div class="after"><b>Ask with a picture:</b> the diff, chart or table I need beside the choices. The answer is still saved on the card.</div>
+        <button class="choice go" data-go="modal">See it →</button></div>
+
+      <div class="stay">
+        <h3>Limits that stay, on purpose</h3>
+        <ul>
+          <li>My code has no network. It runs locked, the same as board snippets.</li>
+          <li>My code never touches Alfred's page. Alfred places, lights and draws; I only name targets (call, field, card).</li>
+          <li>No change without your click. Save, Verified, rules and moves still go through the consent dialog.</li>
+          <li>Only your paired browser sees my popups. Never through the tunnel.</li>
+          <li>I do not see your screen. I see only what Alfred sends me: your answers and the picture of what I drew.</li>
+          <li>Nothing shows when no Claude session runs. Popups come from a session, never on their own.</li>
+          <li>Mute stops all of it for 1 h. A modal never opens while you type.</li>
+          <li>Every popup is also a line in the chat. Nothing lives only in a popup.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · spotlight -->
+  <section class="scn" data-s="spot">
+    <div class="page spot-on" id="spotPage">
+      <div class="dimmable"><h1>Live calls</h1><div class="sub">Every call Alfred intercepted, via backend</div></div>
+      <div class="toolbar dimmable"><div class="search">⌕ Search URL, status, headers, body...</div><div class="seg"><span class="on">≋ Waterfall</span><span>Nested</span><span>Flat</span></div></div>
+      <div class="rows" style="position:relative">
+        <div class="row dimmable"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 41 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/quote</b></span><span class="off">+0ms</span><span class="wf" style="width:22%"></span><span class="ms">184.20 ms</span></div>
+        <div class="row lit" id="spRow" style="position:relative"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db" id="spDb" style="color:var(--red)">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>odeysysadmin/Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span><span class="mk" style="left:-12px;top:-10px">1</span></div>
+        <div class="detail">
+          <div class="pane dimmable"><div class="k" style="margin-bottom:6px">Request</div><pre>{ <span class="kk">"quoteRef"</span>: "Q-7731",
+  <span class="kk">"seat"</span>: "14C",
+  <span class="kk">"pax"</span>: <span class="nn">2</span> }</pre></div>
+          <div class="pane" style="position:relative"><div class="k" style="margin-bottom:6px">Response · 500</div><pre>{ <span class="kk">"error"</span>: "SEAT_LOCK_TIMEOUT",
+  <span class="kk">"price"</span>: {
+    <span class="kk">"base"</span>: <span class="nn">1180.00</span>,
+    <span class="fieldlit lit" style="padding:0 4px"><span class="kk">"fee"</span>: <span class="nn">62.00</span><span class="mk" style="right:-30px;top:-2px">2</span></span>,
+    <span class="kk">"total"</span>: <span class="nn">1302.00</span> } }</pre></div>
+        </div>
+        <div class="row dimmable" style="margin-top:10px"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.1 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/7731</b></span><span class="off">+0ms</span><span class="wf" style="width:6%"></span><span class="ms">61.40 ms</span></div>
+        <div class="row dimmable"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 4 · 33 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/init</b></span><span class="off">+0ms</span><span class="wf" style="width:30%"></span><span class="ms">412.10 ms</span></div>
+      </div>
+    </div>
+    <div class="cp callouts" data-answer>
+      <div class="cp-head"><span class="cp-who"><span class="spark">✦</span> Claude</span><span class="cp-title">· look here</span><span class="sp"></span><button class="cp-icon" data-close title="End spotlight (Esc)">✕</button></div>
+      <div class="co"><span class="mk">1</span><div><b style="font-weight:600">This call failed</b> after 2.4 s. The quote right above it was fine.</div></div>
+      <div class="co"><span class="mk">2</span><div><b style="font-weight:600">fee appears only here.</b> quote never sends it, so the totals differ (#17).</div></div>
+      <div class="co"><span class="mk">3</span><div><b style="font-weight:600">31 statements</b>, 28 of them the same <code>SELECT … seat</code>. Open DB to see them.</div></div>
+      <div class="cp-foot"><div class="choices"><button class="choice rec">Got it</button><button class="choice">Open DB view</button></div><div class="sent">✓ Claude heard "Got it"</div></div>
+    </div>
+    <span class="mk" id="spMk3" style="display:none">3</span>
+    <div class="explain"><b>Claude called</b><pre>alfred_point({ call: "in:7f3a…", targets: [
+  { n: 1, call: "in:7f3a…" },
+  { n: 2, call: "in:7f3a…", body: "response", path: "$.price.fee" },
+  { n: 3, call: "in:7f3a…", part: "db" } ],
+  notes: [ "…", "…", "…" ], dim: true })
+// Alfred finds and lights the targets. Claude never reads the page.</pre></div>
+  </section>
+
+  <!-- 7 · walkthrough -->
+  <section class="scn" data-s="tour">
+    <div class="page">
+      <div class="tview on" data-v="0">
+        <h1>Live calls</h1><div class="sub" style="margin-bottom:12px">Step 1 · the failing call</div>
+        <div class="rows">
+          <div class="row" style="opacity:.35"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 41 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/quote</b></span><span class="off">+0ms</span><span class="wf" style="width:22%"></span><span class="ms">184.20 ms</span></div>
+          <div class="row claude-anchor"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db" style="color:var(--red)">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>odeysysadmin/Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span></div>
+          <div class="row" style="opacity:.35"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.1 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/7731</b></span><span class="off">+0ms</span><span class="wf" style="width:6%"></span><span class="ms">61.40 ms</span></div>
+        </div>
+      </div>
+      <div class="tview" data-v="1">
+        <h1>Logs</h1><div class="sub" style="margin-bottom:12px">Step 2 · what the app wrote during that call</div>
+        <div class="loglines">
+          <div class="ll i" style="opacity:.35"><span class="lv">INFO</span> 10:41:02 PricingService - total=1240.00 currency=SAR</div>
+          <div class="ll flag e"><span class="lv">ERROR</span> 10:41:03 SeatService - lock timeout seat=14C after 2000ms</div>
+          <div class="ll w" style="opacity:.35"><span class="lv">WARN</span> 10:41:03 BookingController - retry 1/3 confirm ref=Q-7731</div>
+          <div class="ll flag e"><span class="lv">ERROR</span> 10:41:04 SeatService - lock timeout seat=14C after 2000ms</div>
+        </div>
+      </div>
+      <div class="tview" data-v="2">
+        <h1>Database · confirm</h1><div class="sub" style="margin-bottom:12px">Step 3 · the statements that hold the lock</div>
+        <div class="loglines">
+          <div class="ll" style="opacity:.35">#1  SELECT … FROM booking WHERE ref = ?            0.8 ms</div>
+          <div class="ll flag">#2  SELECT … FROM seat WHERE id = ? FOR UPDATE     1.1 ms   ×28</div>
+          <div class="ll flag e"><span class="lv">wait</span>   lock held by tx 88213 (payment/init)      1,900 ms</div>
+          <div class="ll" style="opacity:.35">#31 ROLLBACK                                      0.2 ms</div>
+        </div>
+      </div>
+      <div class="tview" data-v="3">
+        <h1>Board · AB#61444</h1><div class="sub" style="margin-bottom:12px">Step 4 · what I propose</div>
+        <div class="cols" style="grid-template-columns:repeat(2,minmax(0,320px))">
+          <div class="col" style="min-height:160px"><h3>Inbox</h3><div class="tile focus"><span class="num">#19</span><span class="tag t-err">BUG</span><div class="t">Seat lock not released on timeout</div><span class="mention">⇄ POST /Booking2/confirm · 500</span><div class="k" style="color:var(--cyan);margin-top:6px">✦ proposed by Claude · merges #14</div></div></div>
+          <div class="col" style="min-height:160px"><h3>In progress</h3><div class="tile" style="opacity:.4"><span class="num">#14</span><span class="tag t-err">BUG</span><div class="t">confirm returns 500 after 28 seat lookups</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="cp tour">
+      <div class="cp-head"><span class="cp-who"><span class="spark">✦</span> Claude</span><span class="cp-title" id="tourTitle">· why confirm fails · 1 of 4</span><span class="sp"></span><div class="dots" id="tourDots"><i class="on"></i><i></i><i></i><i></i></div><button class="cp-icon" data-close>✕</button></div>
+      <div class="cp-body" id="tourText">confirm fails after 2.4 s. The quote just before it is fine, so the problem starts here.</div>
+      <div class="cp-foot" style="flex-direction:row;justify-content:space-between;align-items:center">
+        <span class="k">Alfred switches tabs for you · ← → keys</span>
+        <div class="choices"><button class="choice" id="tourBack">← Back</button><button class="choice rec" id="tourNext">Next →</button></div>
+      </div>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_tour({ title: "why confirm fails", steps: [
+  { tab: "calls", point: { call: "in:7f3a…" }, text: "…" },
+  { tab: "logs",  point: { log: "ln:5521" },   text: "…" },
+  { tab: "db",    point: { stmt: "st:2" },     text: "…" },
+  { tab: "board", point: { card: 19 },         text: "…" } ] })
+// Claude gets { finished: true } or { stoppedAt: 2 }</pre></div>
+  </section>
+
+  <!-- 8 · pick mode -->
+  <section class="scn" data-s="pick">
+    <div class="page picking">
+      <h1>Live calls</h1><div class="sub" style="margin-bottom:14px">Click rows to pick them. Claude pre-selected its guess.</div>
+      <div class="rows" id="pickRows">
+        <div class="row" data-id="in:61aa"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 41 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/quote</b></span><span class="off">+0ms</span><span class="wf" style="width:22%"></span><span class="ms">184.20 ms</span></div>
+        <div class="row" data-id="in:7f3a"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>odeysysadmin/Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span></div>
+        <div class="row" data-id="in:8b21"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.1 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/7731</b></span><span class="off">+0ms</span><span class="wf" style="width:6%"></span><span class="ms">61.40 ms</span></div>
+        <div class="row picked sugg" data-id="in:9c40"><input type="checkbox" checked><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 4 · 33 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/init</b></span><span class="off">+0ms</span><span class="wf" style="width:30%"></span><span class="ms">412.10 ms</span></div>
+        <div class="row picked sugg" data-id="in:9d02"><input type="checkbox" checked><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.7 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/payment-statuses</b></span><span class="off">+0ms</span><span class="wf" style="width:5%"></span><span class="ms">56.62 ms</span></div>
+        <div class="row" data-id="in:a113"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 12 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:12%"></span><span class="ms">171.30 ms</span></div>
+        <div class="row" data-id="in:b730"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 0.9 ms</span><span class="path">odeysys · <b>odeysysadmin/Customer2/me</b></span><span class="off">+0ms</span><span class="wf" style="width:3%"></span><span class="ms">33.08 ms</span></div>
+      </div>
+    </div>
+    <div class="pickbar" id="pickbar"><span class="spark">✦</span> Claude asks: <b style="font-weight:600">pick the calls of step 6 "Pay"</b> <span class="pill" id="pickCount">2 picked</span><button class="choice rec" id="pickDone">Done</button><button class="choice" id="pickCancel">Cancel</button></div>
+    <div class="explain"><b>Claude called</b><pre>alfred_pick({ what: "calls", tab: "calls",
+  prompt: "pick the calls of step 6 \"Pay\"",
+  suggest: ["in:9c40…", "in:9d02…"], min: 1, wait: true })</pre><b>Claude gets</b><pre class="got-v">(waiting…)</pre></div>
+  </section>
+
+  <!-- 9 · draw on views -->
+  <section class="scn" data-s="draw">
+    <div class="page">
+      <h1>Session cycle · Booking flow</h1><div class="sub" style="margin-bottom:12px">Waterfall · 9 calls of step 5</div>
+      <div class="layerbar"><span class="layerchip"><input type="checkbox" id="marksToggle" checked style="accent-color:var(--cyan)"> ✦ Claude's marks · 3</span><span class="k">a layer on the real view · saved with the cycle if you keep it</span><span class="sp" style="flex:1"></span><button class="choice">Keep</button><button class="choice">Clear</button></div>
+      <div class="wfwrap rows" id="wfwrap">
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span></div>
+        <div class="row"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">#1</span><span class="path">SELECT … FROM booking WHERE ref = ?</span><span class="off">+4ms</span><span style="padding-left:1%"><span class="wf" style="display:block;width:4%"></span></span><span class="ms">0.80 ms</span></div>
+        <div class="row" id="b1"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">#2</span><span class="path">SELECT … FROM seat WHERE id = ?</span><span class="off">+6ms</span><span style="padding-left:2%"><span class="wf" style="display:block;width:4%;background:var(--amber)"></span></span><span class="ms">1.10 ms</span></div>
+        <div class="row"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">#3</span><span class="path">SELECT … FROM seat WHERE id = ?</span><span class="off">+8ms</span><span style="padding-left:3%"><span class="wf" style="display:block;width:4%;background:var(--amber)"></span></span><span class="ms">1.00 ms</span></div>
+        <div class="row"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">… ×24</span><span class="path">SELECT … FROM seat WHERE id = ?</span><span class="off">+10ms</span><span style="padding-left:4%"><span class="wf" style="display:block;width:8%;background:var(--amber)"></span></span><span class="ms">26.40 ms</span></div>
+        <div class="row" id="b2"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">#28</span><span class="path">SELECT … FROM seat WHERE id = ? FOR UPDATE</span><span class="off">+38ms</span><span style="padding-left:6%"><span class="wf" id="lockBar" style="display:block;width:80%;background:var(--red)"></span></span><span class="ms">1,912.00 ms</span></div>
+        <div class="row"><span></span><span class="badge m-GET" style="opacity:.7">SQL</span><span></span><span class="db">#31</span><span class="path">ROLLBACK</span><span class="off">+2.4s</span><span style="padding-left:96%"><span class="wf" style="display:block;width:3%"></span></span><span class="ms">0.20 ms</span></div>
+      </div>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_mark({ view: "cycle:booking-flow", marks: [
+  { kind: "bracket", from: "st:2", to: "st:27", text: "same SELECT 28× · N+1" },
+  { kind: "gap", on: "st:28", text: "1.9 s waiting for tx 88213" },
+  { kind: "line", at: "+2000ms", text: "lock timeout (2 s)" } ] })</pre></div>
+  </section>
+
+  <!-- 10 · presence -->
+  <section class="scn" data-s="presence">
+    <div class="page">
+      <h1>Live calls</h1><div class="sub" style="margin-bottom:14px">/alfred-review running on cycle "Booking flow" · 7 calls</div>
+      <div class="rows" id="presRows">
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 41 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/quote</b></span><span class="off">+0ms</span><span class="wf" style="width:22%"></span><span class="ms">184.20 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-5xx">500</span><span class="db">◆ DB 31 · 2.1 s</span><span class="path">odeysys · <b>odeysysadmin/Booking2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:100%;background:var(--red)"></span><span class="ms">2,412.06 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.1 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/7731</b></span><span class="off">+0ms</span><span class="wf" style="width:6%"></span><span class="ms">61.40 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 4 · 33 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/init</b></span><span class="off">+0ms</span><span class="wf" style="width:30%"></span><span class="ms">412.10 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 1.7 ms</span><span class="path">odeysys · <b>odeysysadmin/Booking2/payment-statuses</b></span><span class="off">+0ms</span><span class="wf" style="width:5%"></span><span class="ms">56.62 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-POST">POST</span><span class="badge s-2xx">200</span><span class="db">◆ DB 3 · 12 ms</span><span class="path">odeysys · <b>odeysysadmin/Payment2/confirm</b></span><span class="off">+0ms</span><span class="wf" style="width:12%"></span><span class="ms">171.30 ms</span></div>
+        <div class="row"><input type="checkbox"><span class="badge m-GET">GET</span><span class="badge s-2xx">200</span><span class="db">◆ DB 1 · 0.9 ms</span><span class="path">odeysys · <b>odeysysadmin/Customer2/me</b></span><span class="off">+0ms</span><span class="wf" style="width:3%"></span><span class="ms">33.08 ms</span></div>
+      </div>
+      <div class="sub" style="margin:18px 0 8px">Board tiles show it too</div>
+      <div class="tile" style="max-width:320px"><span class="num">#14</span><span class="tag t-err">BUG</span><div class="t">confirm returns 500 after 28 seat lookups</div><span class="reading-tag" id="presCard">✦ Claude is reading this card</span></div>
+    </div>
+    <div class="explain"><b>No extra call</b><pre>get_call("in:7f3a…")      → glow on that row
+db_statements("in:7f3a…") → "reading statements of confirm"
+board_get(14)            → glow on card #14
+// every read tool sends presence; it fades after 4 s
+// off with one switch: "Show what Claude reads"</pre></div>
+  </section>
+
+  <!-- 11 · prefill -->
+  <section class="scn" data-s="prefill">
+    <div class="page">
+      <h1>Interception</h1><div class="sub" style="margin-bottom:12px">Rules change calls as they pass the proxy</div>
+      <div style="margin-bottom:14px"><span class="filterchip">✦ Live Calls filter set by Claude: <code>path:/Booking2/confirm status:5xx</code> <button class="choice" style="padding:2px 10px">Undo</button></span></div>
+      <div class="editor">
+        <div class="eh"><span class="cp-who"><span class="spark">✦</span> Claude filled this rule</span><span class="sp" style="flex:1"></span><span class="pill">saved off · narrow · never pauses</span></div>
+        <div class="why">To reproduce #19 I need the seat lock to be slow. This delays only confirm calls that carry <code>X-Test: lock</code>, so nobody else is touched.</div>
+        <div class="eb">
+          <label>Name</label><div class="fld cf">Reproduce #19 · slow seat lock</div>
+          <label>Direction</label><div class="fld">Inbound · odeysys</div>
+          <label>Match</label><div class="fld cf">POST  /odeysysadmin/Booking2/confirm</div>
+          <label>Only when</label><div class="fld cf">header X-Test = lock</div>
+          <label>Action</label><div class="fld cf">Delay request · 2,500 ms</div>
+          <label>Stops after</label><div class="fld cf">10 hits or 30 min</div>
+        </div>
+        <div class="ef"><button class="btn primary">Save (off)</button><button class="btn">Save and turn on</button><button class="btn">Discard</button><span class="sp" style="flex:1"></span><span class="k">✦ = filled by Claude · you can change any field</span></div>
+      </div>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_prefill({ editor: "rule", card: 19,
+  values: { name: "Reproduce #19 · slow seat lock",
+    match: { method: "POST", path: "/odeysysadmin/Booking2/confirm",
+             header: { "X-Test": "lock" } },
+    action: { delayMs: 2500 }, stopAfter: { hits: 10, minutes: 30 } },
+  why: "…" })
+alfred_prefill({ editor: "calls-filter",
+  values: "path:/Booking2/confirm status:5xx" })   // view only, Undo</pre></div>
+  </section>
+
+  <!-- 12 · diagram you correct -->
+  <section class="scn" data-s="diagram">
+    <div class="page" style="opacity:.35">
+      <h1>Board · AB#61444</h1><div class="sub">Define · the flow under test</div>
+    </div>
+    <div class="scrim"></div>
+    <div class="cp ask" style="left:50%;top:90px;transform:translateX(-50%);width:min(860px,94%)" data-answer>
+      <div class="cp-head"><span class="cp-who"><span class="spark">✦</span> Claude asks</span><span class="cp-title">· is this the booking flow you test?</span><span class="sp"></span><button class="cp-icon" data-close>✕</button></div>
+      <div class="cp-from"><span>/alfred-setup · board AB#61444</span><span>built from 42 calls of "Booking flow"</span><span class="lock">🔒 locked</span></div>
+      <div class="cp-body">
+        <div class="k">Click a step to mark it wrong. Click + to add a missing step. Amber = I am not sure.</div>
+        <div class="flow" id="flow">
+          <div class="node">Search<small>GET /Flights2/search</small></div><div class="edge">→<button title="Add a step here">+</button></div>
+          <div class="node">Quote<small>POST /Booking2/quote</small></div><div class="edge">→<button>+</button></div>
+          <div class="node">Pax details<small>POST /Booking2/pax</small></div><div class="edge">→<button>+</button></div>
+          <div class="node claude-unsure">Seat select<small>PUT /Seat2/hold</small></div><div class="edge">→<button>+</button></div>
+          <div class="node">Confirm<small>POST /Booking2/confirm</small></div><div class="edge">→<button>+</button></div>
+          <div class="node">Pay<small>POST /Payment2/init</small></div><div class="edge">→<button>+</button></div>
+          <div class="node">Ticket<small>POST /Ticket2/issue</small></div>
+        </div>
+      </div>
+      <div class="cp-foot">
+        <div class="choices"><button class="choice rec" id="flowSend">Send corrections</button><button class="choice">It's right</button></div>
+        <div class="sent">✓ Claude got your edits · it updates the spec draft and asks before saving</div>
+      </div>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_show({ placement: "modal", kind: "flow-editor",
+  nodes: [ …7 steps from the calls… ], unsure: ["Seat select"],
+  wait: true })</pre><b>Claude gets</b><pre class="got-v">(waiting…)</pre></div>
+  </section>
+
+  <!-- 13 · loudness and away -->
+  <section class="scn" data-s="urgent">
+    <div class="page">
+      <div class="browser">
+        <div class="btabs"><span class="btab">Inbox · Mail</span><span class="btab on">Azure DevOps · AB#61444</span><span class="btab" id="alfTab">(1) ✦ Alfred · confirm is down</span></div>
+        <div class="bbody">You are in another tab. Alfred's tab title changes, and the desktop shows a notification.</div>
+      </div>
+      <div class="levels">
+        <div class="lvl"><h4>Quiet</h4><p>Only the tray count goes up. For notes and "I finished step 4".</p>
+          <div class="demo" style="display:flex;justify-content:space-between;align-items:center"><span class="claude-tray" style="margin:0"><span class="spark">✦</span> Claude <span class="count">3</span></span><span class="k">nothing opens</span></div></div>
+        <div class="lvl"><h4>Normal</h4><p>A popup where you are (anchor, toast, modal). Most findings and questions.</p>
+          <div class="demo"><div class="cp-who" style="margin-bottom:4px"><span class="spark">✦</span> Claude</div><span class="tag t-ok">fixed</span> #14 · 28 → 3 SQL</div></div>
+        <div class="lvl urgent"><h4>Urgent</h4><p>Amber ring, tab title, desktop notification when the tab is hidden (only if you allow it). For "everything is failing".</p>
+          <div class="demo"><div class="cp-who" style="margin-bottom:4px;color:var(--amber)"><span class="spark" style="color:var(--amber)">✦</span> Claude · urgent</div><span class="tag t-err">5 of 5</span> confirm calls return 500 since 10:41</div></div>
+      </div>
+      <div class="sub" style="margin-top:12px">Urgent is rate-limited: at most 1 in 10 minutes. You can turn desktop notifications off in the tray.</div>
+    </div>
+    <div class="osnote">
+      <div class="app-n"><span>🔔 Alfred · localhost:3000</span><span>now</span></div>
+      <b style="font-weight:600">✦ Claude: confirm is down</b><br><span style="color:var(--text-dim)">5 of 5 confirm calls return 500 since 10:41 · seat lock timeout</span>
+    </div>
+    <div class="explain"><b>Claude called</b><pre>alfred_show({ placement: "anchor", anchor: { call: "in:7f3a…" },
+  level: "urgent", html: "…", choices: ["Open", "I know"] })
+// level: "quiet" | "normal" (default) | "urgent"</pre></div>
+  </section>
+</div>
+
+<script>
+const app = document.getElementById('app');
+const tabFor = { limits: '', anchor: 'calls', modal: 'board', panel: 'logs', toast: 'cycles', tray: 'board',
+  spot: 'calls', tour: 'calls', pick: 'calls', draw: 'cycles', presence: 'calls', prefill: 'interception', diagram: 'board', urgent: 'calls' };
+const trayCount = { limits: 0, anchor: 1, modal: 1, panel: 2, toast: 2, tray: 2,
+  spot: 1, tour: 1, pick: 1, draw: 1, presence: 0, prefill: 1, diagram: 1, urgent: 1 };
+
+function show(s) {
+  document.querySelectorAll('.mockbar [data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  document.querySelectorAll('.scn').forEach(x => x.classList.toggle('on', x.dataset.s === s));
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.t === tabFor[s]));
+  const tc = document.getElementById('trayCount');
+  tc.textContent = trayCount[s]; tc.style.display = trayCount[s] ? '' : 'none';
+  document.getElementById('trayNow').style.display = s === 'presence' ? '' : 'none';
+  if (s === 'anchor') requestAnimationFrame(placeAnchor);
+  if (s === 'spot') requestAnimationFrame(placeSpot);
+  if (s === 'draw') requestAnimationFrame(placeMarks);
+  window.scrollTo(0, 0);
+  if (s === 'toast') {
+    const t = document.querySelector('.toast .bar-t');
+    t.style.animation = 'none'; t.offsetHeight; t.style.animation = '';
+  }
+}
+document.querySelector('.mockbar').addEventListener('click', e => { const s = e.target.dataset.s; if (s) show(s); });
+document.getElementById('showExplain').addEventListener('change', e => app.classList.toggle('hide-explain', !e.target.checked));
+document.getElementById('tray').addEventListener('click', () => show('tray'));
+
+// the host places an anchored popup under its row (Claude's code never reads the page)
+function placeAnchor() {
+  const row = document.getElementById('anchorRow'), pop = document.getElementById('anchorPop');
+  if (!row.offsetParent) return;
+  const a = app.getBoundingClientRect(), r = row.getBoundingClientRect();
+  pop.style.top = (r.bottom - a.top + 10) + 'px';
+  pop.style.left = Math.max(16, r.left - a.left + 300) + 'px';
+}
+window.addEventListener('resize', placeAnchor);
+
+// SQL bars (what Claude drew)
+const bars = [3, 3, 4, 3, 4, 3, 4, 4, 3, 4, 3, 31];
+document.getElementById('sqlBars').innerHTML = bars.map((h, i) =>
+  `<span class="${i === bars.length - 1 ? 'hot' : ''}" style="height:${Math.max(4, h * 1.7)}px" title="${h} statements"></span>`).join('');
+
+// answering a popup
+document.querySelectorAll('[data-answer]').forEach(cp => {
+  cp.querySelectorAll('.choice').forEach(btn => btn.addEventListener('click', () => {
+    if (cp.classList.contains('answered')) return;
+    cp.querySelectorAll('.choice').forEach(b => b.classList.remove('picked', 'rec'));
+    btn.classList.add('picked');
+    cp.classList.add('answered');
+    const note = cp.querySelector('.note-in')?.value.trim();
+    const got = cp.closest('.scn').querySelector('.got-v');
+    if (got) got.textContent = JSON.stringify(note ? { picked: btn.textContent, note } : { picked: btn.textContent }, null, 2);
+    const w = cp.querySelector('.waits'); if (w) w.style.display = 'none';
+  }));
+});
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => {
+  const cp = b.closest('.cp');
+  cp.style.display = 'none';
+  const scn = cp.closest('.scn');
+  const got = scn.querySelector('.got-v'); if (got) got.textContent = '{ "closed": true }';
+  if (scn.dataset.s === 'panel') scn.querySelector('.page').classList.remove('with-panel');
+  const sc = scn.querySelector('.scrim'); if (sc) sc.style.display = 'none';
+  setTimeout(() => { cp.style.display = ''; if (sc) sc.style.display = ''; if (scn.dataset.s === 'panel') scn.querySelector('.page').classList.add('with-panel'); }, 2500);
+}));
+
+// countdowns
+setInterval(() => document.querySelectorAll('.cd').forEach(el => {
+  let s = +el.dataset.sec; if (s > 0) s--; el.dataset.sec = s;
+  el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left`;
+}), 1000);
+
+// live panel ticks (patch in place)
+const feedLines = ['ticket/issue 202 · 6 SQL · clean', 'payment/confirm 200 · 3 SQL · clean', 'payment/status 200 · clean'];
+let calls = 42, tick = 0;
+setInterval(() => {
+  if (!document.querySelector('.scn[data-s=panel]').classList.contains('on')) return;
+  calls++; document.getElementById('pCalls').textContent = calls;
+  const feed = document.getElementById('feed');
+  const d = document.createElement('div');
+  const t = new Date(Date.UTC(2026, 9, 19, 7, 41, 14 + tick * 3));
+  d.textContent = `${t.toISOString().slice(11, 19).replace(/^07/, '10')} ${feedLines[tick % feedLines.length]}`;
+  feed.prepend(d); if (feed.children.length > 6) feed.lastChild.remove();
+  if (tick === 1) {
+    document.getElementById('step6').innerHTML = '<span class="tag t-ok">ok</span><span>6 · Pay</span><span class="lnk">3 calls</span>';
+    document.getElementById('pSteps').textContent = '6/8';
+  }
+  tick++;
+}, 2500);
+
+// limits page links
+document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+
+// 6 · spotlight marker 3 on the DB badge (Alfred places it)
+function placeSpot() {
+  const db = document.getElementById('spDb'), mk = document.getElementById('spMk3');
+  if (!db.offsetParent) return;
+  const a = app.getBoundingClientRect(), r = db.getBoundingClientRect();
+  mk.style.display = 'grid'; mk.style.left = (r.right - a.left - 8) + 'px'; mk.style.top = (r.top - a.top - 14) + 'px';
+}
+
+// 7 · walkthrough
+const tourTexts = [
+  'confirm fails after 2.4 s. The quote just before it is fine, so the problem starts here.',
+  'During that call the app logged a seat lock timeout twice, for the same seat 14C.',
+  'The lock is FOR UPDATE on seat, and payment/init (tx 88213) holds it for 1.9 s. confirm waits, then rolls back.',
+  'So #14 is a symptom. I propose #19 "Seat lock not released on timeout" and merging #14 into it. Your call.'];
+const tourTabs = ['calls', 'logs', 'calls', 'board'];
+let tourAt = 0;
+function tourGo(i) {
+  tourAt = Math.max(0, Math.min(3, i));
+  document.querySelectorAll('.tview').forEach(v => v.classList.toggle('on', +v.dataset.v === tourAt));
+  document.querySelectorAll('#tourDots i').forEach((d, j) => d.classList.toggle('on', j <= tourAt));
+  document.getElementById('tourText').textContent = tourTexts[tourAt];
+  document.getElementById('tourTitle').textContent = `· why confirm fails · ${tourAt + 1} of 4`;
+  document.getElementById('tourNext').textContent = tourAt === 3 ? 'Finish' : 'Next →';
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.t === tourTabs[tourAt]));
+}
+document.getElementById('tourNext').addEventListener('click', () => tourAt === 3 ? tourGo(0) : tourGo(tourAt + 1));
+document.getElementById('tourBack').addEventListener('click', () => tourGo(tourAt - 1));
+document.addEventListener('keydown', e => {
+  if (!document.querySelector('.scn[data-s=tour]').classList.contains('on')) return;
+  if (e.key === 'ArrowRight') tourGo(tourAt + 1); if (e.key === 'ArrowLeft') tourGo(tourAt - 1);
+});
+
+// 8 · pick mode
+const pickRows = document.getElementById('pickRows');
+function pickCount() { document.getElementById('pickCount').textContent = pickRows.querySelectorAll('.picked').length + ' picked'; }
+pickRows.addEventListener('click', e => {
+  const row = e.target.closest('.row'); if (!row) return;
+  row.classList.toggle('picked'); row.classList.remove('sugg');
+  row.querySelector('input').checked = row.classList.contains('picked'); pickCount();
+});
+document.getElementById('pickDone').addEventListener('click', () => {
+  const ids = [...pickRows.querySelectorAll('.picked')].map(r => r.dataset.id + '…');
+  document.querySelector('.scn[data-s=pick] .got-v').textContent = JSON.stringify({ picked: ids }, null, 2);
+  document.getElementById('pickbar').innerHTML = '<span class="spark">✦</span> Sent ' + ids.length + ' calls to Claude';
+});
+document.getElementById('pickCancel').addEventListener('click', () => {
+  document.querySelector('.scn[data-s=pick] .got-v').textContent = '{ "cancelled": true }';
+});
+
+// 9 · Claude's marks on the waterfall (Alfred draws them from ids)
+function placeMarks() {
+  const wrap = document.getElementById('wfwrap'); if (!wrap.offsetParent) return;
+  wrap.querySelectorAll('.ov').forEach(o => o.remove());
+  const w = wrap.getBoundingClientRect();
+  const rows = [...wrap.querySelectorAll('.row')];
+  const b1 = document.getElementById('b1').getBoundingClientRect(), b3 = rows[4].getBoundingClientRect();
+  const lock = document.getElementById('lockBar').getBoundingClientRect();
+  const br = document.createElement('div'); br.className = 'ov ov-bracket';
+  Object.assign(br.style, { left: (lock.left - w.left + 24) + "px", top: (b1.top - w.top + 4) + 'px', height: (b3.bottom - b1.top - 8) + 'px' });
+  br.innerHTML = '<span class="ov-label">same SELECT 28× · N+1 · one query with IN (…) would do</span>';
+  const gap = document.createElement('div'); gap.className = 'ov ov-gap';
+  Object.assign(gap.style, { left: (lock.left - w.left) + 'px', top: (lock.top - w.top) + 'px', width: lock.width + 'px' });
+  gap.innerHTML = '<span>1.9 s waiting for tx 88213 (payment/init holds the lock)</span>';
+  const line = document.createElement('div'); line.className = 'ov ov-line';
+  const x = lock.left - w.left + lock.width * 1.03;
+  Object.assign(line.style, { left: x + 'px', top: '24px', height: (w.height - 24) + 'px' });
+  line.innerHTML = '<span>lock timeout (2 s)</span>';
+  wrap.append(br, gap, line);
+}
+document.getElementById('marksToggle').addEventListener('change', e => document.getElementById('wfwrap').classList.toggle('marks-off', !e.target.checked));
+window.addEventListener('resize', () => { placeMarks(); placeSpot(); });
+
+// 10 · presence
+let presAt = 0;
+setInterval(() => {
+  if (!document.querySelector('.scn[data-s=presence]').classList.contains('on')) return;
+  const rows = [...document.querySelectorAll('#presRows .row')];
+  rows.forEach((r, i) => { r.classList.toggle('reading', i === presAt); r.classList.toggle('read', i < presAt); });
+  document.getElementById('trayNow').textContent = presAt < rows.length ? `reading call ${presAt + 1} of ${rows.length}` : 'writing card #14';
+  document.getElementById('presCard').style.visibility = presAt >= rows.length ? 'visible' : 'hidden';
+  presAt = presAt >= rows.length ? 0 : presAt + 1;
+}, 1300);
+
+// 12 · diagram you correct
+const flow = document.getElementById('flow');
+flow.addEventListener('click', e => {
+  const node = e.target.closest('.node');
+  if (node) { node.classList.toggle('wrong'); node.classList.remove('claude-unsure'); return; }
+  const plus = e.target.closest('.edge button');
+  if (plus) {
+    const name = 'New step';
+    const n = document.createElement('div'); n.className = 'node added'; n.innerHTML = name + '<small>you added it</small>';
+    n.contentEditable = 'true';
+    const ed = document.createElement('div'); ed.className = 'edge'; ed.innerHTML = '→<button>+</button>';
+    plus.parentElement.after(n, ed);
+    n.focus();
+  }
+});
+document.getElementById('flowSend').addEventListener('click', () => {
+  const nodes = [...flow.querySelectorAll('.node')];
+  const edits = {
+    wrong: nodes.filter(n => n.classList.contains('wrong')).map(n => n.firstChild.textContent.trim()),
+    added: nodes.filter(n => n.classList.contains('added')).map(n => ({ after: n.previousElementSibling.previousElementSibling.firstChild.textContent.trim(), name: n.firstChild.textContent.trim() }))
+  };
+  setTimeout(() => { document.querySelector('.scn[data-s=diagram] .got-v').textContent = JSON.stringify(edits, null, 2); });
+});
+
+placeAnchor();
+show('limits');
+
+// tray mute
+document.getElementById('mute').addEventListener('change', e => {
+  document.getElementById('tray').classList.toggle('muted', e.target.checked);
+  document.querySelector('.typing-chip').style.display = e.target.checked ? 'none' : '';
+});
+</script>
+</body>
+</html>
