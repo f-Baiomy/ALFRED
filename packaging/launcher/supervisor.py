@@ -25,6 +25,8 @@ import os
 import secrets
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -55,6 +57,12 @@ LOG_FILES = 3
 # console, so without this each one flashed a window of its own on the desktop.
 NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
 MCP_PORT_DEFAULT = 3009
+DISCOVERY_PROTOCOL = "discovery/1"
+DISCOVERY_GROUP = "239.255.70.70"  # organisation-local multicast: never routed off the LAN (TTL 1 as well)
+DISCOVERY_PORT = 47070
+DISCOVERY_EVERY_SECONDS = 30
+DISCOVERY_FORGET_SECONDS = 120
+DISCOVERY_ANSWER_SECONDS = 5
 MITMDUMP_PROGRAM = "from mitmproxy.tools.main import mitmdump; mitmdump()"
 BIND_FAILURES = ("address already in use", "permission denied", "only one usage of each socket address",
                  "cannot assign requested address", "an attempt was made to access a socket",
@@ -77,7 +85,7 @@ APPDATA_FILES = {
     "SESSION_CYCLES_FILE": os.path.join("session-cycles", "session-cycles.json"), "SESSION_CYCLES_DIR": "session-cycles",
     "PROFILES_FILE": "profiles.json", "FILTER_SETTINGS_FILE": "filter-settings.json", "CALLS_DB_FILE": "calls.db",
     "SESSION_CYCLES_DB_FILE": "session-cycles.db", "PROFILES_DB_FILE": "profiles.db", "COMMENTS_DB_FILE": "comments.db",
-    "FILTER_SETTINGS_DB_FILE": "settings.db", "TRIAGE_DB_FILE": "triage.db", "BOARD_DB_FILE": "board.db", "SESSIONS_DB_FILE": "sessions.db", "TEAMBOARDS_DB_FILE": "teamboards.db", "INTERNAL_CALLS_FILE": "internal-calls.log",
+    "FILTER_SETTINGS_DB_FILE": "settings.db", "TRIAGE_DB_FILE": "triage.db", "BOARD_DB_FILE": "board.db", "SESSIONS_DB_FILE": "sessions.db", "LINKS_DB_FILE": "links.db", "TEAMBOARDS_DB_FILE": "teamboards.db", "INTERNAL_CALLS_FILE": "internal-calls.log",
     "INTERNAL_CALLS_DB_FILE": "internal-calls.db",
     "INTERCEPTION_DB_FILE": "interception.db", "SCENARIOS_DB_FILE": "scenarios.db", "LOGS_DB_LEGACY_FILE": "logs.db",
     "LOGS_UPLOAD_DIR": os.path.join("logs", "uploads"), "REDACTIONS_DB_FILE": "redactions.db",
@@ -1118,6 +1126,131 @@ def _not_a_jvm(pid, port):
     return f"pid {pid} on port {port} is not a Java process"
 
 
+class Discovery:
+    """Finds other Alfreds on the LAN and lets them find this one (specs/035 D33): a small JSON datagram on the multicast
+    group DISCOVERY_GROUP every DISCOVERY_EVERY_SECONDS while the backend says "announce" - name, version, the stable
+    Alfred id and the UI port, nothing else. The address a reader shows is the datagram's source plus that port; one
+    not heard from for DISCOVERY_FORGET_SECONDS is forgotten. Finding never links anything: the user still types or
+    picks the address and the other side still accepts. Docker containers cannot hear the LAN, so only the native
+    supervisor runs this; GET /discovery answers the backend's Settings page."""
+
+    def __init__(self, supervisor):
+        self.supervisor = supervisor
+        self.lock = threading.Lock()
+        self.me = None  # {"id", "name", "version", "announce"} - set by the backend (POST /discovery/announce)
+        self.found = {}
+        self.error = None
+        self.sock = None
+        self.last_answer = 0.0
+        self.started = False
+
+    def start(self):
+        if self.started:
+            return
+        self.started = True
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("", DISCOVERY_PORT))
+            membership = struct.pack("4sl", socket.inet_aton(DISCOVERY_GROUP), socket.INADDR_ANY)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+            sock.settimeout(1.0)
+            self.sock = sock
+        except OSError as e:
+            self.error = f"LAN discovery is off on this machine: {e}"
+            log.warning("discovery: %s", self.error)
+            return
+        threading.Thread(target=self._listen, name="discovery-listen", daemon=True).start()
+        threading.Thread(target=self._announce_loop, name="discovery-announce", daemon=True).start()
+        self._send({"alfred": DISCOVERY_PROTOCOL, "type": "query"})
+
+    def set_me(self, me):
+        with self.lock:
+            self.me = me
+        if me.get("announce"):
+            self._send_me()
+
+    def _payload(self):
+        me = self.me
+        if not me or not me.get("announce"):
+            return None
+        return {"alfred": DISCOVERY_PROTOCOL, "type": "here", "id": str(me.get("id", ""))[:64],
+                "name": str(me.get("name", ""))[:60], "version": str(me.get("version", ""))[:32],
+                "port": int(self.supervisor.layout.ui_port(self.supervisor.settings))}
+
+    def _send_me(self):
+        payload = self._payload()
+        if payload:
+            self._send(payload)
+
+    def _send(self, payload):
+        if not self.sock:
+            return
+        try:
+            self.sock.sendto(json.dumps(payload).encode("utf-8"), (DISCOVERY_GROUP, DISCOVERY_PORT))
+        except OSError as e:
+            log.debug("discovery send: %s", e)
+
+    def _announce_loop(self):
+        while not self.supervisor.stopping.wait(DISCOVERY_EVERY_SECONDS):
+            self._send_me()
+
+    def _listen(self):
+        while not self.supervisor.stopping.is_set():
+            try:
+                data, (host, _) = self.sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            except OSError:
+                if self.supervisor.stopping.is_set():
+                    return
+                time.sleep(1)
+                continue
+            self.heard(data, host)
+
+    def heard(self, data, host):
+        """One datagram from host: a "here" is remembered (never this Alfred's own), a "query" answered at most every
+        DISCOVERY_ANSWER_SECONDS so a burst of queries never becomes a storm."""
+        try:
+            msg = json.loads(data.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return
+        if not isinstance(msg, dict) or msg.get("alfred") != DISCOVERY_PROTOCOL:
+            return
+        if msg.get("type") == "query":
+            now = time.monotonic()
+            if now - self.last_answer >= DISCOVERY_ANSWER_SECONDS:
+                self.last_answer = now
+                self._send_me()
+            return
+        if msg.get("type") != "here":
+            return
+        alfred_id = str(msg.get("id", ""))[:64]
+        try:
+            port = int(msg.get("port"))
+        except (TypeError, ValueError):
+            return
+        if not alfred_id or not 0 < port < 65536:
+            return
+        with self.lock:
+            if self.me and alfred_id == self.me.get("id"):
+                return
+            self.found[alfred_id] = {"alfredId": alfred_id, "name": str(msg.get("name", ""))[:60] or host,
+                                     "address": f"http://{host}:{port}", "version": str(msg.get("version", ""))[:32],
+                                     "seenAt": now_iso(), "_seen": time.monotonic()}
+
+    def status(self):
+        cutoff = time.monotonic() - DISCOVERY_FORGET_SECONDS
+        with self.lock:
+            for k in [k for k, v in self.found.items() if v["_seen"] < cutoff]:
+                del self.found[k]
+            found = sorted(({k: v for k, v in f.items() if k != "_seen"} for f in self.found.values()),
+                           key=lambda f: f["name"].lower())
+        return {"available": self.sock is not None, "why": self.error,
+                "announcing": bool(self.me and self.me.get("announce")), "found": found}
+
+
 class AppWatcher:
     """Watches every project's upstream port, so an app that starts (or restarts) is noticed within seconds - the
     AUTOMATIC attach mode (docs/server.md "The agent attaches itself"). A TCP connect to 127.0.0.1:<upstreamPort> every
@@ -1224,6 +1357,7 @@ class Supervisor:
         self.update = UpdateJob(self)
         self.agents = AgentAttacher(self)
         self.apps = AppWatcher(self)
+        self.discovery = Discovery(self)
 
     def spec_for(self, name):
         return self.specs.get(name)
@@ -1351,6 +1485,8 @@ class Supervisor:
                     self._reply(200, supervisor.update.status())
                 elif self.path == "/agents":
                     self._reply(200, supervisor.agents.status())
+                elif self.path == "/discovery":
+                    self._reply(200, supervisor.discovery.status())
                 else:
                     self._reply(404, {"error": "not found"})
 
@@ -1413,6 +1549,17 @@ class Supervisor:
                         self._reply(400, {"error": "project and features (proxy, db, logs, redis) are required"})
                         return
                     self._reply(202, {"accepted": supervisor.agents.ask(project, features, force)})
+                elif self.path == "/discovery/announce":
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                        me = {"id": str(body["id"]), "name": str(body.get("name", "")), "version": str(body.get("version", "")),
+                              "announce": bool(body.get("announce"))}
+                    except (ValueError, KeyError, TypeError) as e:
+                        self._reply(400, {"error": f"bad request: {e}"})
+                        return
+                    supervisor.discovery.set_me(me)
+                    self._reply(200, supervisor.discovery.status())
                 else:
                     self._reply(404, {"error": "not found"})
 
@@ -1498,6 +1645,7 @@ def main(home):
     port = supervisor.serve_control()
     log.info("Alfred %s supervisor (pid %s, control port %s, home %s)", layout.version(), os.getpid(), port, layout.home)
     supervisor.start_all()
+    supervisor.discovery.start()
     refresh_skills(layout)
     settings = supervisor.settings
     log.info("UI: %s", layout.local_url(settings).replace("127.0.0.1", "localhost"))
