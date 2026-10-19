@@ -202,6 +202,43 @@ describe('BoardSessionButtonComponent (specs/031, specs/032)', () => {
       expect(f.nativeElement.textContent).toContain('Read it in Claude Desktop');
     });
 
+    it('Start fresh asks which repo: the folders of My settings on this PC, this project first, then starts there', () => {
+      state.sessions.set([{ ...SESSION, state: 'STOPPED' }]);
+      state.settings.set({ projects: [
+        { project: 'core', machine: 'WORK-PC', folder: 'C:/core', openIn: 'TERMINAL', worktrees: false },
+        { project: 'odeysys', machine: 'WORK-PC', folder: 'C:/w', openIn: 'DESKTOP', worktrees: true },
+        { project: 'other', machine: 'HOME-PC', folder: 'D:/home', openIn: 'DESKTOP', worktrees: true }] });
+      const send = spyOn(state, 'send').and.returnValue(of(null));
+      const f = render();
+      (f.nativeElement.querySelector('.cm') as HTMLButtonElement).click();
+      f.detectChanges();
+      button(f, 'Start fresh').click();
+      f.detectChanges();
+      expect(send).not.toHaveBeenCalled();
+      const dlg = f.nativeElement.querySelector('[aria-label="Where to start Claude"]') as HTMLElement;
+      const rows = Array.from(dlg.querySelectorAll('.wr code')).map((c) => c.textContent);
+      expect(rows).toEqual(['C:/w', 'C:/core'], 'this PC only, the board\'s project first');
+
+      f.componentInstance.pickWhere(1);
+      button(f, '▶ Start Claude').click();
+      expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({
+        args: jasmine.objectContaining({ folder: 'C:/core', openIn: 'TERMINAL', worktrees: false, boardRef: 'AB#1' }) }));
+    });
+
+    it('Start fresh in another folder can remember it as this project\'s folder on this PC', () => {
+      state.sessions.set([{ ...SESSION, state: 'STOPPED' }]);
+      const send = spyOn(state, 'send').and.returnValue(of(null));
+      const save = spyOn(state, 'saveSettings').and.callFake((s) => of(s));
+      const f = render();
+      f.componentInstance.chooseWhere();
+      f.componentInstance.pickWhere(-1);
+      f.componentInstance.folder = 'C:/work/odeysys-claude/odeysys';
+      f.componentInstance.whereRemember = true;
+      f.componentInstance.startWhere();
+      expect(save).toHaveBeenCalledWith({ projects: [jasmine.objectContaining({ project: 'odeysys', machine: 'WORK-PC', folder: 'C:/work/odeysys-claude/odeysys' })] });
+      expect(send).toHaveBeenCalledWith('START', jasmine.objectContaining({ args: jasmine.objectContaining({ folder: 'C:/work/odeysys-claude/odeysys' }) }));
+    });
+
     it('stays open when the pointer leaves it; an outside click or Escape closes it (T058)', () => {
       state.sessions.set([SESSION]);
       const f = render();

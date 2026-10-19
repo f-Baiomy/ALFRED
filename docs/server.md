@@ -506,7 +506,10 @@ alfred helper token set     # the Azure DevOps token, from stdin: kept on this P
     writes (`findDesktopChat`: Desktop's own record, in that folder, made after the link - waited for on the folder's
     change events, 3 minutes), takes the board for it and never writes into it. The message never starts with "/"
     (Desktop's link check refuses that). Pause stops only the runner; the chat's watch stays on, so Resume starts the
-    runner again on the same chat log. Without Desktop, or TERMINAL: a terminal, the same way; the project chat: its own
+    runner again on the same chat log. **Desktop honours the link's folder only when it already has a session there**
+    (`desktopKnowsFolder`, helper 1.8.3): for a folder it never opened it shows a new chat in the last folder it used
+    (or a scratch workspace) with the message unsent, so the helper starts that board in a terminal instead and says to
+    open the folder once in Desktop. Without Desktop, or TERMINAL: a terminal, the same way; the project chat: its own
     session, the same way (`/alfred-live <project>`).
 - It passes the user's key to what it starts (`ALFRED_KEY`, and `ALFRED_VIA` = the session id): the `/alfred-live` and
   `/alfred-listen` runners and the MCP server they start send it, so their writes count as the holder's.

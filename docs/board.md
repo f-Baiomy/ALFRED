@@ -1135,7 +1135,11 @@ helper claims it (a long poll woken by the queueing, never polling), makes the b
 session where the user sees it: a **Claude Desktop chat** in that folder (the default, Desktop's `claude://code/new`
 link), else a **terminal** running `claude --session-id <new id> "<first message>"`. The first message asks it to read
 the task (`/alfred-resume <board>`) and run `/alfred-live <project> <board>` - so the session starts its own runner and
-answers everything on the board itself, visibly. The helper never writes a turn into a session and never starts a
+answers everything on the board itself, visibly. **Start fresh asks where** (the "Where" dialog of the Claude button):
+every folder of 👤 Me on this PC (the board's project first) or another typed / browsed one, Desktop or terminal, own
+worktree or not, and "Remember" to keep it as the project's folder; the START carries `folder`/`openIn`/`worktrees`,
+which the helper uses instead of the saved row. A Desktop that never opened that folder ignores the link's folder, so
+the helper starts that one in a terminal (helper 1.8.3). The helper never writes a turn into a session and never starts a
 headless runner (2026-10-19). It takes the board for that session and reports it (`PUT /board/sessions`). While it
 starts, the helper reports what it does (`progress`: Making the worktree, Opening a chat in Claude Desktop / Opening a
 terminal) as the button's tooltip; a start that fails is reported GONE and the button says "⚠ Claude didn't start" with

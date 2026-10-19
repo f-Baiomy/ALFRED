@@ -13,7 +13,15 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 import { failureLine } from '../../shared/utils/failure-line';
 import { shortUser } from '../../shared/utils/claude-mode';
 
-type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'sessions' | 'audit' | 'listen' | 'handback';
+type Dialog = null | 'pair' | 'helper' | 'held' | 'request' | 'notHere' | 'sessions' | 'audit' | 'listen' | 'handback' | 'where';
+
+/** A folder Start fresh can open the session in: a row of My settings on this PC. */
+export interface WhereRow {
+  readonly project: string;
+  readonly folder: string;
+  readonly openIn: ProjectPlace['openIn'];
+  readonly worktrees: boolean;
+}
 
 /** What to run once Claude is on (the Next card's step). */
 export interface ThenRun {
@@ -83,6 +91,8 @@ export const PAUSE_SLOW_MS = 4000;
     .body label { display: block; margin: 10px 0 4px; color: var(--text); font-weight: 600; }
     .row { display: flex; gap: 6px; align-items: center; }
     .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .wr { display: flex; align-items: center; gap: 8px; margin-top: 6px; overflow-wrap: anywhere; }
+    .wp { min-width: 7rem; font-weight: 600; }
     .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
       color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; }
     .pill.on { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 12%, transparent); color: var(--purple-light); }
@@ -143,7 +153,7 @@ export const PAUSE_SLOW_MS = 4000;
               </div>
               <div class="grp">
                 <div class="gl">This session</div>
-                <button type="button" class="it" (click)="start()"><span class="ico">＋</span><span>Start fresh<small>a new conversation for this board; this one is kept</small></span></button>
+                <button type="button" class="it" (click)="chooseWhere()"><span class="ico">＋</span><span>Start fresh<small>a new conversation for this board; this one is kept</small></span></button>
                 <button type="button" class="it" (click)="dialog.set('sessions'); panel.set(false)"><span class="ico">⇄</span><span>Earlier sessions</span><span class="kk">{{ all().length }} on this board</span></button>
               </div>
               <ng-container *ngTemplateOutlet="foot" />
@@ -167,7 +177,7 @@ export const PAUSE_SLOW_MS = 4000;
               </div>
               <div class="grp">
                 <div class="gl">Or</div>
-                <button type="button" class="it" (click)="start()"><span class="ico">＋</span><span>Start fresh<small>a new conversation for this board</small></span></button>
+                <button type="button" class="it" (click)="chooseWhere()"><span class="ico">＋</span><span>Start fresh<small>a new conversation for this board</small></span></button>
                 <button type="button" class="it" (click)="cmd('OPEN_DESKTOP')"><span class="ico">🖥</span><span>Read it in Claude Desktop<small>opens the conversation without resuming it</small></span></button>
                 <button type="button" class="it" (click)="dialog.set('sessions'); panel.set(false)"><span class="ico">⇄</span><span>Earlier sessions</span><span class="kk">{{ all().length }} on this board</span></button>
               </div>
@@ -208,7 +218,7 @@ export const PAUSE_SLOW_MS = 4000;
                 <div class="body">
                   <p>It starts in <code>{{ place()!.folder }}</code> on {{ target()?.machine ?? 'your PC' }}, in this board's own worktree.</p>
                   <div class="acts" style="justify-content:space-between">
-                    <a routerLink="/me" class="faint">Change the folder in My settings</a>
+                    <button type="button" class="link-btn" (click)="chooseWhere()">Start in another folder…</button>
                     <button type="button" class="action-btn primary" (click)="start()">▶ Start Claude</button>
                   </div>
                 </div>
@@ -380,6 +390,38 @@ export const PAUSE_SLOW_MS = 4000;
             <button type="button" class="action-btn primary" (click)="startListen()">Start watching</button></div>
         </div></div>
       }
+      @case ('where') {
+        <div class="shade" data-keep-menu><div class="dlg" role="dialog" aria-label="Where to start Claude">
+          <h3>Start Claude for {{ ref() ?? title() ?? boardId() }}</h3>
+          <div class="sub">A new conversation on {{ target()?.machine ?? 'your PC' }}. Pick the repo it works in - a folder from My settings, or another one.</div>
+          <div class="sec" role="radiogroup">
+            @for (r of whereRows(); track r.folder; let i = $index) {
+              <label class="wr"><input type="radio" name="bsb-where" [checked]="whereIdx === i" (change)="pickWhere(i)">
+                <span class="wp">{{ r.project }}</span><code>{{ r.folder }}</code></label>
+            }
+            <label class="wr"><input type="radio" name="bsb-where" [checked]="whereIdx === -1" (change)="pickWhere(-1)"><span class="wp">Other folder…</span></label>
+            @if (whereIdx === -1) {
+              <div class="row"><input type="text" [(ngModel)]="folder" placeholder="C:\\work\\odeysys" aria-label="Other folder" style="flex:1">
+                <button type="button" class="action-btn" [disabled]="picking()" (click)="pickFolder()">Browse…</button></div>
+              @if (picking()) { <div class="faint">A "Browse For Folder" window opened on {{ target()?.machine ?? 'your PC' }}. Not in front? Look for it on the taskbar.</div> }
+            }
+          </div>
+          <div class="sec">
+            <label>Show the conversation in</label>
+            <div class="pills" role="radiogroup">
+              @for (o of whereOpenChoices; track o.value) {
+                <button type="button" class="pill" role="radio" [class.on]="whereOpenIn === o.value" [attr.aria-checked]="whereOpenIn === o.value" (click)="whereOpenIn = o.value">{{ o.label }}</button>
+              }
+            </div>
+            <label class="wr"><input type="checkbox" [(ngModel)]="whereWorktrees"> Own worktree for this board <span class="faint">(when the folder is a git repo)</span></label>
+            @if (whereFolder() && whereFolder() !== place()?.folder) {
+              <label class="wr"><input type="checkbox" [(ngModel)]="whereRemember"> Remember for {{ project() }} on {{ target()?.machine ?? 'this PC' }}</label>
+            }
+          </div>
+          <div class="foot"><button type="button" class="action-btn" (click)="dialog.set(null)">Cancel</button>
+            <button type="button" class="action-btn primary" [disabled]="!whereFolder()" (click)="startWhere()">▶ Start Claude</button></div>
+        </div></div>
+      }
       @case ('audit') {
         <div class="shade" data-keep-menu><div class="dlg" role="dialog">
           <h3>Who did what</h3>
@@ -437,6 +479,12 @@ export class BoardSessionButtonComponent {
     { value: 'BACKGROUND', label: 'Nowhere - board only' }];
   private laterFor: string | null = null;
   readonly picking = signal(false);
+  /** Start fresh's folder: a My settings row (its index), or -1 for the typed / browsed one in `folder`. */
+  whereIdx = -1;
+  whereOpenIn: ProjectPlace['openIn'] = 'DESKTOP';
+  whereWorktrees = true;
+  whereRemember = false;
+  readonly whereOpenChoices = this.openChoices.filter((o) => o.value === 'DESKTOP' || o.value === 'TERMINAL');
   /** Start was pressed before this PC was connected; it continues once it is. */
   private startWaiting = false;
   /** The step to run once Claude is on (the Next card's). */
@@ -505,7 +553,7 @@ export class BoardSessionButtonComponent {
       });
     });
     const sub = this.state.finished$.subscribe((c) => {
-      if (c.boardId !== this.boardId() && !(c.kind === 'PICK_FOLDER' && this.panel())) return;
+      if (c.boardId !== this.boardId() && !(c.kind === 'PICK_FOLDER' && (this.panel() || this.dialog() === 'where'))) return;
       this.onFinished(c);
     });
     const destroy = inject(DestroyRef);
@@ -568,6 +616,69 @@ export class BoardSessionButtonComponent {
     this.startWaiting = false;
     this.thenRun = null;
     this.dialog.set(null);
+  }
+
+  /** Every folder of My settings on this PC (this board's project first), one row per folder. */
+  readonly whereRows = computed<readonly WhereRow[]>(() => {
+    const machine = this.target()?.machine?.toLowerCase();
+    const os = (this.target()?.osUser ?? '').toLowerCase();
+    const rows = (this.state.settings().projects ?? []).filter((p) => p.folder?.trim() && (!p.machine || p.machine.toLowerCase() === machine)
+      && (!p.osUser || !os || p.osUser.toLowerCase() === os));
+    const sorted = [...rows].sort((a, b) => Number(b.project === this.project()) - Number(a.project === this.project()));
+    const seen = new Set<string>();
+    return sorted.filter((p) => {
+      const key = p.folder.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((p) => ({ project: p.project, folder: p.folder.trim(), openIn: p.openIn, worktrees: p.worktrees !== false }));
+  });
+
+  /** The folder Start fresh would open the session in, or '' while none is given. */
+  whereFolder(): string {
+    return this.whereIdx >= 0 ? this.whereRows()[this.whereIdx]?.folder ?? '' : this.folder.trim();
+  }
+
+  /** Start fresh: asks which repo the new conversation works in - a folder of My settings or another one. */
+  chooseWhere(): void {
+    if (!this.paired() || !this.target()) { this.start(); return; }
+    const rows = this.whereRows();
+    const own = this.placeHere()?.folder?.trim().toLowerCase();
+    this.folder = '';
+    this.picking.set(false);
+    this.whereRemember = false;
+    this.pickWhere(rows.length ? Math.max(rows.findIndex((r) => r.folder.toLowerCase() === own), 0) : -1);
+    this.panel.set(false);
+    this.dialog.set('where');
+  }
+
+  pickWhere(i: number): void {
+    this.whereIdx = i;
+    const r = i >= 0 ? this.whereRows()[i] : this.placeHere();
+    this.whereOpenIn = r?.openIn === 'TERMINAL' ? 'TERMINAL' : 'DESKTOP';
+    this.whereWorktrees = r?.worktrees !== false;
+  }
+
+  /** Starts the new conversation in the chosen folder; "Remember" first keeps it as this project's folder on this PC. */
+  startWhere(): void {
+    const folder = this.whereFolder();
+    if (!folder) return;
+    this.dialog.set(null);
+    const go = () => {
+      const thenRun = this.takeThenRun();
+      this.send('START', { args: { title: this.title() ?? this.boardId(), boardRef: this.ref() ?? this.boardId(), folder, openIn: this.whereOpenIn,
+        worktrees: this.whereWorktrees, ...(thenRun ? { thenRun } : {}) } });
+    };
+    if (!this.whereRemember || folder === this.place()?.folder) { go(); return; }
+    const machine = this.target()?.machine ?? '';
+    const osUser = this.target()?.osUser || undefined;
+    const s: MySettings = this.state.settings();
+    const rest = (s.projects ?? []).filter((p) => !(p.project === this.project() && p.machine === machine && (p.osUser || undefined) === osUser));
+    const place: ProjectPlace = { project: this.project(), machine, osUser, folder, openIn: this.whereOpenIn, worktrees: this.whereWorktrees };
+    this.state.saveSettings({ ...s, projects: [...rest, place] }).subscribe((saved) => {
+      if (!saved) this.banner.show({ boardId: this.boardId(), tone: 'error', text: 'Could not save My settings', detail: 'Claude starts there this time only.' });
+      go();
+    });
   }
 
   /** This PC's folder row, the way the helper picks it: this PC and Windows user, then this PC, then any PC. */
@@ -807,7 +918,7 @@ export class BoardSessionButtonComponent {
     const r = c.result ?? '';
     if (c.kind === 'PICK_FOLDER') {
       this.picking.set(false);
-      if (c.state === 'DONE' && r) this.folder = r;
+      if (c.state === 'DONE' && r) { this.folder = r; this.whereIdx = -1; }
       return;
     }
     if (c.state === 'FAILED' && r.startsWith('NO_FOLDER')) { this.folder = ''; this.panel.set(true); return; }

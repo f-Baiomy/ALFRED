@@ -26,7 +26,7 @@ import { homedir, hostname, platform, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.8.2';
+export const VERSION = '1.8.3';
 
 // The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
 // reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
@@ -473,6 +473,20 @@ export function findDesktopChat({ cwd, since, cliSessionId, marker }, dir = desk
   return marker ? null : inFolder;
 }
 
+/**
+ * Whether Claude Desktop has a session in `folder` (any record, its own or one it adopted). A claude://code/new link
+ * names a folder Desktop has never opened: Desktop ignores it, shows a new chat in the last folder it used (or a scratch
+ * workspace) and leaves the first message unsent - the board never got a session (2026-10-19, C:\work\odeysys-claude).
+ */
+export function desktopKnowsFolder(folder, dir = desktopAccountDir()) {
+  if (!dir || !existsSync(dir)) return false;
+  for (const f of readdirSync(dir)) {
+    if (!/^local_.*\.json$/.test(f)) continue;
+    try { if (samePath(JSON.parse(readFileSync(join(dir, f), 'utf8')).cwd, folder)) return true; } catch { /* being written */ }
+  }
+  return false;
+}
+
 /** Waits (on the folder's change events, never a poll) for the chat Desktop makes after a claude://code/new link. */
 export function waitForDesktopChat({ cwd, since, marker, timeoutMs = 180_000 }, dir = desktopAccountDir()) {
   return new Promise((done) => {
@@ -784,7 +798,7 @@ export class Helper {
     // what reaches the user's screen - a folder dialog, Claude Desktop, a terminal, a toast; tests replace them all
     this.pickFolder = pickFolder;
     this.desktop = desktop ?? { record: writeDesktopRecord, open: openUrl, terminal: openTerminal, restart: restartDesktop, has: (id) => desktopHasRecord(id),
-      chat: (o) => openUrl(desktopChatUrl(o)), waitChat: (o) => waitForDesktopChat(o), isChat: (id) => !!findDesktopChat({ cliSessionId: id }),
+      chat: (o) => openUrl(desktopChatUrl(o)), knows: (folder) => desktopKnowsFolder(folder), waitChat: (o) => waitForDesktopChat(o), isChat: (id) => !!findDesktopChat({ cliSessionId: id }),
       findChat: (id) => findDesktopChat({ cliSessionId: id }), dropOwnRecord: (id) => dropHelperRecord(id) };
     this.notify = toast ?? notify;
     // the Azure token kept on this PC: whether there is one (cheap, every heartbeat) and its value (DPAPI, only when handed)
@@ -1196,6 +1210,13 @@ export class Helper {
       place = where.worktrees && !isProject ? boardWorktree(where.folder, tag + (args.worktreeName || title)) : { cwd: where.folder };
       s.cwd = place.cwd;
       if (where.openIn !== 'TERMINAL' && this.desktop.chat && (this.desktop.available?.() ?? !!desktopAccountDir())) {
+        // Desktop opens a link's folder only when it has had a session there: else the chat lands elsewhere, unsent
+        if (this.desktop.knows && !this.desktop.knows(place.cwd)) {
+          log(`Claude Desktop has never opened ${place.cwd} - starting the board in a terminal instead`);
+          return await this.startInTerminal(c, args, { cliSessionId, s, place, title, prompt, isProject,
+            note: `Claude Desktop has never opened ${place.cwd}, and it ignores a link to a folder it does not know - so the board runs `
+              + 'in a terminal. Open that folder once in Claude Desktop (New session ▸ choose the folder), and the next ▶ Start opens there. ' });
+        }
         return await this.startInDesktopChat(c, args, { placeholder: cliSessionId, s, place, title, prompt });
       }
       return await this.startInTerminal(c, args, { cliSessionId, s, place, title, prompt, isProject });

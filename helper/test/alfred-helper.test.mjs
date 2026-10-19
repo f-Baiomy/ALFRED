@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   Helper, boardWorktree, claudeAppDataDirs, desktopAccount, desktopAccountDir, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
-  slug, tokensToday, transcriptOf, writeDesktopRecord, desktopHasRecord, DESKTOP_RESTART, findDesktopChat, desktopChatUrl, dropHelperRecord,
+  slug, tokensToday, transcriptOf, writeDesktopRecord, desktopHasRecord, DESKTOP_RESTART, findDesktopChat, desktopChatUrl, dropHelperRecord, desktopKnowsFolder,
 } from '../alfred-helper.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'alfred-helper-'));
@@ -646,5 +646,34 @@ test('a Desktop chat opened outside the board folder runs nothing, and the board
   const take = api.calls.filter((c) => c.path === '/board/holders/take');
   assert.equal(take.length, 1);
   assert.equal(take[0].body.sessionId, terminals[0].sessionId, 'the terminal session holds the board, never the scratch chat');
+  assert.equal(api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT').at(-1).body.state, 'ANSWERING');
+});
+
+test('Desktop knows a folder only when it has a session record there, its own or adopted', () => {
+  const dir = tmp();
+  assert.equal(desktopKnowsFolder('C:/work/odeysys-claude', dir), false);
+  writeDesktopRecord({ cliSessionId: 'aaaaaaaa-0000-0000-0000-000000000000', cwd: 'C:\\Work\\Odeysys-Claude', title: 't' }, dir);
+  assert.equal(desktopKnowsFolder('C:/work/odeysys-claude', dir), true);
+  assert.equal(desktopKnowsFolder('C:/work/other', dir), false);
+  assert.equal(desktopKnowsFolder('C:/w', join(dir, 'missing')), false);
+});
+
+test('a folder Claude Desktop has never opened starts the board in a terminal - its link would land elsewhere, unsent (2026-10-19)', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'DESKTOP', worktrees: false }] });
+  const chats = [];
+  const terminals = [];
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true,
+    desktop: { record: () => null, open: () => {}, available: () => true, knows: () => false, chat: (o) => chats.push(o), waitChat: async () => null,
+      terminal: (cwd, resume, claude, o) => terminals.push({ cwd, resume, ...o }) } });
+
+  const result = await h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{"title":"AB#1","boardRef":"AB#1"}' });
+
+  assert.equal(chats.length, 0, 'no link Desktop would open in another folder');
+  assert.equal(terminals.length, 1);
+  assert.equal(terminals[0].cwd, repo);
+  assert.match(terminals[0].prompt, /\/alfred-live odeysys b1/);
+  assert.match(result, /never opened/);
+  assert.equal(api.calls.find((c) => c.path === '/board/holders/take').body.sessionId, terminals[0].sessionId);
   assert.equal(api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT').at(-1).body.state, 'ANSWERING');
 });
