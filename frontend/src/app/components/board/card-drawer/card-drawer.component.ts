@@ -1,3 +1,5 @@
+import { AskOwnerComponent } from '../../links/ask-owner/ask-owner.component';
+import { splitRef } from '../../../core/links/remote-ref';
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
 import { NgTemplateOutlet } from '@angular/common';
@@ -91,7 +93,7 @@ function writeJson(key: string, value: unknown): void {
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [TeamConsentBundleComponent, TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent, WaitingBarComponent],
+  imports: [TeamConsentBundleComponent, TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent, WaitingBarComponent, AskOwnerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes cd-modes" role="group" aria-label="Show the card as">
@@ -278,6 +280,12 @@ function writeJson(key: string, value: unknown): void {
                 <input type="checkbox" [checked]="alsoTracker()" (change)="alsoTracker.set($any($event.target).checked)" />
                 Also post to {{ teamItems().length === 1 ? teamItems()[0].item : teamItems().length + ' linked items' }}</label>
             }
+          </div>
+        }
+        @if (remoteCard()) {
+          <!-- specs/035: another Alfred's card - comments and questions are requests to its owner -->
+          <div class="board-drawer-composer cd-composer">
+            <app-ask-owner [ref]="c.id" kind="card" [label]="'#' + c.number + ' ' + c.title" streamKind="BOARD" [streamRef]="c.cycleId" />
           </div>
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }
@@ -558,6 +566,8 @@ export class CardDrawerComponent {
   readonly step = output<string>();
 
   readonly card = signal<CardDetail | null>(null);
+  /** A card of another Alfred's board, read through the link (specs/035): written on only through requests. */
+  readonly remoteCard = computed(() => splitRef(this.card()?.id) !== null);
   readonly outbox = inject(BundleOutboxService);
   readonly azureOpen = signal(false);
   /** Bundles of this card waiting to go to Azure (specs/034). */

@@ -1,3 +1,5 @@
+import { AskOwnerComponent } from '../../links/ask-owner/ask-owner.component';
+import { splitRef } from '../../../core/links/remote-ref';
 import {
   Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, untracked, viewChild,
 } from '@angular/core';
@@ -29,7 +31,7 @@ const QUOTE_MAX = 2000;
   selector: 'app-cycle-brief',
   standalone: true,
   host: { '(document:mousedown)': 'outside($event)' },
-  imports: [BoardPagesComponent, BoardPinnedComponent, BriefCommentsComponent, MarkdownViewComponent, MentionEditorComponent],
+  imports: [BoardPagesComponent, BoardPinnedComponent, BriefCommentsComponent, MarkdownViewComponent, MentionEditorComponent, AskOwnerComponent],
   template: `
     <div class="tv-bwrap">
       <div class="tv-bmain">
@@ -131,6 +133,15 @@ const QUOTE_MAX = 2000;
       </div>
       <app-brief-comments class="tv-margin" [cycleId]="cycleId()" [project]="project()" [editable]="editable()" [comments]="comments()"
                           [missing]="missing()" [(draft)]="draft" [(lit)]="lit" (changed)="loadComments(cycleId())" (briefSaved)="set($event)" />
+      @if (remote()) {
+        <!-- specs/035: another Alfred's brief - a comment on it is a request to its owner -->
+        <div class="tv-margin">
+          @if (remoteQuote(); as q) {
+            <blockquote class="lk-small lk-dim">“{{ q }}” <button type="button" class="board-link" (click)="remoteQuote.set(null)">✕</button></blockquote>
+          }
+          <app-ask-owner [ref]="cycleId()" kind="brief" label="the brief" streamKind="BOARD" [extra]="remoteExtra()" />
+        </div>
+      }
     </div>
     @if (selection(); as s) {
       <button type="button" class="tv-selbtn" [style.left.px]="s.x" [style.top.px]="s.y" (mousedown)="$event.preventDefault()" (click)="commentOnSelection()">
@@ -141,6 +152,10 @@ export class CycleBriefComponent {
   private readonly api = inject(BoardApiService);
   private readonly injector = inject(Injector);
   readonly cycleId = input.required<string>();
+  /** Another Alfred's board (specs/035): its brief is read here, and commented on through requests to its owner. */
+  readonly remote = computed(() => splitRef(this.cycleId()) !== null);
+  readonly remoteQuote = signal<string | null>(null);
+  readonly remoteExtra = computed(() => JSON.stringify(this.remoteQuote() ? { quote: this.remoteQuote() } : {}));
   readonly project = input('');
   readonly editable = input(true);
   /** The cycle's name, kept for hosts that pass it (the commands moved to the Task tab's header). */
@@ -278,7 +293,7 @@ export class CycleBriefComponent {
 
   /** A passage selected in the brief offers "💬 Comment" just under it. */
   selected(e: MouseEvent): void {
-    if (!this.editable()) return;
+    if (!this.editable() && !this.remote()) return;
     const body = this.body()?.nativeElement;
     const sel = typeof window !== 'undefined' ? window.getSelection() : null;
     const text = sel?.toString().replace(/\s+/g, ' ').trim() ?? '';
@@ -301,7 +316,8 @@ export class CycleBriefComponent {
   commentOnSelection(): void {
     const s = this.selection();
     if (!s) return;
-    this.draft.set(s.text);
+    if (this.remote()) this.remoteQuote.set(s.text);
+    else this.draft.set(s.text);
     this.selection.set(null);
     window.getSelection()?.removeAllRanges();
   }

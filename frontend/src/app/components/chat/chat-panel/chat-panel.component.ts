@@ -1,3 +1,4 @@
+import { splitRef } from '../../../core/links/remote-ref';
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { WriteBundle } from '../../../core/team/team.models';
 import { TeamConsentBundleComponent } from '../../team/consent-bundle/consent-bundle.component';
@@ -400,7 +401,9 @@ export class ChatPanelComponent implements AfterViewChecked {
   /** specs/031: a chat whose board another user holds is read-only here, whatever the edit rule says. */
   private readonly sessionsState = inject(SessionsStateService);
   readonly heldBy = computed(() => this.sessionsState.heldByOther(boardOfScope(this.state.project(), this.scope())));
-  readonly editable = computed(() => this.access().editable && !this.heldBy());
+  /** Another Alfred's board chat, streamed with its board (specs/035): read here, never written. */
+  readonly remoteChat = computed(() => splitRef(this.scope()) !== null);
+  readonly editable = computed(() => this.access().editable && !this.heldBy() && !this.remoteChat());
   /** A commenter the holder named: their chat message waits in the holder's queue. */
   readonly asCommenter = computed(() => !!this.heldBy() && !!this.sessionsState.user() && this.heldBy()!.commenters.includes(this.sessionsState.user()!));
   private readonly sessionsApi = inject(SessionsApiService);
@@ -437,7 +440,7 @@ export class ChatPanelComponent implements AfterViewChecked {
       error: () => undefined,
     });
   }
-  readonly howToEdit = computed(() => this.heldBy() ? `held by ${this.heldBy()!.user} - ask them for the board` : this.access().howToEdit || 'open Alfred on its own machine to write');
+  readonly howToEdit = computed(() => this.remoteChat() ? "this chat is its own Alfred's, streamed with its board - write on the cards instead" : this.heldBy() ? `held by ${this.heldBy()!.user} - ask them for the board` : this.access().howToEdit || 'open Alfred on its own machine to write');
   readonly settings = signal<ChatSettings>(DEFAULT_CHAT_SETTINGS);
   readonly mute = computed<ChatMute>(() => this.state.prefs().mute[`${this.state.project()}/${this.scope()}`] ?? 'all');
 

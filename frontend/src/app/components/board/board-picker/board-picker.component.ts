@@ -8,6 +8,10 @@ import { shortUser } from '../../../shared/utils/claude-mode';
 import { STAGES } from '../stage-strip/stage-strip.component';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardSocketService } from '../../../core/services/board-socket.service';
+import { LinksStateService } from '../../../core/links/links-state.service';
+import { Stream } from '../../../core/links/links.models';
+import { splitRef } from '../../../core/links/remote-ref';
+import { OriginPillComponent } from '../../links/origin-pill/origin-pill.component';
 
 /**
  * The Board tab's board picker (specs/027 FR-006, mock §Board): the project's default board first, then its task boards,
@@ -17,7 +21,7 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
 @Component({
   selector: 'app-board-picker',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, OriginPillComponent],
   template: `
     <div class="board-pick">
       <button type="button" class="board-picker-btn" (click)="toggle()" [attr.aria-expanded]="open()" aria-haspopup="listbox" [title]="'Boards of ' + (project() || 'this project') + ' - now: ' + label()">
@@ -42,6 +46,17 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
             </button>
           } @empty {
             <div class="board-picker-empty">No task boards yet</div>
+          }
+          @if (shared().length) {
+            <!-- specs/035 D24: boards other Alfreds stream to this one - read live, nothing of them kept here -->
+            <div class="board-picker-group">⇇ Shared with me</div>
+            @for (s of shared(); track s.id) {
+              <button type="button" class="board-picker-item col" [class.on]="refOf2(s) === selected()" [disabled]="!!s.endedAt" (click)="pick(refOf2(s))"
+                      [title]="s.endedAt ? 'Its owner stopped streaming it' : s.targetName || s.target">
+                <span>{{ s.targetName || s.target }} <app-origin-pill [ref]="refOf2(s)" kind="BOARD" /></span>
+                <small>{{ s.project }} · {{ s.endedAt ? 'stream ended' : s.mode === 'COMMENT' ? 'you may comment' : 'view only' }}</small>
+              </button>
+            }
           }
           <label class="board-picker-archived"><input type="checkbox" [ngModel]="showArchived()" (ngModelChange)="showArchived.set($event)" /> Show archived</label>
           @if (editable()) {
@@ -109,7 +124,20 @@ export class BoardPickerComponent {
 
   readonly defaults = computed(() => this.boards().filter((b) => b.board.isDefault));
   readonly tasks = computed(() => this.boards().filter((b) => !b.board.isDefault && (this.showArchived() || b.board.state !== 'ARCHIVED')));
-  readonly label = computed(() => (this.selected() ? this.current()?.board.name ?? '…' : 'All cards'));
+  readonly label = computed(() => (this.selected() ? this.current()?.board.name ?? this.sharedName() ?? '…' : 'All cards'));
+  private readonly links = inject(LinksStateService);
+  /** Boards streamed to this Alfred (any project): picked like this Alfred's own, read through the link. */
+  readonly shared = computed(() => this.links.given().filter((s) => s.kind === 'BOARD'));
+  private readonly sharedName = computed(() => this.shared().find((s) => this.refOf2(s) === this.selected())?.targetName ?? null);
+
+  refOf2(s: Stream): string {
+    const slug = this.links.linkById().get(s.linkId)?.slug;
+    return slug ? `${s.target}@${slug}` : s.target;
+  }
+
+  isRemote(id: string | null): boolean {
+    return splitRef(id) !== null;
+  }
 
   constructor() {
     effect(() => {

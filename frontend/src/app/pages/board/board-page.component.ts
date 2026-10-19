@@ -33,6 +33,13 @@ import { ChatStateService } from '../../core/state/chat-state.service';
 import { StageStripComponent } from '../../components/board/stage-strip/stage-strip.component';
 import { BoardSessionButtonComponent } from '../../components/board-session/board-session-button.component';
 import { SessionsStateService } from '../../core/state/sessions-state.service';
+import { LinksStateService } from '../../core/links/links-state.service';
+import { splitRef } from '../../core/links/remote-ref';
+import { RemoteContextService } from '../../core/links/remote-context.service';
+import { LinksSocketService } from '../../core/links/links-socket.service';
+import { OriginPillComponent } from '../../components/links/origin-pill/origin-pill.component';
+import { OutPillComponent } from '../../components/links/out-pill/out-pill.component';
+import { StreamDialogService } from '../../components/links/stream-dialog/stream-dialog.service';
 
 /** The board page's tabs when a board is picked (specs/029); Cards is the default. */
 export type BoardTab = 'cards' | 'calls' | 'task' | 'cycles' | 'items' | 'activity';
@@ -48,7 +55,7 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [OutboxBarComponent, SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
+  imports: [OriginPillComponent, OutPillComponent, OutboxBarComponent, SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
     BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent, BoardSessionButtonComponent,
     BoardFactsComponent, BoardStateMenuComponent, NextStepCardComponent, RecordLineComponent, BannerComponent],
   styles: [`
@@ -76,17 +83,25 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
     <div class="board-page">
       <!-- one header row (specs/032 T040): Boards ▾, the work item, the plain title, project, state, Chat, Claude -->
       <div class="bp-head">
-        <app-board-picker [project]="project()" [selected]="cycleId()" [editable]="editable()" (picked)="go(project(), $event)" />
+        <app-board-picker [project]="project()" [selected]="cycleId()" [editable]="editable()" (picked)="goBoard($event)" />
+        @if (remote()) { <app-origin-pill [ref]="cycleId()" kind="BOARD" /> }
+        @else if (taskBoard()) { <app-out-pill kind="BOARD" [target]="taskBoard()!" [name]="cycleName() ?? taskBoard()!" [project]="project()" /> }
         @if (refChip(); as r) { <span class="bp-id" [title]="cycleName() ?? r">{{ r }}</span> }
         <h2 class="bp-title" [title]="fullTitle()">{{ plainTitle() }}</h2>
-        <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
-        @if (taskBoard()) {
+        @if (!remote()) {
+          <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
+        }
+        @if (taskBoard() && !remote()) {
           <app-board-state-menu [summary]="summary()" [editable]="editable()" (changed)="reloadSummary()" (deleted)="go(project(), null)" />
         }
         @if (cycleId(); as id) {
-          <button type="button" class="action-btn bp-chat" title="This board's chat, in the chat panel" (click)="chat.openChat(id)">💬 Chat</button>
+          <button type="button" class="action-btn bp-chat" [title]="chatTitle()"
+                  (click)="chat.openChat(id)">💬 Chat</button>
         }
-        @if (project()) {
+        @if (taskBoard() && !remote() && editable()) {
+          <button type="button" class="action-btn" title="Let a linked Alfred read this board live" (click)="streamBoard()">⇉ Stream…</button>
+        }
+        @if (project() && !remote()) {
           <app-board-session-button #claude [project]="project()" [boardId]="sessionBoard()" [title]="cycleName()" [ref]="stage()?.ref ?? null"
                                     [cycles]="boardCycles()" [terminalOn]="terminalOn()" [unread]="chatSummary()?.waiting ?? 0"
                                     [chatSeq]="chatSummary()?.lastId ?? null" />
@@ -100,6 +115,20 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
       @if (bannerHere(); as b) {
         <app-banner [tone]="b.tone" [text]="b.text" [detail]="b.detail ?? null" [action]="b.action ?? null" [dismissable]="b.dismissable !== false"
                     (act)="b.onAction?.()" (dismiss)="banner.clear()" />
+      }
+      @if (remote()) {
+        <div class="bp-held" role="status">
+          @if (!originOnline()) {
+            ⇇ <b>{{ links.nameOf(remoteSlug()) }}</b> is offline - its board is read live from it, so nothing of it is shown until it is
+            back. Comments you write are kept in this browser and sent then.
+          } @else if (remoteStream()?.endedAt) {
+            ⇇ <b>{{ links.nameOf(remoteSlug()) }}</b> stopped streaming this board.
+          } @else {
+            ⇇ Streamed from <b>{{ links.nameOf(remoteSlug()) }}</b> - {{ remoteStream()?.mode === 'COMMENT'
+              ? 'you may comment and ask on its cards and brief; each one is a request its owner accepts.'
+              : 'view only.' }} Cards, states, the brief and the chat stay its owner's.
+          }
+        </div>
       }
       @if (heldByOther(); as h) {
         <div class="bp-held" role="status">🔒 <b>{{ h.user }}</b> holds this board@if (h.machine) { (on {{ h.machine }}) }. You can read it;
@@ -173,7 +202,20 @@ export class BoardPageComponent {
   readonly accessEditable = signal(true);
   private readonly sessions = inject(SessionsStateService);
   readonly heldByOther = computed(() => this.sessions.heldByOther(this.cycleId() ?? (this.project() ? `default:${this.project()}` : null)));
-  readonly editable = computed(() => this.accessEditable() && !this.heldByOther());
+  readonly editable = computed(() => this.accessEditable() && !this.heldByOther() && !this.remote());
+  // ------------------------------------------------------------------------- another Alfred's board (specs/035)
+  readonly links = inject(LinksStateService);
+  private readonly streamDialog = inject(StreamDialogService);
+  readonly remoteSlug = computed(() => splitRef(this.cycleId())?.slug ?? null);
+  /** Another Alfred's board, read through the link: shown, never changed here (D20) - requests go to its owner. */
+  readonly remote = computed(() => this.remoteSlug() !== null);
+  readonly chatTitle = computed(() => (this.remote() ? "Its owner's board chat - read only here" : "This board's chat, in the chat panel"));
+  readonly originOnline = computed(() => !this.remote() || !!this.links.linkOf(this.remoteSlug())?.online);
+  readonly remoteStream = computed(() => {
+    const s = splitRef(this.cycleId());
+    const link = s ? this.links.linkOf(s.slug) : undefined;
+    return s && link ? this.links.givenStream(link.id, 'BOARD', s.inner) : undefined;
+  });
   readonly chat = inject(ChatStateService);
   private readonly cycleState = inject(SessionCyclesStateService);
   /** The open tab (?tab=), Cards when none or unknown. */
@@ -236,6 +278,23 @@ export class BoardPageComponent {
 
   constructor() {
     effect(() => document.body.classList.toggle('card-window', this.windowMode()));
+    // another Alfred's board: presence for its owner (D29), and notes on its calls go over its stream
+    const context = inject(RemoteContextService);
+    const linksSocket = inject(LinksSocketService);
+    let viewing: { slug: string; target: string } | null = null;
+    effect(() => {
+      const s = splitRef(this.cycleId());
+      untracked(() => {
+        context.boardRef.set(s ? this.cycleId() : null);
+        if (viewing) linksSocket.viewing(viewing.slug, viewing.target, false);
+        viewing = s ? { slug: s.slug, target: s.inner } : null;
+        if (viewing) linksSocket.viewing(viewing.slug, viewing.target, true);
+      });
+    });
+    inject(DestroyRef).onDestroy(() => {
+      context.boardRef.set(null);
+      if (viewing) linksSocket.viewing(viewing.slug, viewing.target, false);
+    });
     inject(DestroyRef).onDestroy(() => document.body.classList.remove('card-window'));
     this.board.access().subscribe({ next: (a) => this.accessEditable.set(a.editable), error: () => undefined });
     effect(() => {
@@ -260,6 +319,23 @@ export class BoardPageComponent {
       if (!card) return;
       untracked(() => this.mentions.cardToOpen.set({ project: this.project(), number: Number(card) }));
     });
+  }
+
+  /** A board picked in Boards ▾: another Alfred's opens with its own project. */
+  goBoard(boardId: string | null): void {
+    const s = splitRef(boardId);
+    if (s) {
+      const link = this.links.linkOf(s.slug);
+      const stream = link ? this.links.givenStream(link.id, 'BOARD', s.inner) : undefined;
+      this.go(stream?.project ?? this.project(), boardId);
+      return;
+    }
+    this.go(this.remote() ? '' : this.project(), boardId);
+  }
+
+  streamBoard(): void {
+    const id = this.taskBoard();
+    if (id) this.streamDialog.open({ kind: 'BOARD', target: id, name: this.cycleName() ?? id, project: this.project() || null });
   }
 
   go(project: string, boardId: string | null): void {
