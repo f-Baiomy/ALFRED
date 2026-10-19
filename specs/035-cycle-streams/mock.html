@@ -290,15 +290,17 @@ const S = {
       owner: 'pc1', key: 'AB#61813', name: 'Enhance Refunded Requests Filters – All Agencies, All Branches & Branch Multi-Select', project: 'odeysys', stage: 3,
       brief: 'Refunded Requests gets three filters: All Agencies, All Branches and a multi-select of branches. Done when every acceptance item is met on PC-1 and on the QA server (83).',
       reqs: [
-        { k: 'AC1', t: 'All Agencies returns refunds of every agency the user may see', v: 'met' },
-        { k: 'AC2', t: 'All Branches returns refunds of every branch of the agency', v: 'met' },
-        { k: 'AC3', t: 'Branch multi-select filters by every chosen branch', v: 'wrong' },
-        { k: 'AC4', t: 'The list loads for a user with no tenant header (QA proxy)', v: 'wrong' }
+        { k: 'AC1', t: 'All Agencies returns refunds of every agency the user may see', ep: 'agency=ALL' },
+        { k: 'AC2', t: 'All Branches returns refunds of every branch of the agency', ep: 'branch=ALL' },
+        { k: 'AC3', t: 'Branch multi-select filters by every chosen branch', ep: 'branch=BRN11' },
+        { k: 'AC4', t: 'The list loads for a user with no tenant header (QA proxy)', ep: 'refunds\\?agency=ALL$' }
       ],
       steps: ['Log in as qa1', 'Open Refunded Requests', 'Pick All Agencies, then All Branches', 'Pick BRN11 and BRN155 together'],
+      stepEp: ['auth/login', 'refunds', 'agency=ALL&branch=ALL', 'BRN11.*BRN155'],
+      envs: [{ k: 'local', name: 'Local', alfred: 'pc1', required: true }, { k: 'stg', name: 'STG', alfred: 'a83', required: true }],
       briefComments: [],
       cards: [
-        { n: 7, kind: 'BUG', title: 'Branch multi-select sends "BRN11,BRN155" as one value - 500', status: 'To do', comments: [{ by: 'fathy', at: '10:20', text: 'Repro on my PC: GET /refunds?branch=BRN11,BRN155 → 500.' }] },
+        { n: 7, kind: 'BUG', title: 'Branch multi-select sends "BRN11,BRN155" as one value - 500', status: 'Fixed', ep: 'BRN11.*BRN155', comments: [{ by: 'fathy', at: '10:20', text: 'Repro on my PC: GET /refunds?branch=BRN11,BRN155 → 500.' }] },
         { n: 9, kind: 'BUG', title: 'Refunds list 500 when the tenant header is missing (QA proxy)', status: 'In progress', remote: '83', comments: [{ by: 'Claude', at: '10:45', text: 'Found on 83\'s error flow: tenant_id = NULL in the SQL.' }] },
         { n: 12, kind: 'TASK', title: 'Duplicate of #7?', status: 'Inbox', comments: [] },
         { n: 4, kind: 'NOTE', title: 'All Agencies uses the agency list of the logged-in user', status: 'Fixed', comments: [] },
@@ -331,6 +333,11 @@ const S = {
   requests: [],
   drafts: { pc1: [], a83: [], a90: [], a91: [] },
   audit: { pc1: [], a83: [], a90: [], a91: [] },
+  // D36: each environment's marks, step ticks and re-test results live on the Alfred that fills it
+  env: {
+    pc1: { b1: { marks: { AC1: { v: 'pass', by: 'fathy', at: '10:30' }, AC2: { v: 'pass', by: 'fathy', at: '10:31' }, AC3: { v: 'fail', by: 'fathy', at: '10:32', note: 'IN list bound as one value' } }, steps: { s0: { v: 'seen', by: 'Claude', at: '10:12' }, s1: { v: 'seen', by: 'Claude', at: '10:12' } }, retest: {} } },
+    a83: { b1: { marks: { AC1: { v: 'pass', by: 'Claude (83)', at: '09:41' } }, steps: { s0: { v: 'seen', by: 'Claude (83)', at: '09:40' } }, retest: {} } }
+  },
   reads: { pc1: [], a83: [], a90: [], a91: [] },           // D31: what readers opened, kept on the owner
   presence: { a83: { board: 'b1', card: 7 } },             // D29: where each Alfred has a streamed board open (heartbeat, never stored)
   health: { pc1: { ms: 4, ver: '1.52.0' }, a83: { ms: 11, ver: '1.52.0' }, a90: { ms: 23, ver: '1.52.0' }, a91: { ms: 9, ver: '1.52.0' } }
@@ -583,7 +590,10 @@ function pageBoard() {
   if (a.state === 'offline') {
     return head + `<div class="panel"><div class="lbl" style="margin-top:0">Comment on a card - kept in this browser</div><div class="toolbar"><select class="in" id="off-card">${b.cards.map(c => `<option value="${c.n}">#${c.n} ${h(c.title.slice(0, 50))}</option>`).join('')}</select><input class="in" id="off-text" style="flex:1;min-width:200px" placeholder="Comment"><button class="btn p" data-a="offComment" data-x="${bid}">Keep for ${h(nm(V, b.owner))}</button></div></div>`;
   }
-  const rec = `<div class="rec"><button class="recbtn" ${host ? '' : 'disabled title="Recording is the host\'s"'}>● Record</button><span>${host ? 'Record the calls while you test this task.' : 'Recording happens on the host.'}</span><span class="sp"></span><span class="small faint">Recordings and related boards are on the Cycles tab.</span></div>`;
+  const myEnv = !host && envFor(bid, V);
+  const hostEnv = host && b.envs && envFor(bid, V);
+  const rtBtn = env => `<button class="ab" data-a="rtDlg" data-x="${bid}" style="padding:4px 11px">↻ Re-test cards for ${h(env.name)}…</button>`;
+  const rec = `<div class="rec">${myEnv ? `<button class="recbtn" data-a="envRecord" data-x="${bid}">● Record for ${h(myEnv.name)}</button>${rtBtn(myEnv)}<span>Your test cycles for ${h(myEnv.name)} - kept here, streamed to ${h(nm(V, b.owner))} automatically.</span>` : hostEnv ? `<button class="recbtn" data-a="envRecord" data-x="${bid}">● Record for ${h(hostEnv.name)}</button>${rtBtn(hostEnv)}<span>Record the calls while you test this task.</span>` : `<button class="recbtn" ${host ? '' : 'disabled title="Recording is the host\'s"'}>● Record</button><span>${host ? 'Record the calls while you test this task.' : 'Recording happens on the host.'}</span>`}<span class="sp"></span><span class="small faint">Recordings and related boards are on the Cycles tab.</span></div>`;
   const tabs = [['cards', 'Cards', b.cards.length], ['calls', 'Calls', boardCalls(bid).length], ['task', 'Task'], ['cycles', 'Cycles', b.cycles.length], ['related', 'Related items'], ['activity', 'Activity', b.activity.length]];
   const body = { cards: tabCards, calls: tabCalls, task: tabTask, cycles: tabCycles, related: tabRelated, activity: tabActivity }[tab](bid, b, a);
   return head + rec + `<div class="btabs">${tabs.map(([k, t, c]) => `<a class="${tab === k ? 'on' : ''}" data-a="tab" data-x="${k}">${t}${c != null ? `<span class="cnt">${c}</span>` : ''}</a>`).join('')}</div>` + body;
@@ -592,7 +602,7 @@ const COLS = ['Inbox', 'To do', 'In progress', 'Fixed', 'Verified'];
 function tabCards(bid, b, a) {
   const host = a.state === 'local';
   const filters = ['BUG', 'TASK', 'NOTE', 'QUESTION', 'Urgent', 'Risk', 'Blocker', 'Waiting on me', 'Needs re-test', '✦ by Claude', '⇇ evidence from other Alfreds'];
-  const tile = c => `<div class="tile" data-a="openCard" data-x="${bid}" data-n="${c.n}" ${host ? `draggable="true" data-drag="${c.n}"` : ''}><div class="top"><span class="num">#${c.n}</span><span class="kind k-${c.kind}">${c.kind}</span>${c.remote ? `<span class="chip origin" style="cursor:default;font-size:10.5px" title="Its evidence is a call that lives on ${h(c.remote)}">⇇ ${h(c.remote)} call</span>` : ''}</div><div class="tt">${h(c.title)}</div><div class="ft">💬 ${c.comments.length}${c.comments.length ? ' · last ' + h(c.comments[c.comments.length - 1].by) : ''}</div></div>`;
+  const tile = c => `<div class="tile" data-a="openCard" data-x="${bid}" data-n="${c.n}" ${host ? `draggable="true" data-drag="${c.n}"` : ''}><div class="top"><span class="num">#${c.n}</span><span class="kind k-${c.kind}">${c.kind}</span>${c.remote ? `<span class="chip origin" style="cursor:default;font-size:10.5px" title="Its evidence is a call that lives on ${h(c.remote)}">⇇ ${h(c.remote)} call</span>` : ''}</div><div class="tt">${h(c.title)}</div><div class="ft">💬 ${c.comments.length}${c.comments.length ? ' · last ' + h(c.comments[c.comments.length - 1].by) : ''}</div>${c.status === 'Fixed' ? `<div class="ft" style="font-weight:600">${retestChips(bid, c)}</div>` : ''}</div>`;
   return `<div class="toolbar"><input class="in" id="qa" style="flex:1;min-width:220px" placeholder="${host ? 'Quick add:  bug! discount not applied' : 'Only the host adds cards'}" ${host ? '' : 'disabled'}><button class="ab p" data-a="quickAdd" data-x="${bid}" ${host ? '' : 'disabled title="Only the host adds cards"'} style="padding:6px 12px">Add</button>
       <span class="seg"><button class="${ui.view === 'board' ? 'on' : ''}" data-a="view" data-x="board">▦ Board</button><button class="${ui.view === 'list' ? 'on' : ''}" data-a="view" data-x="list">☰ List</button></span>
       <button class="ab">Export ▾</button><button class="ab">◈ Pages</button></div>
@@ -614,26 +624,88 @@ function tabCalls(bid, b) {
     <table><tr><th>Time</th><th>Call</th><th>Status</th><th>Duration</th><th>Cycle</th><th>Lives on</th><th>◆ SQL · ▤ logs</th></tr>
     ${rows.map(({ ref, a, c }) => `<tr class="click" data-a="openCall" data-x="${c.id}" data-c="${ref.id}" data-o="${ref.o}" data-b="${bid}"><td class="dim">${c.t}</td><td><span class="m">${c.m}</span> ${h(c.p)}</td><td><span class="st ${c.st >= 400 ? 'b' : 'g'}">${c.st}</span></td><td>${c.ms} ms</td><td class="small">${h(S.cycles[ref.id].name)}</td><td>${pill(ref.o, a.via, 'cycle', ref.id, bid)}</td><td class="small dim">${c.sql.length} · ${c.logs.length}${c.notes.length ? ' · 💬 ' + c.notes.length : ''}</td></tr>`).join('')}</table>`;
 }
+/* ---- environments (D35-D40) ---- */
+const envsOf = b => b.envs || [{ k: 'local', name: 'Local', alfred: b.owner, required: true }];
+const envFor = (bid, alfred) => envsOf(S.boards[bid]).find(e => e.alfred === alfred);
+function envStore(alfred, bid) { S.env[alfred] = S.env[alfred] || {}; return S.env[alfred][bid] = S.env[alfred][bid] || { marks: {}, steps: {}, retest: {} }; }
+function cellVal(bid, env, kind, key) { if (env.alfred !== V && !online(env.alfred)) return { off: true }; return envStore(env.alfred, bid)[kind][key] || null; }
+const VIEWS = { pass: ['ok', '✓ Pass'], fail: ['bad', '✗ Fail'], cant: ['warn', "? Can't tell"], seen: ['ok', '✓ Seen'], failed: ['bad', '✗ Failed'] };
+const envTag = e => e.alfred === V ? '<span class="chip c-local">here</span>' : `<span class="chip origin" style="cursor:default">⇇ ${h(nm(V, e.alfred))}</span>`;
+function cell(bid, env, kind, key) {
+  const m = cellVal(bid, env, kind, key);
+  const mine = env.alfred === V;
+  const inner = m && m.off ? `<span class="chip c-off">${h(nm(V, env.alfred))} offline</span>`
+    : m ? `<span class="${VIEWS[m.v][0]}" style="font-weight:600">${VIEWS[m.v][1]}</span>${m.ev ? ' <span title="has evidence">📎</span>' : ''}<div class="faint" style="font-size:10.5px">${h(m.by)} · ${m.at}</div>`
+    : `<span class="faint">${mine && kind !== 'retest' ? '＋ mark' : '—'}</span>`;
+  return `<td style="cursor:pointer;${mine ? 'background:rgba(91,141,239,.06)' : ''}" data-a="markOpen" data-b="${bid}" data-e="${env.k}" data-k="${kind}" data-x="${key}">${inner}</td>`;
+}
+function overall(bid, kind, key) {
+  const req = envsOf(S.boards[bid]).filter(e => e.required);
+  const vals = req.map(e => ({ e, m: cellVal(bid, e, kind, key) }));
+  const bad = v => v === 'fail' || v === 'failed', good = v => v === 'pass' || v === 'seen';
+  if (vals.some(x => x.m && !x.m.off && bad(x.m.v))) return '<span class="bad" style="font-weight:700">✗ Fail</span>';
+  if (vals.length && vals.every(x => x.m && !x.m.off && good(x.m.v))) return '<span class="ok" style="font-weight:700">✓ Pass</span>';
+  return `<span class="warn small">waiting on ${h(vals.filter(x => !x.m || x.m.off || !good(x.m.v)).map(x => x.e.name).join(', '))}</span>`;
+}
+function envOfCycle(bid, ref) {
+  const c = S.cycles[ref.id];
+  if (c.env) return c.env;
+  const e = (S.boards[bid].envs || []).find(x => x.alfred === ref.o);
+  return e ? e.name : null;
+}
+function retestChips(bid, c) {
+  return envsOf(S.boards[bid]).map(e => { const m = cellVal(bid, e, 'retest', '#' + c.n); return m && m.off ? `<span class="faint">… ${h(e.name)}</span>` : m ? `<span class="${m.v === 'pass' ? 'ok' : 'bad'}">${m.v === 'pass' ? '✓' : '✗'} ${h(e.name)}</span>` : `<span class="faint">? ${h(e.name)}</span>`; }).join(' · ');
+}
 function tabTask(bid, b, a) {
   const host = a.state === 'local';
   const canC = host || a.mode === 'comment';
-  const v = x => ({ met: '<span class="ok">✓ met</span>', wrong: '<span class="bad">✗ wrong</span>', unknown: '<span class="dim">? not seen</span>' }[x]);
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px"><div>
+  const envs = envsOf(b);
+  const mine = envFor(bid, V);
+  const thead = first => `<tr><th>${first}</th>${envs.map(e => `<th>${h(e.name)}${e.required ? ' <span class="warn" title="Required">*</span>' : ''}<div style="text-transform:none;letter-spacing:0;font-weight:400;margin-top:3px">${envTag(e)}</div></th>`).join('')}<th>Overall</th></tr>`;
+  const fixed = b.cards.filter(c => c.status === 'Fixed');
+  const streamedTo = S.streams.filter(x => x.owner === V && x.kind === 'board' && x.target === bid && x.active).map(x => x.to);
+  const envPanel = host && b.envs ? `<div class="panel" style="margin-bottom:14px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Environments</b><span class="small dim">- each fills its own column; marks live on that Alfred. * = required for Pass.</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${envs.map((e, i) => `<span class="row" style="margin:0;padding:6px 10px"><b>${h(e.name)}</b>${envTag(e)}<label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" data-a="envReq" data-b="${bid}" data-x="${i}" ${e.required ? 'checked' : ''}>required</label>${e.alfred !== V ? `<button class="ab r" data-a="envRemove" data-b="${bid}" data-x="${i}">✕</button>` : ''}</span>`).join('')}
+      <span class="row" style="margin:0;padding:6px 10px"><input class="in" id="env-name" placeholder="e.g. UAT" style="width:90px"><select class="in" id="env-alfred">${streamedTo.filter(o => !envs.some(e => e.alfred === o)).map(o => `<option value="${o}">${h(nm(V, o))}</option>`).join('') || '<option value="">stream the board first</option>'}</select><button class="ab p" data-a="envAdd" data-x="${bid}">＋ Environment</button></span></div></div>` : '';
+  const minePanel = !host && mine ? `<div class="strip in" style="margin-bottom:14px"><span class="ic">🧪</span><span>You fill <b>${h(mine.name)}</b> on this board: mark its items and steps, record its cycles, re-test. Stored here on ${h(S.alfreds[V].short)}, streamed to ${h(nm(V, b.owner))}.</span><span class="sp"></span><button class="ab" data-a="envVerify" data-x="${bid}" title="What 83's Claude does when someone runs /alfred-verify in a terminal on 83">▶ ${h(S.alfreds[V].short)}'s Claude: /alfred-verify ${h(mine.name)}</button></div>`
+    : host && b.envs ? `<div class="toolbar"><button class="ab" data-a="envVerify" data-x="${bid}">▶ Re-test all on ${h(mine.name)}</button><span class="small dim">Local marks stay yours (Claude suggests); STG is marked on 83, by 83's Claude or a person there.</span></div>` : '';
+  return `${envPanel}${minePanel}
     <div class="lbl" style="margin-top:0">Brief</div><div class="panel">${h(b.brief) || '<span class="dim">No brief.</span>'}
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="ab" ${host ? '' : 'disabled title="Only the host edits the brief"'}>✎ Edit</button><input class="in" id="bc-text" style="flex:1;min-width:160px" placeholder="Comment on the brief" ${canC ? '' : 'disabled'}><button class="ab" data-a="briefComment" data-x="${bid}" ${canC ? '' : 'disabled'}>Comment</button></div>
       ${b.briefComments.map(c => `<div class="cm"><div class="w"><b>${h(c.by)}</b> · ${c.at}</div>${h(c.text)}</div>`).join('')}</div>
-    <div class="lbl">Test steps</div>${b.steps.map((s, i) => `<div class="row"><span class="dim">${i + 1}</span>${h(s)}</div>`).join('') || '<div class="empty">None.</div>'}
-  </div><div>
-    <div class="lbl" style="margin-top:0">Requirements <span class="faint">- judged on every cycle of this board, local and streamed in</span></div>
-    ${b.reqs.map(r => `<div class="row"><b>${r.k}</b><span style="flex:1;min-width:160px">${h(r.t)}</span>${v(r.v)}${host ? '<button class="ab">✎</button>' : ''}</div>`).join('') || '<div class="empty">None.</div>'}
-    ${b.azure ? `<div class="lbl">Azure ${host ? '' : '<span class="faint">- read-only copy, as the host last synced it</span>'}</div><div class="panel"><b>${b.azure.id}</b> · ${h(b.azure.type)} · <span class="chip">${h(b.azure.state)}</span><div style="margin-top:6px">${h(b.azure.title)}</div><div class="small dim" style="margin-top:4px">${h(b.azure.ac)}</div><div class="note">Synced ${b.azure.synced}${host ? '' : ' by ' + h(nm(V, b.owner)) + '. No Azure reads or writes through a stream.'}</div>${host ? '<div style="margin-top:8px;display:flex;gap:6px"><button class="ab">↻ Refresh from Azure</button><button class="ab">⇪ Tell Azure…</button></div>' : ''}</div>` : ''}
-  </div></div>`;
+    <div class="lbl">Requirements <span class="faint">- one mark per environment; click a cell</span></div>
+    <div class="grp">${b.reqs.length ? `<table>${thead('Acceptance item')}${b.reqs.map(r => `<tr><td><b>${r.k}</b> ${h(r.t)}</td>${envs.map(e => cell(bid, e, 'marks', r.k)).join('')}<td>${overall(bid, 'marks', r.k)}</td></tr>`).join('')}</table>` : '<div class="empty" style="margin:12px">None.</div>'}</div>
+    <div class="lbl">Test steps</div>
+    <div class="grp">${b.steps.length ? `<table>${thead('Step')}${b.steps.map((st, i) => `<tr><td><span class="dim">${i + 1}.</span> ${h(st)}</td>${envs.map(e => cell(bid, e, 'steps', 's' + i)).join('')}<td>${overall(bid, 'steps', 's' + i)}</td></tr>`).join('')}</table>` : '<div class="empty" style="margin:12px">None.</div>'}</div>
+    <div class="lbl">Re-tests of Fixed cards <span class="faint">- each environment against its own calls since the fix</span></div>
+    <div class="grp">${fixed.length ? `<table>${thead('Card')}${fixed.map(c => `<tr><td><span class="num">#${c.n}</span> ${h(c.title)}</td>${envs.map(e => cell(bid, e, 'retest', '#' + c.n)).join('')}<td>${overall(bid, 'retest', '#' + c.n)}</td></tr>`).join('')}</table>` : '<div class="empty" style="margin:12px">No Fixed card.</div>'}</div>
+    ${b.azure ? `<div class="lbl">Azure ${host ? '' : '<span class="faint">- read-only copy, as the host last synced it</span>'}</div><div class="panel"><b>${b.azure.id}</b> · ${h(b.azure.type)} · <span class="chip">${h(b.azure.state)}</span><div style="margin-top:6px">${h(b.azure.title)}</div><div class="small dim" style="margin-top:4px">${h(b.azure.ac)}</div><div class="note">Synced ${b.azure.synced}${host ? '' : ' by ' + h(nm(V, b.owner)) + '. No Azure reads or writes through a stream.'}</div></div>` : ''}`;
+}
+function markPopover(p) {
+  const b = S.boards[p.bid];
+  const env = envsOf(b).find(e => e.k === p.e);
+  const mine = env.alfred === V;
+  const m = cellVal(p.bid, env, p.kind, p.key);
+  const label = p.kind === 'marks' ? (b.reqs.find(r => r.k === p.key) || {}).t : p.kind === 'steps' ? b.steps[+p.key.slice(1)] : b.cards.find(c => '#' + c.n === p.key)?.title;
+  const evCalls = b.cycles.filter(r => r.o === env.alfred).flatMap(r => S.cycles[r.id].calls.map(c => ({ r, c })));
+  const opts = p.kind === 'marks' ? ['pass', 'fail', 'cant'] : p.kind === 'steps' ? ['seen', 'failed'] : [];
+  const ev = m && m.ev ? evCalls.find(x => x.c.id === m.ev) : null;
+  const head = `<div class="pv-t" style="color:var(--text)">${h(env.name)} · ${h(p.key.startsWith('s') && p.kind === 'steps' ? 'step ' + (+p.key.slice(1) + 1) : p.key)}</div><div class="small dim" style="margin-bottom:8px">${h(label || '')}</div>`;
+  if (m && m.off) return `<div class="popover" style="left:${p.x}px;top:${p.y}px">${head}<div class="dim">${h(nm(V, env.alfred))} is offline - its ${h(env.name)} marks live there, nothing is shown.</div></div>`;
+  const now1 = m ? `<div class="pv-r"><span class="dim">Now</span><span><span class="${VIEWS[m.v][0]}">${VIEWS[m.v][1]}</span> · ${h(m.by)} · ${m.at}</span></div>${m.note ? `<div class="pv-r"><span class="dim">Note</span><span>${h(m.note)}</span></div>` : ''}${ev ? `<div class="pv-r"><span class="dim">Evidence</span><span><a style="cursor:pointer;color:var(--blue-l)" data-a="openCall" data-x="${ev.c.id}" data-c="${ev.r.id}" data-o="${ev.r.o}" data-b="${p.bid}">${ev.c.m} ${h(ev.c.p)} → ${ev.c.st}</a> ${pill(ev.r.o, null, 'cycle', ev.r.id, p.bid)}</span></div>` : ''}` : '<div class="dim small">No mark yet.</div>';
+  const where = `<div class="note">Stored on ${env.alfred === V ? 'this Alfred' : h(nm(V, env.alfred))}${env.alfred === V && V !== b.owner ? ', streamed to ' + h(nm(V, b.owner)) : ''}.</div>`;
+  if (!mine) return `<div class="popover" style="left:${p.x}px;top:${p.y}px">${head}${now1}${where}<div class="note">Only ${h(nm(V, env.alfred))} marks ${h(env.name)}.</div></div>`;
+  if (p.kind === 'retest') return `<div class="popover" style="left:${p.x}px;top:${p.y}px">${head}${now1}<div class="note">Set by the re-test against ${h(env.name)}'s own calls since the fix.</div><button class="ab p" style="margin-top:8px" data-a="envVerify" data-x="${p.bid}">▶ Re-test all on ${h(env.name)}</button>${where}</div>`;
+  return `<div class="popover" style="left:${p.x}px;top:${p.y}px">${head}${now1}
+    <div class="lbl">Mark ${h(env.name)}</div><div style="display:flex;gap:6px;flex-wrap:wrap">${opts.map(o => `<button class="ab ${m && m.v === o ? 'p' : ''}" data-a="markSet" data-v="${o}">${VIEWS[o][1]}</button>`).join('')}</div>
+    <div class="lbl">Evidence <span class="faint">- a call from ${h(env.name)}'s cycles</span></div><select class="in" id="mk-ev" style="width:100%"><option value="">none</option>${evCalls.map(x => `<option value="${x.c.id}" ${m && m.ev === x.c.id ? 'selected' : ''}>${x.c.m} ${h(x.c.p)} → ${x.c.st} · ${h(S.cycles[x.r.id].name)}</option>`).join('')}</select>
+    <input class="in" id="mk-note" style="width:100%;margin-top:6px" placeholder="Note (optional)" value="${h(m && m.note || '')}">${where}</div>`;
 }
 function tabCycles(bid, b, a) {
   const host = a.state === 'local';
   const rows = b.cycles.map(ref => ({ ref, a: access(ref.o, ref.id, bid), c: S.cycles[ref.id] }));
   const f = ui.cycFilter;
-  const shown = rows.filter(x => f === 'all' || (f === 'rec' && x.c.recording) || (f === 'fail' && live(x.a) && x.c.calls.some(c => c.st >= 400)) || (f === 'remote' && x.ref.o !== V));
+  const shown = rows.filter(x => f === 'all' || (f === 'rec' && x.c.recording) || (f === 'fail' && live(x.a) && x.c.calls.some(c => c.st >= 400)) || (f === 'remote' && x.ref.o !== V) || (f === 'retest' && x.c.retestFor) || (f.startsWith('env:') && envOfCycle(bid, x.ref) === f.slice(4)));
   const lv = rows.filter(x => live(x.a));
   const calls = lv.reduce((n, x) => n + x.c.calls.length, 0);
   const failed = lv.reduce((n, x) => n + x.c.calls.filter(c => c.st >= 400).length, 0);
@@ -642,12 +714,12 @@ function tabCycles(bid, b, a) {
       ${host ? `<button class="ab p" style="padding:6px 12px">● Record ▾</button><span class="picker"><button class="ab" style="padding:6px 12px" data-a="menu" data-x="addcyc">＋ Add existing cycle ▾</button>${ui.menu === 'addcyc' ? `<div class="menu" style="left:auto;right:0"><div class="h">On this Alfred</div><div class="it dim small">Every local cycle, as today</div><div class="h">Streamed to this Alfred</div>${addable.map(s => `<div class="it" data-a="addCycleDirect" data-x="${bid}" data-s="${s.id}"><div class="t">◷ ${h(S.cycles[s.target].name)} ${pill(s.owner, null, 'cycle', s.target, null)}</div><div class="dim small">${S.cycles[s.target].calls.length} calls · you may ${s.mode} · read live, nothing copied</div></div>`).join('') || '<div class="it dim small">Nothing else is streamed to you.</div>'}</div>` : ''}</span>` : ''}</div>
     ${ui.sel.length ? `<div class="strip out" style="margin-bottom:10px"><b>${ui.sel.length} selected</b><span class="dim small">${ui.sel.map(id => h(S.cycles[id].name)).join(' · ')}</span><span class="sp"></span><button class="ab p" data-a="compare" data-x="${bid}" ${ui.sel.length === 2 ? '' : 'disabled title="Pick two cycles"'}>⇆ Compare</button><button class="ab" data-a="selClear">Clear</button></div>` : ''}
     <input class="in" style="width:100%;margin-bottom:10px" placeholder="Search cycles, endpoints… (tick two to compare - local with a streamed-in one works)">
-    <div class="toolbar">${[['all', 'All'], ['rec', 'Recording'], ['fail', 'With failures'], ['remote', '⇇ From other Alfreds']].map(([k, t]) => `<span class="pillf ${f === k ? 'on' : ''}" data-a="cycFilter" data-x="${k}">${t}</span>`).join('')}<span class="sp"></span><select class="in"><option>Newest first</option></select></div>
+    <div class="toolbar">${[['all', 'All'], ['rec', 'Recording'], ['retest', 'Re-tests'], ['fail', 'With failures'], ['remote', '⇇ From other Alfreds'], ...(b.envs || []).map(e => ['env:' + e.name, '🧪 ' + e.name])].map(([k, t]) => `<span class="pillf ${f === k ? 'on' : ''}" data-a="cycFilter" data-x="${k}">${t}</span>`).join('')}<span class="sp"></span><select class="in"><option>Newest first</option></select></div>
     ${shown.map(x => {
       const l = live(x.a);
       const fn = l ? x.c.calls.filter(c => c.st >= 400).length : 0;
       return `<div class="row ${l ? 'click' : ''}" ${l ? `data-a="openCycleCalls" data-x="${bid}" data-c="${x.ref.id}"` : ''} style="align-items:flex-start"><input type="checkbox" style="margin-top:4px" data-a="selCyc" data-x="${x.ref.id}" ${ui.sel.includes(x.ref.id) ? 'checked' : ''} ${l ? '' : 'disabled'}><span class="dotrec ${x.c.recording && l ? 'live' : ''}" style="margin-top:7px"></span>
-        <div style="flex:1;min-width:220px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${h(x.c.name)}</b>${pill(x.ref.o, x.a.via, 'cycle', x.ref.id, bid)}${x.ref.o === V ? outPills('cycle', x.ref.id) : ''}${stateChip(x.a)}</div>
+        <div style="flex:1;min-width:220px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${h(x.c.name)}</b>${envOfCycle(bid, x.ref) ? `<span class="chip" style="color:var(--amber);border-color:rgba(251,191,36,.45)">🧪 ${h(envOfCycle(bid, x.ref))}</span>` : ''}${x.c.retestFor ? `<span class="chip">↻ re-test ${x.c.retestFor.map(n => '#' + n).join(' ')}</span>` : ''}${pill(x.ref.o, x.a.via, 'cycle', x.ref.id, bid)}${x.ref.o === V ? outPills('cycle', x.ref.id) : ''}${stateChip(x.a)}</div>
         <div class="small dim" style="margin-top:3px">${l ? `${h(x.c.created)} · ${x.c.calls.length} calls · <span class="${fn ? 'bad' : 'ok'}">${fn} failed</span> · AC ${x.c.ac} · ${h(x.c.project)}${x.c.recording ? ' · <span class="bad">● recording on ' + (x.ref.o === V ? 'this Alfred' : h(nm(V, x.ref.o))) + '</span>' : ''}` : x.a.state === 'name' ? `${h(S.alfreds[x.ref.o].short)} did not allow passing this on` : x.a.state === 'offline' ? 'nothing shown until it is back' : 'no data'}</div></div>
         ${host && x.ref.o === V ? `<button class="ab" data-a="streamDlg" data-k="cycle" data-x="${x.ref.id}">⇉ Stream…</button><button class="ab" data-a="toggleRec" data-x="${x.ref.id}">${x.c.recording ? 'Pause' : '● Resume'}</button>` : ''}<span class="dim">⋯</span></div>`;
     }).join('') || '<div class="empty">No cycles match.</div>'}`;
@@ -749,6 +821,7 @@ function drawerCard() {
       ? `<div class="lbl" style="margin-top:0">Status</div>${host ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${COLS.map(s => `<button class="ab ${s === c.status ? 'p' : ''}" data-a="cardMove" data-to="${s}">${s}</button>`).join('')}</div>` : `<span class="chip">${h(c.status)}</span> <span class="small dim">- the host moves cards</span>`}
          <div class="lbl">Kind</div><span class="kind k-${c.kind}">${c.kind}</span>
          <div class="lbl">Evidence</div>${c.remote ? `<span class="chip origin" style="cursor:default">⇇ ${h(c.remote)} call</span> <span class="small dim">read live from ${h(c.remote)}; the card itself is stored on ${host ? 'this Alfred' : h(nm(V, b.owner))}</span>` : '<span class="small dim">Local calls.</span>'}
+         ${c.status === 'Fixed' ? `<div class="lbl">Re-test per environment</div><div style="font-weight:600">${retestChips(board, c)}</div>${b.cycles.filter(r => (S.cycles[r.id].retestFor || []).includes(c.n)).map(r => `<div class="small" style="margin-top:4px">↻ ${h(S.cycles[r.id].name)} <span class="chip" style="color:var(--amber);border-color:rgba(251,191,36,.45)">🧪 ${h(envOfCycle(board, r))}</span> ${pill(r.o, null, 'cycle', r.id, board)}</div>`).join('') || '<div class="small dim">No re-test cycle yet - live calls since the fix count.</div>'}` : ''}
          <div class="lbl">Close</div>${host ? '<button class="ab" data-a="cardClose">Close as Verified</button>' : '<span class="small dim">Closing is the host\'s.</span>'}`
       : `<div class="dim small">Calls, statements and specs this card mentions. A mention of a call that lives on another Alfred keeps its pill: <span class="chip origin" style="cursor:default">⇇ 83 · GET /refunds 500</span>.</div>`;
   return `<div class="drawer"><div class="dh"><span class="num">#${c.n}</span><span class="tt">${h(c.title)}</span><span class="chip">${h(c.status)}</span>${host ? '<span class="dim">▶</span>' : pill(b.owner, null, 'board', board, null)}<span class="dim">⋯</span><button class="x" data-a="closeDrawer">✕</button></div>
@@ -814,6 +887,7 @@ function chatPanel() {
 function popover() {
   const p = ui.pop;
   if (!p) return '';
+  if (p.mark) return markPopover(p);
   const st = `left:${p.x}px;top:${p.y}px`;
   const rows = list => list.filter(Boolean).map(([k, v]) => `<div class="pv-r"><span class="dim">${k}</span><span>${v}</span></div>`).join('');
   if (p.out) {
@@ -906,6 +980,16 @@ function dialogCompare() {
     <div class="lbl">Only in one</div><div class="small">${onlyA.map(k => `<div>◧ ${h(k)} <span class="dim">- only in ${h(A1.c.name)}</span></div>`).join('')}${onlyB.map(k => `<div>◨ ${h(k)} <span class="dim">- only in ${h(B1.c.name)}</span></div>`).join('') || ''}${!onlyA.length && !onlyB.length ? '<span class="dim">None.</span>' : ''}</div>
     <div class="note">The remote side is read live from its owner - nothing is copied. The same comparison your Claude gets from compare_cycles.</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" data-a="compareAsk" data-x="${bid}">✦ Ask Claude why</button><button class="btn p" data-a="closeDialog">Close</button></div></div></div>`;
+}
+function dialogRetest() {
+  const d = ui.dialog; const b = S.boards[d.board]; const env = envFor(d.board, V);
+  const fixed = b.cards.filter(c => c.status === 'Fixed');
+  const picked = fixed.filter(c => d.pick.includes(c.n));
+  const name = picked.length ? `Re-test ${picked.slice(0, 3).map(c => '#' + c.n).join(' ')}${picked.length > 3 ? ' +' + (picked.length - 3) : ''} · ${env.name}` : '';
+  return `<div class="overlay"><div class="dialog"><h3>Re-test cards for ${h(env.name)}</h3><div class="small dim" style="margin-bottom:10px">Pick the Fixed cards. The cycle is named after them, linked to each, and only its calls count for ${h(env.name)}'s re-test.${V !== b.owner ? ` Kept here on ${h(S.alfreds[V].short)}, streamed to ${h(nm(V, b.owner))}.` : ''}</div>
+    ${fixed.map(c => `<label class="row" style="cursor:pointer"><input type="checkbox" data-a="rtPick" data-x="${c.n}" ${d.pick.includes(c.n) ? 'checked' : ''}><span class="num">#${c.n}</span><span style="flex:1">${h(c.title)}</span><span class="small">${retestChips(d.board, c)}</span></label>`).join('') || '<div class="empty">No Fixed card.</div>'}
+    ${name ? `<div class="note">Cycle name: <b style="color:var(--text)">${h(name)}</b> <span class="faint">(editable later)</span></div>` : ''}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" data-a="closeDialog">Cancel</button><button class="btn p" data-a="rtStart" data-x="${d.board}" ${picked.length ? '' : 'disabled'}>● Record re-test</button></div></div></div>`;
 }
 function dialogExport() {
   const bid = ui.dialog.board;
@@ -1025,7 +1109,7 @@ function render() {
   const off = online(V) ? '' : `<div class="strip warn" style="margin:12px 26px 0">${h(S.alfreds[V].short)} is switched off in the mock: other Alfreds cannot reach it.</div>`;
   document.getElementById('app').innerHTML = sim() + header() + off + `<div class="page">${(pages[R[V].page] || pageStub)()}</div>`
     + (ui.drawer ? (ui.drawer.kind === 'card' ? drawerCard() : drawerCall()) : '')
-    + chatPanel() + (ui.dialog ? ({ stream: dialogStream, export: dialogExport, compare: dialogCompare }[ui.dialog.kind])() : '') + popover() + stack() + help()
+    + chatPanel() + (ui.dialog ? ({ stream: dialogStream, export: dialogExport, compare: dialogCompare, retest: dialogRetest }[ui.dialog.kind])() : '') + popover() + stack() + help()
     + (tourSt ? tourBox(tourSt) : '');
   if (!ui.clearTyped) Object.entries(typed).forEach(([id, v]) => { const el = document.getElementById(id); if (el && el.value !== v) el.value = v; });
   ui.clearTyped = false;
@@ -1070,6 +1154,55 @@ const A = {
   view: d => { ui.view = d.x; },
   setSec: d => { ui.setSec = d.x; },
   cycFilter: d => { ui.cycFilter = d.x; },
+  markOpen: (d, t) => { const r = t.getBoundingClientRect(); ui.pop = { mark: true, bid: d.b, e: d.e, kind: d.k, key: d.x, x: Math.max(8, Math.min(r.left, innerWidth - 412)), y: Math.min(r.bottom + 6, innerHeight - 300) }; },
+  markSet: d => {
+    const p = ui.pop; const env = envsOf(S.boards[p.bid]).find(e => e.k === p.e);
+    if (env.alfred !== V) return toast(`Only ${nm(V, env.alfred)} marks ${env.name}.`, true);
+    envStore(V, p.bid)[p.kind][p.key] = { v: d.v, by: V === 'pc1' ? 'fathy' : S.alfreds[V].short, at: now(), ev: val('mk-ev') || null, note: val('mk-note') || '' };
+    audit(V, `marked ${env.name} ${p.key}: ${d.v}`); ui.pop = null;
+    toast(`${env.name} ${p.key} marked ${VIEWS[d.v][1]} - stored on ${V === S.boards[p.bid].owner ? 'this Alfred' : 'this Alfred (' + S.alfreds[V].short + '), streamed to ' + nm(V, S.boards[p.bid].owner)}.`);
+  },
+  rtDlg: d => { ui.dialog = { kind: 'retest', board: d.x, pick: S.boards[d.x].cards.filter(c => c.status === 'Fixed').map(c => c.n) }; },
+  rtPick: d => { const n = +d.x; ui.dialog.pick = ui.dialog.pick.includes(n) ? ui.dialog.pick.filter(x => x !== n) : [...ui.dialog.pick, n]; },
+  rtStart: d => {
+    const b = S.boards[d.x]; const env = envFor(d.x, V); const cards = b.cards.filter(c => ui.dialog.pick.includes(c.n));
+    const id = uid('cy');
+    const calls = cards.map(c => call(now() + ':0' + (c.n % 10), 'GET', c.ep ? '/odeysys/refunds?branch=BRN11&branch=BRN155' : '/odeysys/refunds?agency=ALL', 200, 160 + c.n, { headers: { 'X-Tenant': V === 'pc1' ? '12' : '7' }, sql: ['SELECT * FROM refund_request WHERE branch_id IN (?, ?)   -- 9 rows'] }));
+    S.cycles[id] = { owner: V, name: `Re-test ${cards.slice(0, 3).map(c => '#' + c.n).join(' ')} · ${env.name}`, env: env.name, retestFor: cards.map(c => c.n), project: S.boards[d.x].project, recording: false, created: 'today ' + now(), ac: '-', calls };
+    if (V !== b.owner) S.streams.push({ id: uid('s'), owner: V, to: b.owner, kind: 'cycle', target: id, mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: now() });
+    b.cycles.push({ o: V, id });
+    const st = envStore(V, d.x);
+    cards.forEach(c => { const hit = calls.filter(x => !c.ep || new RegExp(c.ep).test(x.p)); st.retest['#' + c.n] = { v: hit.length && !hit.some(x => x.st >= 400) ? 'pass' : 'fail', by: V === b.owner ? 'Re-test cycle' : `Re-test cycle (${S.alfreds[V].short})`, at: now(), ev: hit[0] && hit[0].id }; });
+    ui.dialog = null;
+    toast(`"${S.cycles[id].name}" recorded - only its calls count for ${env.name}; verdicts are in the ${env.name} column${V !== b.owner ? ', streamed to ' + nm(V, b.owner) : ''}.`);
+  },
+  envReq: d => { const e = S.boards[d.b].envs[+d.x]; e.required = !e.required; },
+  envRemove: d => { S.boards[d.b].envs.splice(+d.x, 1); toast('Environment removed. Its marks stay on that Alfred, no longer shown here.'); },
+  envAdd: d => { const name = val('env-name').trim(); const al = val('env-alfred'); if (!name || !al) return toast('Name it and pick an Alfred the board is streamed to.', true); S.boards[d.x].envs.push({ k: name.toLowerCase().replace(/\W+/g, ''), name, alfred: al, required: true }); toast(`${name} added - ${nm(V, al)} fills it. They see a ${name} column and "● Record for ${name}".`); },
+  envRecord: d => {
+    const b = S.boards[d.x]; const env = envFor(d.x, V); const id = uid('cy');
+    S.cycles[id] = { owner: V, name: `${env.name} · ${b.key} · rec ${now()}`, env: env.name, project: 'odeysys-qa', recording: true, created: 'today ' + now(), ac: '-', calls: [
+      call(now() + ':01', 'POST', '/odeysys/auth/login', 200, 205),
+      call(now() + ':04', 'GET', '/odeysys/refunds?agency=ALL&branch=ALL', 200, 170, { headers: { 'X-Tenant': '7' } }),
+      call(now() + ':09', 'GET', '/odeysys/refunds?branch=BRN11&branch=BRN155', 200, 188, { headers: { 'X-Tenant': '7' }, sql: ['SELECT * FROM refund_request WHERE branch_id IN (?, ?)   -- 9 rows'] })
+    ] };
+    if (V !== b.owner) S.streams.push({ id: uid('s'), owner: V, to: b.owner, kind: 'cycle', target: id, mode: 'view', auto: 'off', passOn: false, passMode: 'view', unmasked: false, active: true, removed: false, at: now() });
+    b.cycles.push({ o: V, id });
+    toast(V === b.owner ? `Recording "${S.cycles[id].name}" for ${env.name}.` : `Recording "${S.cycles[id].name}" here on ${S.alfreds[V].short}. Streamed to ${nm(V, b.owner)} automatically - it shows on their Cycles tab as 🧪 ${env.name}.`);
+  },
+  envVerify: d => {
+    const b = S.boards[d.x]; const env = envFor(d.x, V); const st = envStore(V, d.x);
+    const by = V === b.owner ? 'Re-test' : `Claude (${S.alfreds[V].short})`;
+    const calls = b.cycles.filter(r => r.o === V).flatMap(r => S.cycles[r.id].calls);
+    let n = 0;
+    if (V !== b.owner) {
+      b.reqs.forEach(r => { const hit = calls.filter(c => new RegExp(r.ep).test(c.p)); if (hit.length) { const bad = hit.find(c => c.st >= 400); st.marks[r.k] = { v: bad ? 'fail' : 'pass', by, at: now(), ev: (bad || hit[0]).id }; n++; } });
+      (b.stepEp || []).forEach((re, i) => { const hit = calls.filter(c => new RegExp(re).test(c.p)); if (hit.length) { st.steps['s' + i] = { v: hit.some(c => c.st >= 400) ? 'failed' : 'seen', by, at: now(), ev: hit[0].id }; n++; } });
+    }
+    b.cards.filter(c => c.status === 'Fixed' && c.ep).forEach(c => { const hit = calls.filter(x => new RegExp(c.ep).test(x.p)); if (hit.length) { const bad = hit.find(x => x.st >= 400); st.retest['#' + c.n] = { v: bad ? 'fail' : 'pass', by, at: now(), ev: (bad || hit[hit.length - 1]).id }; n++; } });
+    ui.pop = null;
+    toast(V === b.owner ? `Re-tested every Fixed card on ${env.name} against this Alfred's calls since the fix.` : `${by} marked ${n} ${env.name} cells directly from ${S.alfreds[V].short}'s calls - stored here, streamed to ${nm(V, b.owner)}.`);
+  },
   selCyc: d => { ui.sel = ui.sel.includes(d.x) ? ui.sel.filter(x => x !== d.x) : [...ui.sel, d.x].slice(-2); },
   selClear: () => { ui.sel = []; },
   compare: d => { ui.dialog = { kind: 'compare', board: d.x, ids: ui.sel.slice(0, 2) }; ui.sel.forEach(id => { const r = S.boards[d.x].cycles.find(q => q.id === id); r && readLog(r.o, `compared ${S.cycles[id].name}`); }); },

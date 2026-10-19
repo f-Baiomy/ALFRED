@@ -45,7 +45,7 @@ approves. **Nothing streamed is stored on the reading Alfred.**
   calls). Changed or stopped live. There is no edit mode: **the board's host is the only one who works the board** -
   creates cards, moves their states, edits them, closes and deletes them, edits the brief, specs, acceptance items and
   test steps, runs `/alfred-listen`, `/alfred-triage`, `/alfred-verify` and the rest. A receiver never does any of it,
-  not even as a request.
+  not even as a request - except an environment Alfred's own column (D36).
 - **D8 Pass-through.** A board stream carries the board's cycles from other Alfreds only when their owner switched
   **allow passing on** for that stream (off by default), and that owner sets the mode re-shared readers get - alone,
   not capped by the middle Alfred's mode. Without it the reader sees the cycle's name and "⇇ 90 - not shared here". A
@@ -149,6 +149,37 @@ approves. **Nothing streamed is stored on the reading Alfred.**
   "copy of <name> · from 83 · <date>" with a `copy · from 83` chip - never a pill, never live again. The streamed one
   stays as it was. Its board mentions and verdicts can be moved to the copy in the same step. Nothing is ever copied
   by itself; the owner sees it in its read log ("PC-1 kept a copy of error flow").
+
+**Environments: every Alfred tests the same task (chosen 2026-10-19)**
+
+- **D35 The host names the board's environments** (Local, STG, UAT…) on the Task tab and picks the Alfred that fills
+  each: Local = this Alfred, STG = 83. An environment is assigned only to an Alfred the board is streamed to. Every
+  acceptance item and every test step gets one column per environment.
+- **D36 Each environment's marks live on its own Alfred.** STG's marks (Pass / Fail / Can't tell with evidence), its
+  test-step ticks (SEEN / FAILED) and its re-test results are stored on 83 and streamed back to the host, shown live in
+  the STG column; while 83 is offline the column says so and nothing is guessed. Only 83 writes STG; only the host
+  writes Local. This is the one exception to D7: an Alfred assigned to an environment works that environment's column
+  of the host's board - nothing else of it.
+- **D37 On an environment Alfred, Claude marks directly.** 83's own Claude (its account, through 83's MCP in a
+  terminal - `/alfred-verify`, `/alfred-listen` on the board) sets STG marks with evidence, ticks STG's steps and
+  writes STG's re-test results itself; a person on 83 may mark too. On the host, Local stays as today (Claude suggests,
+  the user marks). 83 still has no board chat (D15).
+- **D38 An environment Alfred records its own cycles for the board.** On the streamed board 83 gets **● Record for
+  STG**; those cycles are 83's, are streamed to the host automatically (view; comment if the host's stream says so),
+  and land on the host's Cycles tab marked STG - so every STG mark's evidence can be opened from the host.
+- **D39 Overall = every required environment.** The host ticks which environments are required. An item or step is
+  Pass when every required environment passes, Fail when any fails, and "waiting on STG" while a required one has no
+  mark or is offline. Re-tests the same: a Fixed card shows `✓ Local · ✗ STG` and is verified only when every required
+  environment passed.
+- **D40 Re-test all, per environment.** Each environment re-tests the Fixed cards against its own live calls since the
+  fix (`RetestService`, code, no model, same expectations as today); on 83 its Claude runs it (`/alfred-verify`) and the
+  results are STG's. Verified and Done stay the host's decision.
+- **D41 Test cycles per environment.** Every cycle on the board belongs to one environment (its chip: `🧪 Local`,
+  `🧪 STG`), and the Cycles tab filters by environment. Each environment records its own test cycles - a recording
+  (**● Record for STG**) or a **re-test cycle** (**↻ Re-test cards for STG…**: pick the Fixed cards; the cycle is named
+  after them, `Re-test #7 · STG`, the same naming as `CycleNaming`, and linked to each card). A re-test cycle given for an
+  environment is the only evidence that environment's re-test uses (as today, D40); its verdicts land in that
+  environment's column. 83's cycles stay on 83 and reach the host by D38's automatic stream.
 
 ## What the host does with a cycle streamed in
 
