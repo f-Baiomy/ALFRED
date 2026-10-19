@@ -58,6 +58,15 @@ is covered by `backend-sessions` (keys, holders, sessions, commenters' queue, aw
   cycle on the host's board; pass-through refused until the owner allows it; environments (assignment, a tick seen
   live, Overall, an STG test cycle on the host's board, the host judging STG's re-test); a stream ended, then removed
   by the reader; discovery saying it is off in Docker.
+- What a call carries, read on PC-1 from STG's cycle (seeded through the agent batch endpoint): its statements and
+  their positional rows with a `DB_COLUMN` rule's column masked at the source; its caught log lines; its Redis commands
+  (list and detail); the summaries; counts keyed by the tagged ids asked for. On a board: a spec's evidence judged
+  WRONG against STG's call and the `Wrong result` card linking `in:<call>@<cycle>@<slug>`; mention badges on the
+  streamed call; a card comment on STG's streamed board as a request STG accepts, then undoes ("taken back" in the
+  card's history); only STG's test cycle records the project when STG starts one.
+- Against an already running set (the hand-try stack, say): `STREAMS_E2E_PORTS=5101,5102,5103` points at their
+  host ports and `STREAMS_E2E_HOSTS=links-b:5000,links-c:5000` gives the addresses a pairs with (container names on
+  their network, never `localhost`).
 
 ## Database capture agent (`db-agent/`, `mvn verify`)
 
