@@ -2,7 +2,7 @@ import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { userLabel } from '../../../core/links/remote-ref';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
-  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
+  CardStatus, CardSummary, FLAG_LABELS, Flag, MENTION_ICONS, Proposal, mentionTypeOf, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
   retestChip, workedChip,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -17,6 +17,7 @@ import { LiveWorkStateService, currentStep } from '../../../core/state/live-work
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { actionText, adviceAction, confidenceLabel, confidenceOf } from '../../../shared/utils/triage-advice';
 import { homeLabel, placementOf } from '../../../shared/utils/board-cards-visibility';
+import { AutoDirDirective } from '../../../shared/directives/auto-dir.directive';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -34,10 +35,130 @@ export type CardAction =
 @Component({
   selector: 'app-board-card',
   standalone: true,
-  imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent],
+  imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent, AutoDirDirective],
   template: `
+    @if (compact()) {
+    <!-- Compact (the default): head, title, the one state that matters most, a meta row and the actions; the rest is in the hover peek -->
+    <div class="board-card bcc" [class]="'board-card bcc bcc-k-' + card().kind" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()"
+         [class.closed]="card().status === 'CLOSED'" [class.blocked]="!!card().blockedBy?.length" [class.related]="!placement().own" [class.asks]="asks()"
+         [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)"
+         (mouseenter)="hovered.emit($any($event.currentTarget))" (mouseleave)="hovered.emit(null)">
+      @if (editable()) {
+        <button type="button" class="board-card-check" [class.on]="selected()" title="Select (X or Shift+click)"
+                (click)="$event.stopPropagation(); toggled.emit()">{{ selected() ? '✓' : '' }}</button>
+      }
+      <div class="bcc-head">
+        <span class="board-kind" [class]="'board-kind board-kind-' + card().kind">{{ kindLabel() }}</span>
+        <button type="button" class="board-card-num" [class.copied]="copied()" [title]="copied() ? 'Copied' : 'Copy #' + card().number"
+                (click)="copyNumber($event)">{{ copied() ? '✓' : '#' + card().number }}</button>
+        @if (unread()) { <span class="board-unread" title="Claude changed it since you last opened it"></span> }
+        @for (f of card().flags; track f) {
+          <span class="board-flag" [class]="'board-flag board-flag-' + f" [attr.data-icon]="flagIcon(f)" [title]="flagLabel(f)">{{ flagLabel(f) }}</span>
+        }
+        @if (waitShort(); as w) {
+          <button type="button" class="board-wait board-wait-btn bcc-wait" [class]="'board-wait board-wait-btn bcc-wait board-wait-' + card().waiting!.who"
+                  [title]="waiting() + ' - decide or discuss here'" aria-haspopup="dialog" (click)="openWaiting($event)">⏳ {{ w }} ▾</button>
+        }
+      </div>
+      <div class="board-card-title" [appAutoDir]="card().title"><app-ref-text [text]="card().title" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
+      @switch (primary()) {
+        @case ('live') {
+          <div class="bcc-state bcc-live" role="status"><span class="live-spinner"></span><span class="bcc-cut">✦ {{ liveStep(liveWork()!) }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('question') {
+          <button type="button" class="bcc-state bcc-q" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
+                  (click)="$event.stopPropagation(); answer.emit()">
+            <span class="bcc-qn">❓ {{ questionCount() }} question{{ questionCount() === 1 ? '' : 's' }}</span>
+            @if (card().advice; as a) {
+              <span class="bcc-adv" [title]="adviceTitle()">· ✦ <bdi [appAutoDir]="a">{{ a }}</bdi></span>
+              @if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }
+            }
+            @if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }
+            @if (editable()) { <span class="bcc-go">Answer ›</span> }
+          </button>
+        }
+        @case ('checks') {
+          <div class="bcc-state board-vchecks">
+            @for (k of checks()!; track k.text) {
+              <div class="board-vcheck" [class]="'board-vcheck board-vcheck-' + k.tone" [title]="k.text + (k.detail ? ' - ' + k.detail : '')">
+                <b>{{ k.text }}</b>@if (k.detail) { <span>{{ k.detail }}</span> }
+              </div>
+            }
+            @if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }
+          </div>
+        }
+        @case ('retest') {
+          <div class="bcc-state"><span class="board-retest" [class]="'board-retest board-retest-' + chip()!.tone" [title]="'Re-test: ' + retest()!.summary">{{ chip()!.text }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('proposal') {
+          <div class="bcc-state board-card-proposal" title="Open the card to accept or dismiss"><span class="bcc-cut">✦ Claude proposes {{ proposalText(card().proposal!) }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('blocked') {
+          <div class="bcc-state board-card-lock"><span class="bcc-cut">🔒 Blocked by @for (b of card().blockedBy; track b.number) { <b>#{{ b.number }}</b> {{ b.title }} }</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('similar') {
+          <div class="bcc-state board-sim"><span class="bcc-cut">⚠ Looks like #{{ card().similarClosed!.number }}, closed as {{ resolutionLabel(card().similarClosed!.resolution) }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('azure') {
+          <div class="bcc-state"><button type="button" class="tob-pill" title="Changes Claude prepared for Azure wait for your approval - open the card"
+                  (click)="$event.stopPropagation(); opened.emit()">⇪ {{ toAzure() }} to Azure</button>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('resolution') {
+          <div class="bcc-state"><span class="board-res" [class]="'board-res board-res-' + card().resolution">{{ resolutionLabel(card().resolution!) }}</span>
+            @if (card().reason) { <span class="bcc-cut bcc-reason" [appAutoDir]="card().reason">“{{ card().reason }}”</span> }
+            @if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
+        }
+        @case ('rank') {
+          <div class="bcc-state"><span class="board-sev bcc-cut" [title]="card().adviceDetail?.note ?? 'Claude ranks the Inbox worst first'">▲ {{ card().adviceDetail?.rank }}{{ card().adviceDetail?.of ? ' of ' + card().adviceDetail?.of : '' }}{{ card().adviceDetail?.note ? ' · ' + card().adviceDetail?.note : '' }}</span></div>
+        }
+      }
+      <div class="bcc-meta">
+        @if (card().teams?.length) { <app-team-chips class="bcc-teams" [teams]="card().teams" /> }
+        @for (m of mentionCounts(); track m.icon) { <span class="bcc-count" [title]="m.title">{{ m.icon }}{{ m.n }}</span> }
+        @if (card().author === 'CLAUDE') { <span class="board-ai" title="Made by Claude">✦</span> }
+        @if (home(); as h) { <span class="board-home" [title]="'Lives on ' + h + ' - shown here through a relation'">⌂</span> }
+        @if (showCycle() && card().cycleId) {
+          <span class="board-cyc" [class.gone]="card().cycleDeleted" [title]="card().cycleDeleted ? 'cycle deleted' : cycleLabel()">◷</span>
+        }
+        @if (card().commentCount) { <span class="bcc-comments" [title]="card().commentCount + ' comments'">💬 {{ card().commentCount }}</span> }
+        <span class="board-age" [class.stale]="stale()" [title]="stale() ? 'No change for more than 5 days' : 'Last change'">{{ stale() ? '⏳ ' : '' }}{{ shortAge() }}</span>
+        @if (skill() && !hasActs()) {
+          <span class="board-card-run bcc-run" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+            <app-run-skill [command]="skill()!" [project]="card().project" [cycleId]="showCycle() ? null : card().cycleId" [cycleName]="cycleName()" [card]="card()" [editable]="editable()" />
+          </span>
+        }
+      </div>
+      @if (hasActs()) {
+        <div class="board-card-acts" [class.bcc-acts-mini]="card().status !== 'INBOX'">
+          @if (card().status === 'INBOX') {
+            <button type="button" class="ok" [class.advised]="advised() === 'FINE'" title="Fine - not an issue (F)" (click)="act($event, { kind: 'close', resolution: 'FINE' })">✓ <span class="bcc-w">Fine</span> <kbd>F</kbd></button>
+            <button type="button" [class.advised]="advised() === 'NOT_IN_FLOW'" title="Not in this flow (N)" (click)="act($event, { kind: 'close', resolution: 'NOT_IN_FLOW' })">⊘ <span class="bcc-w">Not in flow</span> <kbd>N</kbd></button>
+            <button type="button" [class.advised]="advised() === 'TO_DO'" title="To do (T)" (click)="act($event, { kind: 'move', status: 'TO_DO' })">→ <span class="bcc-w">To do</span> <kbd>T</kbd></button>
+            @if (mergeAdvice(); as m) {
+              <button type="button" class="advised" [title]="'Claude advises: ' + mergeText(m)" (click)="act($event, m)">⇢ <span class="bcc-w">{{ mergeText(m) }}</span></button>
+            }
+          }
+          @if (card().status === 'CLOSED') {
+            <button type="button" (click)="act($event, { kind: 'reopen' })">↺ Reopen</button>
+          }
+          @if (card().status === 'FIXED') {
+            @if (retest()?.verdict === 'PASSES') {
+              <button type="button" class="ok" title="Every call since the fix passes - move to Verified" (click)="act($event, { kind: 'move', status: 'VERIFIED' })">✓ Verified</button>
+            }
+            <button type="button" title="Record a re-test of this card - its steps show on the strip" (click)="act($event, { kind: 'retest' })">▶ Re-test</button>
+          }
+          @if (skill(); as cmd) {
+            <span class="board-card-run bcc-run" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+              <app-run-skill [command]="cmd" [project]="card().project" [cycleId]="showCycle() ? null : card().cycleId" [cycleName]="cycleName()" [card]="card()" [editable]="editable()" />
+            </span>
+          }
+        </div>
+      }
+    </div>
+    } @else {
     <div class="board-card" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
-         [class.blocked]="!!card().blockedBy?.length" [class.related]="!placement().own" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
+         [class.blocked]="!!card().blockedBy?.length" [class.related]="!placement().own" [class.asks]="asks()" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)"
+         (mouseenter)="hovered.emit($any($event.currentTarget))" (mouseleave)="hovered.emit(null)">
       @if (unread()) { <span class="board-unread" title="Claude changed it since you last opened it"></span> }
       @if (editable()) {
         <button type="button" class="board-card-check" [class.on]="selected()" title="Select (X or Shift+click)"
@@ -49,7 +170,7 @@ export type CardAction =
         <span class="board-kind" [class]="'board-kind board-kind-' + card().kind">{{ card().kind }}</span>
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
-      <div class="board-card-title"><app-ref-text [text]="card().title" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
+      <div class="board-card-title" [appAutoDir]="card().title"><app-ref-text [text]="card().title" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
       @if (toAzure(); as n) {
         <button type="button" class="tob-pill" title="Changes Claude prepared for Azure wait for your approval - open the card"
                 (click)="$event.stopPropagation(); opened.emit()">⇪ {{ n }} to Azure</button>
@@ -58,9 +179,9 @@ export type CardAction =
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
         @if (card().advice; as a) {
-          <span class="board-advice" [title]="adviceTitle()">✦ advises: {{ a }}@if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</span>
+          <span class="board-advice" [title]="adviceTitle()">✦ advises: <bdi [appAutoDir]="a">{{ a }}</bdi>@if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</span>
           @if (card().adviceDetail?.reason; as why) {
-            <div class="board-advice-why" [title]="why"><b>Why:</b> <app-ref-text [text]="why" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
+            <div class="board-advice-why" [title]="why" [appAutoDir]="why"><b>Why:</b> <bdi><app-ref-text [text]="why" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></bdi></div>
           }
         }
       }
@@ -145,7 +266,8 @@ export type CardAction =
           <app-run-skill [command]="cmd" [project]="card().project" [cycleId]="showCycle() ? null : card().cycleId" [cycleName]="cycleName()" [card]="card()" [editable]="editable()" />
         </span>
       }
-    </div>`,
+    </div>
+    }`,
 })
 export class BoardCardComponent {
   readonly card = input.required<CardSummary>();
@@ -162,6 +284,10 @@ export class BoardCardComponent {
   readonly boardNames = input<ReadonlyMap<string, string>>(new Map());
   readonly placement = computed(() => placementOf(this.card(), this.viewBoard()));
   readonly home = computed(() => homeLabel(this.placement(), this.boardNames()));
+  /** Compact: a few lines, the rest in the hover peek (the board's Compact / Comfortable switch). */
+  readonly compact = input(false);
+  /** The pointer came onto the card (its element) or left it (null): the board shows or hides the peek. */
+  readonly hovered = output<HTMLElement | null>();
   readonly opened = output<void>();
   readonly toggled = output<void>();
   readonly action = output<CardAction>();
@@ -232,6 +358,56 @@ export class BoardCardComponent {
     ?? (this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION') ? 1 : 0));
 
   readonly buttons = RESOLUTION_BUTTONS;
+
+  /** Claude asks the user something - an open question or a Needs decision flag: the card pulses (never another Alfred's card). */
+  readonly asks = computed(() => this.card().status !== 'CLOSED' && userLabel(this.card().id) === 'You'
+    && (this.questionCount() > 0 || this.card().flags.includes('NEEDS_DECISION')));
+  readonly kindLabel = computed(() => this.card().kind.charAt(0) + this.card().kind.slice(1).toLowerCase());
+  readonly shortAge = computed(() => shortTime(this.age()));
+  /** The waiting pill in a compact head: who and for how long ("you · 27m"); the full text is its tooltip. */
+  readonly waitShort = computed(() => {
+    const w = this.card().waiting;
+    if (!w || w.who === 'NONE' || !this.waiting()) return null;
+    const user = userLabel(this.card().id);
+    const who = w.who === 'USER' ? (user === 'You' ? 'you' : user) : w.who === 'CLAUDE' ? 'Claude' : 're-test';
+    return who + ' · ' + shortTime(ageText(w.since, this.now()));
+  });
+  /**
+   * The one state a compact card shows, most urgent first: Claude working on it, its questions, the Fixed checks, the
+   * re-test, a proposal, a block, a closed look-alike, changes for Azure, how it was closed, its Inbox rank.
+   */
+  private readonly states = computed(() => {
+    const c = this.card();
+    const out: CompactState[] = [];
+    if (this.liveWork()) out.push('live');
+    if (this.questionCount()) out.push('question');
+    if (this.checks()) out.push('checks');
+    else if (this.chip()) out.push('retest');
+    if (c.proposal) out.push('proposal');
+    if (c.blockedBy?.length) out.push('blocked');
+    if (c.status === 'INBOX' && c.similarClosed) out.push('similar');
+    if (this.toAzure()) out.push('azure');
+    if (c.resolution) out.push('resolution');
+    if (c.status === 'INBOX' && c.adviceDetail?.rank) out.push('rank');
+    return out;
+  });
+  readonly primary = computed(() => this.states()[0] ?? null);
+  /** How many more states the card has - the peek shows them all. */
+  readonly extra = computed(() => Math.max(0, this.states().length - 1));
+  /** The card's mentions counted by kind: ⇄3 ◆1 - every one of them is listed in the peek. */
+  readonly mentionCounts = computed(() => {
+    const by = new Map<string, number>();
+    for (const m of this.card().mentionChips ?? []) {
+      const t = mentionTypeOf(m);
+      by.set(t, (by.get(t) ?? 0) + 1);
+    }
+    return [...by].map(([t, n]) => ({ icon: MENTION_ICONS[t as keyof typeof MENTION_ICONS] ?? '•', n, title: n + ' ' + t + (n === 1 ? '' : 's') }));
+  });
+  readonly hasActs = computed(() => this.editable() && (this.card().status === 'INBOX' || this.card().status === 'CLOSED' || this.card().status === 'FIXED'));
+
+  flagIcon(f: Flag): string {
+    return FLAG_ICONS[f] ?? '•';
+  }
   readonly stale = computed(() => isStale(this.card(), this.now()));
   readonly age = computed(() => ageText(this.card().updatedAt, this.now()));
   // a card's task key is its board's id since specs/027 - name the board when it is one
@@ -268,6 +444,16 @@ export class BoardCardComponent {
     event.stopPropagation();
     this.action.emit(action);
   }
+}
+
+type CompactState = 'live' | 'question' | 'checks' | 'retest' | 'proposal' | 'blocked' | 'similar' | 'azure' | 'resolution' | 'rank';
+
+/** A flag as an icon, for a compact card too narrow for its words (the word stays the tooltip). */
+const FLAG_ICONS: Record<Flag, string> = { URGENT: '⚡', RISK: '⚠', BLOCKER: '⛔', AFFECTS_PROJECT: '◎', NEEDS_DECISION: '⚖' };
+
+/** "27 min" → "27m", "5 h" → "5h", "3 d" → "3d". */
+export function shortTime(t: string): string {
+  return t.replace(/^(\d+)\s*min$/, '$1m').replace(/^(\d+)\s*h$/, '$1h').replace(/^(\d+)\s*d$/, '$1d');
 }
 
 /** "Verified", "close as Fine - not an issue", "merge into #11", "reopen (regression)". */

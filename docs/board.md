@@ -79,6 +79,37 @@ no task; it is never written until something writes to it (reads use `readDefaul
 - **Done and Closed cards are kept forever.** Only the user deletes a card, after a confirmation. A deleted card takes its history and mention rows with it.
 - **Undo** (`POST /board/cards/{id}/undo-close`): the toast offers it for 7 s, and the server allows it for 60 s. It restores the state recorded in the close's own RESOLUTION entry, and only while nothing but a reason was added after the close.
 
+### The board view
+
+- **Toolbar**: Quick add, Board / List, Compact / Comfortable (cards only; kept in this browser, `BoardDensityService`),
+  then Export, Pages, notifications and `?` on the right.
+- **Filters**: the search box, a **Waiting on me** button, and five menus - Type, Flags, Waiting, Team, More (✦ Made by
+  Claude, Scope not decided, Own only on a board / Cycle deleted on All cards). A menu's badge counts its filters that
+  are on, and every filter that is on shows as a removable chip under the menus with **Clear all** - nothing filters
+  the board unseen.
+- **Summary strip**: the board's progress and Claude's open questions ("❓ 10 open questions on 9 cards") on one line.
+- **Columns** never squeeze a card under 250px - the board scrolls sideways instead. An empty open column (not the
+  Inbox, not Closed) folds to a 40px rail that still takes drops and opens while a card is dragged.
+- **Compact cards** (the default) show four lines: kind (also the coloured left edge), number, flags and the waiting
+  pill (`⏳ you · 27m`); the title (two lines); the one state that matters most - Claude working on it, its questions
+  with Claude's advice, the Fixed checks, the re-test, a proposal, a block, a closed look-alike, changes for Azure, the
+  resolution, the Inbox rank - with `+N` when there are more; and a meta row (teams, mentions counted by kind, ✦,
+  board, comments, age, ▶). Inbox cards keep Fine / Not in flow / To do (and Claude's merge), Fixed cards Verified /
+  Re-test, Closed cards Reopen. A narrow card turns flags into icons and drops the key hints first; nothing leaves the
+  card. **Comfortable** is the full tile.
+- **A card that asks the user something pulses** (an open question or the Needs decision flag; not a card that only
+  waits to be sorted, never a closed one or another Alfred's). The pulse stops while hovered and is a steady amber
+  border under `prefers-reduced-motion`.
+- **The peek** (`CardPeekComponent`): resting the pointer on a card for 350 ms opens it whole beside the tile - what it
+  waits on, each open question with every option, Claude's advice and confidence, Ready for Verified?, a proposal, a
+  block, a look-alike, Azure changes, how it was closed, the description, the Acceptance items, the evidence, the latest
+  Did / Found / Next comment, board / teams / scope and the keys. It loads the card, its questions and its history
+  once per change of the card (the board signal invalidates it, no polling), sits on `--popover-solid`, flips left at
+  the window's edge, scrolls inside itself, and closes on Esc, any key, a scroll, a drag or when a card opens. The
+  hovered card takes the keyboard focus, so `A`, `F`, `N`, `T` and Enter act on it.
+- Card titles, the advice, the peek's questions, options and lines read in their own direction (`appAutoDir`, the same
+  `textDir` rule as the markdown view); a label in front of a text (`Why:`) stays where the line starts.
+
 ### The card drawer (specs/023)
 
 `card-drawer.component.ts`, frontend only. Mocks and plan: `specs/023-card-redesign/`.

@@ -17,10 +17,12 @@ export interface CardDrop {
   standalone: true,
   imports: [CdkDropListGroup, CdkDropList, CdkDrag, BoardCardComponent],
   template: `
-    <div class="board-columns" cdkDropListGroup>
+    <div class="board-columns" [class.compact]="compact()" cdkDropListGroup>
       @for (col of columns(); track col.status) {
-        <div class="board-col" [class.side]="col.status === 'CLOSED'" cdkDropList [cdkDropListData]="col.status"
-             [cdkDropListDisabled]="!editable()" (cdkDropListDropped)="onDrop($event)">
+        <!-- an empty open column (not the Inbox) folds to a rail that still takes drops; it opens while a card is dragged -->
+        <div class="board-col" [class.side]="col.status === 'CLOSED'" [class.rail]="!col.cards.length && col.status !== 'INBOX' && col.status !== 'CLOSED'"
+             [attr.title]="!col.cards.length && col.status !== 'INBOX' && col.status !== 'CLOSED' ? col.label + ' - drop a card here' : null"
+             cdkDropList [cdkDropListData]="col.status" [cdkDropListDisabled]="!editable()" (cdkDropListDropped)="onDrop($event)">
           <div class="board-col-head">
             <span>{{ col.label }}</span>
             <span class="board-col-count">
@@ -29,7 +31,7 @@ export interface CardDrop {
                   <button type="button" class="board-triage-btn" title="Accept all High: take every advice Claude gave with High confidence - Medium and Low stay yours"
                           (click)="acceptHigh.emit(high())">✓ High {{ high().length }}</button>
                 }
-                <button type="button" class="board-triage-btn" (click)="triage.emit()">Triage {{ col.cards.length }} ›</button>
+                <button type="button" class="board-triage-btn" [title]="'Sort the ' + col.cards.length + ' Inbox cards one by one'" (click)="triage.emit()">Triage ›</button>
               }
               @if (col.status === 'FIXED' && col.cards.length && editable()) {
                 @if (selectedFixed().length) {
@@ -46,7 +48,8 @@ export interface CardDrop {
             <app-board-card cdkDrag [cdkDragData]="c" [cdkDragDisabled]="!editable()" [card]="c" [editable]="editable()"
                             [selected]="selected().has(c.id)" [focused]="focusedId() === c.id" [showCycle]="showCycle()" [now]="now()" [retest]="retests().get(c.number) ?? null" [viewBoard]="viewBoard()" [boardNames]="boardNames()"
                             (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="$event.kind === 'retest' ? retest.emit([c.number]) : action.emit({ card: c, action: $event })" (answer)="answer.emit(c)"
-                            (waitingOpen)="waiting.emit({ card: c, anchor: $event })" />
+                            (waitingOpen)="waiting.emit({ card: c, anchor: $event })" [compact]="compact()"
+                            (hovered)="hovered.emit({ card: c, el: $event })" (cdkDragStarted)="hovered.emit({ card: c, el: null })" />
           } @empty {
             <div class="board-empty">{{ col.status === 'INBOX' ? 'Inbox clear ✓ - new findings land here' : 'Drop cards here' }}</div>
           }
@@ -64,6 +67,10 @@ export class BoardColumnsComponent {
   readonly retests = input<ReadonlyMap<number, RetestCheck>>(new Map());
   readonly viewBoard = input<string | null>(null);
   readonly boardNames = input<ReadonlyMap<string, string>>(new Map());
+  /** Compact cards: a few lines each, the rest in the hover peek. */
+  readonly compact = input(false);
+  /** The pointer came onto a card (its element) or left it / started dragging it (null): the host shows or hides the peek. */
+  readonly hovered = output<{ card: CardSummary; el: HTMLElement | null }>();
   readonly moved = output<CardDrop>();
   /** ▶ Re-test for these card numbers (specs/016): one card, the selected ones or every Fixed card. */
   readonly retest = output<readonly number[]>();

@@ -25,7 +25,7 @@ import { TeamChipsComponent } from '../team-chips/team-chips.component';
             <td><app-team-chips [teams]="c.teams" /></td>
             <td>@for (f of c.flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabels[f] }}</span> }</td>
             <td>@if (c.resolution) { <span class="board-res" [class]="'board-res board-res-' + c.resolution">{{ resolutionLabels[c.resolution] }}</span> } @else { {{ statusLabels[c.status] }} }</td>
-            <td class="board-cyc">{{ c.cycleId ? (c.cycleDeleted ? 'cycle deleted' : '◷ ' + c.cycleId) : '' }}</td>
+            <td class="board-cyc" [title]="c.cycleId ?? ''">{{ c.cycleId ? (c.cycleDeleted ? 'cycle deleted' : '◷ ' + (boardNames().get(c.cycleId) ?? c.cycleId)) : '' }}</td>
             <td>@if (c.author === 'CLAUDE') { <span class="board-ai">✦ Claude</span> } @else { You }</td>
             <td class="board-dim">{{ age(c.updatedAt) }}</td>
           </tr>
@@ -38,6 +38,8 @@ import { TeamChipsComponent } from '../team-chips/team-chips.component';
 export class BoardListViewComponent {
   readonly cards = input.required<readonly CardSummary[]>();
   readonly editable = input(true);
+  /** Board names by id: a card's board by its name, not its id. */
+  readonly boardNames = input<ReadonlyMap<string, string>>(new Map());
   readonly selected = input<ReadonlySet<string>>(new Set());
   readonly focusedId = input<string | null>(null);
   readonly now = input(Date.now());

@@ -16,6 +16,10 @@ import { BoardMentionsService } from '../../../core/services/board-mentions.serv
 import { BoardStateService, messageOf } from '../../../core/state/board-state.service';
 import { CardViewMode, CardViewModeService, CardWindowTarget } from '../../../core/services/card-view-mode.service';
 import { TeamsStateService } from '../../../core/state/teams-state.service';
+import { BoardDensityService } from '../../../core/services/board-density.service';
+import { CardPeekComponent, PeekAnchor } from '../card-peek/card-peek.component';
+import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
+import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { RetestStateService } from '../../../core/state/retest-state.service';
 import { RetestStripComponent } from '../retest-strip/retest-strip.component';
 import { ActionMenuComponent } from '../../action-menu/action-menu.component';
@@ -42,7 +46,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
   selector: 'app-board-view',
   standalone: true,
   providers: [BoardStateService, RetestStateService],
-  imports: [ActionMenuComponent, BoardPagesComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
+  imports: [ActionMenuComponent, CardPeekComponent, BoardPagesComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
     BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, WaitingBarComponent, RetestStripComponent, TriageDialogComponent,
     UndoToastComponent],
   template: `
@@ -60,6 +64,15 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
         <button type="button" [class.on]="state.view() === 'board'" (click)="state.view.set('board')">▦ Board</button>
         <button type="button" [class.on]="state.view() === 'list'" (click)="state.view.set('list')">☰ List</button>
       </div>
+      @if (state.view() === 'board') {
+        <div class="board-seg board-density" role="group" aria-label="Card size">
+          <button type="button" [class.on]="density.density() === 'compact'" title="Compact cards - hover a card for everything else"
+                  (click)="density.set('compact')">▤ Compact</button>
+          <button type="button" [class.on]="density.density() === 'comfortable'" title="Every detail on the card"
+                  (click)="density.set('comfortable')">▦ Comfortable</button>
+        </div>
+      }
+      <span class="board-top-gap"></span>
       <app-action-menu label="Export">
         <button type="button" class="filter-option-item" (click)="export('md')">Board → Markdown (.md)</button>
         <button type="button" class="filter-option-item" (click)="export('html')">Board → HTML (.html)</button>
@@ -82,46 +95,65 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
       <button type="button" class="action-btn" title="Keyboard shortcuts (?)" (click)="help.set(true)">?</button>
     </div>
     <div class="board-filters">
-      @for (k of kinds; track k) {
-        <button type="button" class="board-pill" [class.on]="state.filters().kinds.includes(k)" (click)="toggleKind(k)">{{ k }}</button>
-      }
-      @for (f of flags; track f) {
-        <button type="button" class="board-pill" [class.on]="state.filters().flags.includes(f)" (click)="toggleFlag(f)">{{ flagLabels[f] }}</button>
-      }
-      <button type="button" class="board-pill board-pill-wait" [class.on]="state.filters().waiting === 'USER'" (click)="toggleWaiting('USER')">Waiting on me</button>
-      <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'CLAUDE'" (click)="toggleWaiting('CLAUDE')">Waiting on Claude</button>
-      <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'RETEST'" (click)="toggleWaiting('RETEST')">Needs re-test</button>
-      <button type="button" class="board-pill" [class.on]="state.filters().author === 'CLAUDE'" (click)="toggleAuthor('CLAUDE')">✦ by Claude</button>
-      <button type="button" class="board-pill" [class.on]="state.filters().scopeNotDecided" (click)="toggleScope()">Scope not decided</button>
-      @if (cycleId()) {
-        <button type="button" class="board-pill" [class.on]="!!state.filters().ownOnly"
-                title="Own only hides cards that live on another board and show here through a shared cycle or a related board"
-                (click)="setFilters({ ownOnly: !state.filters().ownOnly })">{{ state.filters().ownOnly ? 'Own only' : 'Own + related' }}</button>
-      }
-      @if (!cycleId()) {
-        <button type="button" class="board-pill" [class.on]="!!state.filters().cycleDeleted" title="Cards whose session cycle was deleted - clean them up"
-                (click)="toggleCycleDeleted()">◷ Cycle deleted</button>
-      }
-      @if (teamsState.teams().length) {
-        <span class="board-filter-sep" aria-hidden="true"></span>
-        @for (t of teamsState.teams(); track t.id) {
-          <button type="button" class="board-pill board-pill-team" [style.--team]="t.color" [class.on]="(state.filters().teams ?? []).includes(t.id)"
-                  [title]="'Cards assigned to ' + t.name" (click)="toggleTeam(t.id)">{{ t.icon ? t.icon + ' ' : '' }}{{ t.name }}</button>
-        }
-        <button type="button" class="board-pill" [class.on]="(state.filters().teams ?? []).includes(noTeam)" title="Cards with no team yet"
-                (click)="toggleTeam(noTeam)">No team</button>
-      }
       <input #search class="board-search" type="search" placeholder="Search cards…" [value]="state.filters().q"
              (keydown.enter)="setSearch(search.value)" (search)="setSearch(search.value)" />
+      <button type="button" class="board-pill board-pill-wait" [class.on]="state.filters().waiting === 'USER'" (click)="toggleWaiting('USER')">Waiting on me</button>
+      <app-action-menu class="board-fmenu" label="Type" [badge]="state.filters().kinds.length" [closeOnClick]="false" [panelWidth]="190">
+        @for (k of kinds; track k) {
+          <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().kinds.includes(k)" (change)="toggleKind(k)" />{{ kindLabel(k) }}</label>
+        }
+      </app-action-menu>
+      <app-action-menu class="board-fmenu" label="Flags" [badge]="state.filters().flags.length" [closeOnClick]="false" [panelWidth]="210">
+        @for (f of flags; track f) {
+          <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().flags.includes(f)" (change)="toggleFlag(f)" />{{ flagLabels[f] }}</label>
+        }
+      </app-action-menu>
+      <app-action-menu class="board-fmenu" label="Waiting" [badge]="state.filters().waiting ? 1 : 0" [closeOnClick]="false" [panelWidth]="210">
+        <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().waiting === 'USER'" (change)="toggleWaiting('USER')" />Waiting on me</label>
+        <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().waiting === 'CLAUDE'" (change)="toggleWaiting('CLAUDE')" />Waiting on Claude</label>
+        <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().waiting === 'RETEST'" (change)="toggleWaiting('RETEST')" />Needs re-test</label>
+      </app-action-menu>
+      @if (teamsState.teams().length) {
+        <app-action-menu class="board-fmenu" label="Team" [badge]="(state.filters().teams ?? []).length" [closeOnClick]="false" [panelWidth]="220">
+          @for (t of teamsState.teams(); track t.id) {
+            <label class="filter-option-item board-fmenu-item" [title]="'Cards assigned to ' + t.name">
+              <input type="checkbox" [checked]="(state.filters().teams ?? []).includes(t.id)" (change)="toggleTeam(t.id)" />
+              <span class="board-fmenu-dot" [style.background]="t.color"></span>{{ t.icon ? t.icon + ' ' : '' }}{{ t.name }}</label>
+          }
+          <label class="filter-option-item board-fmenu-item" title="Cards with no team yet">
+            <input type="checkbox" [checked]="(state.filters().teams ?? []).includes(noTeam)" (change)="toggleTeam(noTeam)" />No team</label>
+        </app-action-menu>
+      }
+      <app-action-menu class="board-fmenu" label="More" [badge]="moreCount()" [closeOnClick]="false" [panelWidth]="250">
+        <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().author === 'CLAUDE'" (change)="toggleAuthor('CLAUDE')" />✦ Made by Claude</label>
+        <label class="filter-option-item board-fmenu-item"><input type="checkbox" [checked]="state.filters().scopeNotDecided" (change)="toggleScope()" />Scope not decided</label>
+        @if (cycleId()) {
+          <label class="filter-option-item board-fmenu-item" title="Own only hides cards that live on another board and show here through a shared cycle or a related board">
+            <input type="checkbox" [checked]="!!state.filters().ownOnly" (change)="setFilters({ ownOnly: !state.filters().ownOnly })" />Own only (hide related)</label>
+        } @else {
+          <label class="filter-option-item board-fmenu-item" title="Cards whose session cycle was deleted - clean them up">
+            <input type="checkbox" [checked]="!!state.filters().cycleDeleted" (change)="toggleCycleDeleted()" />◷ Cycle deleted</label>
+        }
+      </app-action-menu>
     </div>
-    @if (state.page(); as page) {
-      <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
+    @if (activeFilters().length) {
+      <div class="board-fchips">
+        @for (f of activeFilters(); track f.key) {
+          <span class="board-fchip">{{ f.label }}<button type="button" [attr.aria-label]="'Remove ' + f.label" (click)="f.clear()">✕</button></span>
+        }
+        <button type="button" class="board-link board-fchips-clear" (click)="clearFilters(search)">Clear all</button>
+      </div>
     }
-    @if (questionCards().length) {
-      <button type="button" class="board-qpill board-qpill-total" [disabled]="!state.editable()" title="Claude's open questions on these cards - answer the first card's"
-              (click)="answering.set(questionCards()[0].id)">❓ {{ questionTotal() }} open question{{ questionTotal() === 1 ? '' : 's' }}
-        on {{ questionCards().length }} card{{ questionCards().length === 1 ? '' : 's' }}</button>
-    }
+    <div class="board-summary">
+      @if (state.page(); as page) {
+        <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
+      }
+      @if (questionCards().length) {
+        <button type="button" class="board-qpill board-qpill-total" [disabled]="!state.editable()" title="Claude's open questions on these cards - answer the first card's"
+                (click)="answering.set(questionCards()[0].id)">❓ {{ questionTotal() }} open question{{ questionTotal() === 1 ? '' : 's' }}
+          on {{ questionCards().length }} card{{ questionCards().length === 1 ? '' : 's' }}</button>
+      }
+    </div>
     @if (showNextSteps()) {
       <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
     }
@@ -136,10 +168,17 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
                          [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" [viewBoard]="cycleId()" [boardNames]="boardNames()" (retest)="retest.start($event)"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
                          (action)="onAction($event.card, $event.action)" (triage)="startTriage()" (acceptHigh)="acceptHigh($event)"
-                         (answer)="answering.set($event.id)" (waiting)="waitingBar.set({ id: $event.card.id, anchor: $event.anchor })" />
+                         (answer)="answering.set($event.id)" (waiting)="waitingBar.set({ id: $event.card.id, anchor: $event.anchor })"
+                         [compact]="density.density() === 'compact'" (hovered)="onHover($event.card, $event.el)" />
+      @if (peekCard(); as pk) {
+        <app-card-peek [card]="pk.card" [anchor]="pk.anchor" [editable]="state.editable()" [now]="now()" [retest]="retest.byNumber().get(pk.card.number) ?? null"
+                       [boardName]="pk.card.cycleId ? (boardNames().get(pk.card.cycleId) ?? '') : ''" [liveStep]="peekLive()" [toAzure]="peekAzure()"
+                       (entered)="keepPeek()" (left)="hidePeek()" (open)="closePeek(); openCard(pk.card)" (answer)="closePeek(); answering.set(pk.card.id)"
+                       (action)="closePeek(); $event.kind === 'retest' ? retest.start([pk.card.number]) : onAction(pk.card, $event)" />
+      }
     } @else {
       <app-board-list-view [cards]="sortedForList()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
-                           [now]="now()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
+                           [now]="now()" [boardNames]="boardNames()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
     }
 
     <app-bulk-bar [count]="state.selected().size" [total]="state.cards().length" (action)="bulk($event)" (cleared)="state.clearSelection()"
@@ -185,7 +224,100 @@ export class BoardViewComponent {
   readonly showNextSteps = input(true);
   private readonly cardMode = inject(CardViewModeService);
   readonly teamsState = inject(TeamsStateService);
+  readonly density = inject(BoardDensityService);
+  private readonly liveWork = inject(LiveWorkStateService);
+  private readonly outbox = inject(BundleOutboxService);
+  /** The card the pointer rests on, read whole beside it (the hover peek). */
+  private readonly peek = signal<{ id: string; anchor: PeekAnchor } | null>(null);
+  readonly peekCard = computed(() => {
+    const p = this.peek();
+    const card = p ? this.state.cards().find((c) => c.id === p.id) : undefined;
+    return p && card ? { card, anchor: p.anchor } : null;
+  });
+  readonly peekLive = computed(() => {
+    const c = this.peekCard()?.card;
+    const w = c ? this.liveWork.working().find((x) => x.project === c.project && x.cardNumber === c.number) : undefined;
+    return w ? currentStep(w) : null;
+  });
+  readonly peekAzure = computed(() => {
+    const c = this.peekCard()?.card;
+    return c ? (this.outbox.byCard().get(c.id) ?? []).reduce((n, b) => n + b.steps.filter((x) => x.ticked).length, 0) : 0;
+  });
+  private peekTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** The pointer on a card: its peek after a short rest (350 ms), and the keys act on it. Off it: the peek goes unless the pointer moved into it. */
+  onHover(card: CardSummary, el: HTMLElement | null): void {
+    clearTimeout(this.peekTimer);
+    if (!el) {
+      this.peekTimer = setTimeout(() => this.peek.set(null), 220);
+      return;
+    }
+    this.peekTimer = setTimeout(() => {
+      if (!el.isConnected || this.state.openCardId() || document.querySelector('.cdk-drag-preview')) return;
+      const r = el.getBoundingClientRect();
+      this.state.focusedId.set(card.id);
+      this.peek.set({ id: card.id, anchor: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } });
+    }, this.peek() ? 120 : 350);
+  }
+
+  keepPeek(): void {
+    clearTimeout(this.peekTimer);
+  }
+
+  hidePeek(): void {
+    clearTimeout(this.peekTimer);
+    this.peekTimer = setTimeout(() => this.peek.set(null), 220);
+  }
+
+  closePeek(): void {
+    clearTimeout(this.peekTimer);
+    this.peek.set(null);
+  }
+
+  /** A scroll anywhere but in the peek moves the cards under it (it stays put): it goes; so does a resize. */
+  private readonly peekScroll = (e: Event): void => {
+    if (!this.peek()) return;
+    const t = e.target as Element | null;
+    if (t && typeof t.closest === 'function' && t.closest('app-card-peek')) return;
+    this.closePeek();
+  };
   readonly noTeam = NO_TEAM;
+  /** The More menu's filters that are on. */
+  readonly moreCount = computed(() => {
+    const f = this.state.filters();
+    return (f.author === 'CLAUDE' ? 1 : 0) + (f.scopeNotDecided ? 1 : 0) + (this.cycleId() ? (f.ownOnly ? 1 : 0) : (f.cycleDeleted ? 1 : 0));
+  });
+  /** Every filter that is on, as a chip under the menus - nothing filters the board unseen. */
+  readonly activeFilters = computed(() => {
+    const f = this.state.filters();
+    const out: { key: string; label: string; clear: () => void }[] = [];
+    for (const k of f.kinds) out.push({ key: 'k' + k, label: this.kindLabel(k), clear: () => this.toggleKind(k) });
+    for (const x of f.flags) out.push({ key: 'f' + x, label: FLAG_LABELS[x], clear: () => this.toggleFlag(x) });
+    if (f.waiting) {
+      const w = f.waiting;
+      out.push({ key: 'w', label: w === 'USER' ? 'Waiting on me' : w === 'CLAUDE' ? 'Waiting on Claude' : 'Needs re-test', clear: () => this.toggleWaiting(w) });
+    }
+    for (const id of f.teams ?? []) {
+      const t = this.teamsState.teams().find((x) => x.id === id);
+      out.push({ key: 't' + id, label: id === NO_TEAM ? 'No team' : 'Team: ' + (t?.name ?? id), clear: () => this.toggleTeam(id) });
+    }
+    if (f.author === 'CLAUDE') out.push({ key: 'a', label: '✦ Made by Claude', clear: () => this.toggleAuthor('CLAUDE') });
+    if (f.scopeNotDecided) out.push({ key: 's', label: 'Scope not decided', clear: () => this.toggleScope() });
+    if (this.cycleId() && f.ownOnly) out.push({ key: 'o', label: 'Own only', clear: () => this.setFilters({ ownOnly: false }) });
+    if (!this.cycleId() && f.cycleDeleted) out.push({ key: 'c', label: '◷ Cycle deleted', clear: () => this.toggleCycleDeleted() });
+    if (f.q) out.push({ key: 'q', label: '“' + f.q + '”', clear: () => this.setSearch('') });
+    return out;
+  });
+
+  kindLabel(k: CardKind): string {
+    return k.charAt(0) + k.slice(1).toLowerCase();
+  }
+
+  clearFilters(search: HTMLInputElement): void {
+    search.value = '';
+    this.setFilters({ kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null, cycleDeleted: false, teams: [],
+      ownOnly: this.cycleId() ? false : this.state.filters().ownOnly });
+  }
   /** How the open card is shown here - a card window is always 'window'; a board tab shows Side or Full. */
   readonly layout = computed<CardViewMode>(() => (this.windowMode() ? 'window' : this.cardMode.mode() === 'full' ? 'full' : 'side'));
 
@@ -248,6 +380,17 @@ export class BoardViewComponent {
       untracked(() => title.setTitle(n ? `(${n}) ${base}` : base));
     });
     inject(DestroyRef).onDestroy(() => title.setTitle(base));
+    window.addEventListener('scroll', this.peekScroll, true);
+    window.addEventListener('resize', this.peekScroll);
+    inject(DestroyRef).onDestroy(() => {
+      window.removeEventListener('scroll', this.peekScroll, true);
+      window.removeEventListener('resize', this.peekScroll);
+      clearTimeout(this.peekTimer);
+    });
+    // a card opened (drawer, window) or the cards view left: no peek over it
+    effect(() => {
+      if (this.state.openCardId() || this.state.view() !== 'board' || !this.showBody()) untracked(() => this.closePeek());
+    });
     effect(() => {
       const project = this.project();
       const cycleId = this.cycleId();
@@ -499,6 +642,11 @@ export class BoardViewComponent {
     if (event.key === 'F' && event.shiftKey && this.state.openCardId()) {
       this.cardMode.set(this.layout() === 'full' ? 'side' : 'full');
       return;
+    }
+    if (this.peek() && !['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) {
+      // the peek closes on any key; Escape only closes it, the others still act on the card it showed (it has the focus)
+      this.closePeek();
+      if (event.key === 'Escape') return;
     }
     if (event.key === 'Escape') {
       // A dialog over the board (the call popup, a spec) closes itself first; the card stays open.

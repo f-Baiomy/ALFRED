@@ -65,6 +65,9 @@ describe('BoardColumnsComponent', () => {
     fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelectorAll('.board-col').length).toBe(7);
+    // empty open columns fold to rails that still take drops; the Inbox and Closed never do
+    expect(Array.from(el.querySelectorAll('.board-col.rail .board-col-head span:first-child')).map((s) => s.textContent)).toEqual(
+      ['To do', 'In progress', 'Fixed', 'Verified', 'Done']);
     expect(el.textContent).toContain('Inbox clear');
   });
 
