@@ -1067,7 +1067,23 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     @Override
     public Map<String, List<CallBadge>> badgesOfCalls(Collection<String> callIds) {
         Map<String, List<CallBadge>> out = new LinkedHashMap<>();
-        for (List<String> chunk : chunks(callIds)) {
+        List<String> own = new ArrayList<>();
+        for (String id : callIds) {
+            int at = id.indexOf('@');
+            if (at <= 0) {
+                own.add(id);
+                continue;
+            }
+            // another Alfred's call as a page reads it (<call>@<link>, specs/035): this board's mentions of it hold the
+            // owner's call id, in that Alfred's cycle (<cycle>@<link>)
+            String suffix = id.substring(at);
+            String like = "%" + suffix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            Map<String, List<CallBadge>> found = badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution, c.title "
+                    + "FROM mentions m JOIN cards c ON c.id = m.card_id WHERE m.call_id = ? AND m.cycle_id LIKE ? ESCAPE '\\' ORDER BY c.number "
+                    + "LIMIT " + BADGE_ROWS, id.substring(0, at), like);
+            found.values().forEach(list -> out.computeIfAbsent(id, k -> new ArrayList<>()).addAll(list));
+        }
+        for (List<String> chunk : chunks(own)) {
             out.putAll(badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution, c.title FROM mentions m "
                     + "JOIN cards c ON c.id = m.card_id WHERE m.call_id IN (" + marks(chunk.size()) + ") ORDER BY c.number LIMIT "
                     + BADGE_ROWS, chunk.toArray()));

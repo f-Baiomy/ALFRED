@@ -9,6 +9,8 @@ import { CommentsApiService } from './comments-api.service';
 import { ExportApiService } from './export-api.service';
 import { ExportDialogService } from './export-dialog.service';
 import { SessionCyclesApiService } from './session-cycles-api.service';
+import { LinksStateService } from '../links/links-state.service';
+import { splitRef } from '../links/remote-ref';
 
 const PAGE_SIZE = 200;
 
@@ -34,8 +36,9 @@ function pageQuery(offset: number): CallsQuery {
   return { search: '', supplier: '', sort: 'oldest', offset, limit: PAGE_SIZE, sessionId: '', operationId: '', requestId: '' };
 }
 
-function exportedCycleOf(cycle: SessionCycle): ExportedCycle {
-  return { id: cycle.id, name: cycle.name, assignedTo: cycle.assignedTo, status: cycle.status, createdAt: cycle.createdAt ?? null };
+function exportedCycleOf(cycle: SessionCycle, origin: string | null): ExportedCycle {
+  return { id: cycle.id, name: cycle.name, assignedTo: cycle.assignedTo, status: cycle.status, createdAt: cycle.createdAt ?? null,
+    ...(origin ? { origin } : {}) };
 }
 
 /**
@@ -50,6 +53,13 @@ export class CycleExportService {
   private readonly commentsApi = inject(CommentsApiService);
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
+  private readonly links = inject(LinksStateService);
+
+  /** The name of the Alfred another Alfred's cycle is streamed from, or null for this Alfred's own. */
+  private originOf(id: string): string | null {
+    const s = splitRef(id);
+    return s ? this.links.nameOf(s.slug) : null;
+  }
 
   private readonly exportingCycleIdState = signal<string | null>(null);
   private readonly progressState = signal<string | null>(null);
@@ -89,6 +99,8 @@ export class CycleExportService {
       .subscribe({
         next: (result) => {
           this.finish();
+          // another Alfred's cycle: its owner's read log says it was exported (D31)
+          if (result && splitRef(cycle.id)) this.api.get(cycle.id, 'export').subscribe({ error: () => undefined });
           if (!result) {
             this.messageState.set(`"${cycle.name}" has no captured calls to export.`);
             return;
@@ -102,13 +114,16 @@ export class CycleExportService {
             format,
             result.overlapCandidates,
             'all',
-            exportedCycleOf(cycle),
+            exportedCycleOf(cycle, this.originOf(cycle.id)),
             result.spacers
           );
         },
-        error: () => {
+        error: (e: unknown) => {
           this.finish();
-          this.messageState.set(`Could not export "${cycle.name}" - loading its calls failed.`);
+          const origin = this.originOf(cycle.id);
+          const offline = origin && (e as { status?: number })?.status && [502, 503, 504].includes((e as { status: number }).status);
+          this.messageState.set(offline ? `Could not export "${cycle.name}" - ${origin} is offline, and an export never cuts its calls.`
+            : `Could not export "${cycle.name}" - loading its calls failed.`);
         },
       });
   }

@@ -28,15 +28,19 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
     private final com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound;
 
     private final ObjectProvider<RelateCycleUseCase> relations;
+    /** specs/035: a cycle another Alfred streams ({@code <id>@<slug>}) is read over its link, signed by its owner. */
+    private final ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote;
 
     public BoardCycleCallsAdapter(ListCapturedCallsUseCase capturedCalls, ListPagedCapturedInternalCallsUseCase capturedInternalCalls,
                                   NormalizeEndpointUseCase endpoints,
                                   com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound,
-                                  ObjectProvider<RelateCycleUseCase> relations) {
+                                  ObjectProvider<RelateCycleUseCase> relations,
+                                  ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote) {
         this.reader = new CycleCallsReader(capturedCalls, capturedInternalCalls);
         this.endpoints = endpoints;
         this.inbound = inbound;
         this.relations = relations;
+        this.remote = remote;
     }
 
     /** The newest live inbound calls (the regression watch, specs/015 FR-17), signed, with their time. */
@@ -114,6 +118,11 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
         List<CycleCall> out = new ArrayList<>();
         if (limit <= 0) {
             return out;
+        }
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote.getIfAvailable();
+        if (r != null && r.isRemote(cycleId)) {
+            List<CycleCall> calls = r.cycleCalls(cycleId, limit);
+            return calls.size() > limit ? calls.subList(0, limit) : calls;
         }
         try {
             reader.inbound(cycleId, c -> {

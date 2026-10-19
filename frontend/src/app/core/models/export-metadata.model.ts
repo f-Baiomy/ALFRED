@@ -21,6 +21,8 @@ export interface ExportedCycle {
   readonly assignedTo: string | null;
   readonly status: string;
   readonly createdAt: string | null;
+  /** The Alfred it was streamed from (specs/035), when it is another Alfred's cycle read live at export time. */
+  readonly origin?: string | null;
 }
 
 /**

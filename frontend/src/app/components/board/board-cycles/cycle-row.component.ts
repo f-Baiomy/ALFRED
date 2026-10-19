@@ -1,4 +1,6 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { splitRef } from '../../../core/links/remote-ref';
+import { OriginPillComponent } from '../../links/origin-pill/origin-pill.component';
 import { RouterLink } from '@angular/router';
 import { SessionCycle } from '../../../core/models/call.model';
 import { BoardCycleRow, CycleSummary, TestedCard } from '../../../core/models/cycles-tab.models';
@@ -24,7 +26,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
 @Component({
   selector: 'app-cycle-row',
   standalone: true,
-  imports: [RouterLink, CloseOnOutsideDirective],
+  imports: [RouterLink, CloseOnOutsideDirective, OriginPillComponent],
   template: `
     @let c = cycle();
     @let r = row();
@@ -38,7 +40,9 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
             <span class="cyx-dot"></span>
             <span class="cyx-name"><a [routerLink]="['/cycles', c.id]" (click)="$event.stopPropagation()">{{ c.name }}</a></span>
             @if (r.baseline) { <span class="cyx-tag base" title="Compare and “vs baseline” use this cycle">⚑ baseline</span> }
-            @if (env()) { <span class="cyx-tag" title="From the hosts its calls went to">{{ env() }}</span> }
+            @if (remote()) { <span (click)="$event.stopPropagation()"><app-origin-pill [ref]="c.id" kind="CYCLE" [host]="editable()" [allowRemove]="editable()" (remove)="act('remove')" /></span> }
+            @if (env()) { <span class="cyx-tag" title="The environment it tests">{{ env() }}</span> }
+            @if (offline()) { <span class="cyx-tag" title="Its Alfred cannot be reached - its calls are not shown, nothing is guessed">offline</span> }
           </div>
           <div class="cyx-sub">
             @if (c.status === 'RECORDING') { <span class="cyx-recpill">● REC</span> } @else if (when()) { <span>{{ when() }}</span> }
@@ -76,7 +80,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
           }
         </div>
         <div class="cyx-acts" (click)="$event.stopPropagation()">
-          @if (editable()) {
+          @if (ownEditable()) {
             @if (c.status === 'RECORDING') { <button type="button" class="action-btn" (click)="act('pause')">⏸ Pause</button> }
             @else { <button type="button" class="action-btn" (click)="act('resume')">● Resume</button> }
           }
@@ -85,7 +89,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
             @if (menu()) {
               <div class="cyx-menu">
                 @if (editable()) {
-                  <button type="button" (click)="act('rename')">✎ Rename</button>
+                  @if (!remote()) { <button type="button" (click)="act('rename')">✎ Rename</button> }
                   @if (r.baseline) { <button type="button" (click)="act('unbaseline')">⚑ Unset baseline</button> }
                   @else { <button type="button" (click)="act('baseline')">⚑ Set as baseline</button> }
                 }
@@ -98,7 +102,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
                   @if (claudeSummaries()) { <button type="button" (click)="act('summariesOff')">✦ Stop Claude's summaries on this board</button> }
                   <button type="button" (click)="act('archive')">🗄 {{ r.archived ? 'Restore' : 'Archive' }}</button>
                   <button type="button" (click)="act('remove')">Remove from board</button>
-                  @if (c.status !== 'RECORDING') { <button type="button" class="cyx-danger" (click)="act('delete')">🗑 Delete cycle…</button> }
+                  @if (c.status !== 'RECORDING' && !remote()) { <button type="button" class="cyx-danger" (click)="act('delete')">🗑 Delete cycle…</button> }
                 }
               </div>
             }
@@ -120,7 +124,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
                 <div>
                   <div class="cyx-sec">
                     <h4>Description <span class="cyx-grow"></span>
-                      @if (editable() && !editing()) { <button type="button" class="cyx-ghost" (click)="startEdit()">✎ Edit</button> }
+                      @if (ownEditable() && !editing()) { <button type="button" class="cyx-ghost" (click)="startEdit()">✎ Edit</button> }
                     </h4>
                     @if (editing()) {
                       <textarea class="cyx-text" [value]="draft()" (input)="draft.set($any($event.target).value)" maxlength="20000"
@@ -135,7 +139,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
                         <ul class="cyx-steps">
                           @for (st of stepRows(); track st.step.line) {
                             <li [class.done]="st.state.done">
-                              <button type="button" class="cyx-box" [disabled]="!editable()" [attr.aria-pressed]="st.state.done"
+                              <button type="button" class="cyx-box" [disabled]="!ownEditable()" [attr.aria-pressed]="st.state.done"
                                       [title]="st.state.by === 'calls' ? 'Ticked by a call - click to mark it not done' : 'Click to mark it ' + (st.state.done ? 'not done' : 'done')"
                                       (click)="toggleStep(st.step.line, !st.state.done)">{{ st.state.done ? '✓' : '' }}</button>
                               <span>{{ st.step.text }}
@@ -155,7 +159,7 @@ export type CycleRowAction = 'pause' | 'resume' | 'baseline' | 'unbaseline' | 'a
                   @if (c.summary) {
                     <div class="cyx-sec">
                       <h4>Claude's summary <span class="cyx-grow"></span>
-                        @if (editable()) { <button type="button" class="cyx-ghost" (click)="removeSummary()">Remove</button> }
+                        @if (ownEditable()) { <button type="button" class="cyx-ghost" (click)="removeSummary()">Remove</button> }
                       </h4>
                       <div class="cyx-summary"><div class="cyx-who">✦ Claude · written when the recording paused · your description is not changed</div>{{ c.summary }}</div>
                     </div>
@@ -273,6 +277,12 @@ export class CycleRowComponent {
   readonly hasBaseline = input(false);
   readonly pauseHint = input(false);
   readonly claudeSummaries = input(true);
+  /** Its Alfred cannot be reached right now (specs/035 D21). */
+  readonly offline = input(false);
+  /** Another Alfred's cycle on this board (D25): the board's choices (baseline, archive, remove) are this host's; the
+   *  cycle itself - recording, its name, description, steps - stays its owner's. */
+  readonly remote = computed(() => splitRef(this.cycle().id) !== null);
+  readonly ownEditable = computed(() => this.editable() && !this.remote());
 
   readonly selectedChange = output<boolean>();
   readonly action = output<CycleRowAction>();

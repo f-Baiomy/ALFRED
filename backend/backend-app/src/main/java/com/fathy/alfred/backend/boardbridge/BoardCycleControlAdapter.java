@@ -33,18 +33,28 @@ public class BoardCycleControlAdapter implements CycleControlPort {
 
     @Override
     public boolean describe(String cycleId, String description) {
-        if (notes == null || description == null) return false;
+        if (notes == null || description == null || isRemote(cycleId)) return false;
         String text = description.length() > CycleNotesUseCase.DESCRIPTION_MAX ? description.substring(0, CycleNotesUseCase.DESCRIPTION_MAX) : description;
         return notes.updateNotes(cycleId, text, null).isPresent();
     }
 
+    /** specs/035: a streamed-in cycle exists while its stream does; it is never started or paused from here (D9). */
+    private final org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote;
+
     public BoardCycleControlAdapter(CreateSessionCycleUseCase create, StartRecordingUseCase start, PauseRecordingUseCase pause,
-                                    GetSessionCycleUseCase get, ListSessionCyclesUseCase list) {
+                                    GetSessionCycleUseCase get, ListSessionCyclesUseCase list,
+                                    org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote) {
         this.create = create;
         this.start = start;
         this.pause = pause;
         this.get = get;
         this.list = list;
+        this.remote = remote;
+    }
+
+    private boolean isRemote(String cycleId) {
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote.getIfAvailable();
+        return r != null && r.isRemote(cycleId);
     }
 
     @Override
@@ -54,16 +64,25 @@ public class BoardCycleControlAdapter implements CycleControlPort {
 
     @Override
     public boolean start(String cycleId) {
+        if (isRemote(cycleId)) {
+            return false;
+        }
         return start.startRecording(cycleId).isPresent();
     }
 
     @Override
     public boolean pause(String cycleId) {
+        if (isRemote(cycleId)) {
+            return false;
+        }
         return pause.pauseRecording(cycleId).isPresent();
     }
 
     @Override
     public boolean recording(String cycleId) {
+        if (isRemote(cycleId)) {
+            return false;
+        }
         return get.getById(cycleId).map(c -> c.status() == SessionCycleStatus.RECORDING).orElse(false);
     }
 
@@ -74,6 +93,9 @@ public class BoardCycleControlAdapter implements CycleControlPort {
 
     @Override
     public boolean exists(String cycleId) {
+        if (isRemote(cycleId)) {
+            return remote.getObject().exists(cycleId);
+        }
         return cycleId != null && !cycleId.isBlank() && get.getById(cycleId).isPresent();
     }
 }

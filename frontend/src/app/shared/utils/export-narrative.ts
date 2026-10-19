@@ -705,7 +705,10 @@ const READING_GUIDE = {
 function cycleSentence(cycle: ExportedCycle | null, callCount: number): string {
   if (!cycle) return '';
   const what = callCount === 0 ? 'It is empty - the cycle captured no calls.' : `All ${callCount} of its captured ${plural(callCount, 'call is', 'calls are')} here; nothing was filtered out or left behind.`;
-  return `This is the complete session cycle "${cycle.name}". ${what}`;
+  const from = cycle.origin
+    ? ` It is ${cycle.origin}'s cycle, streamed to this Alfred and read from it in full at export time, with its secrets as ${cycle.origin} sends them.`
+    : '';
+  return `This is the complete session cycle "${cycle.name}". ${what}${from}`;
 }
 
 function prefixCycle(cycle: ExportedCycle | null, callCount: number, description: string): string {

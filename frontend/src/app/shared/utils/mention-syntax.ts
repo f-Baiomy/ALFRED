@@ -1,4 +1,5 @@
 import { MENTION_TYPES, MentionRef, MentionType } from '../../core/models/board.models';
+import { isKnownSlug } from '../../core/links/remote-ref';
 
 /**
  * `@[type:ref|label]` inside Markdown (specs/014-task-board contracts/mention-syntax.md). Anything that does not match
@@ -70,11 +71,18 @@ export function slug(heading: string): string {
   return out.replace(/-+$/, '');
 }
 
-/** The call id of a call mention (`in:<id>` / `out:<id>@<cycle>`), its direction and cycle. */
+/**
+ * The call id of a call mention (`in:<id>` / `out:<id>@<cycle>`), its direction and cycle. A call of another Alfred's
+ * cycle (`in:<id>@<cycle>@<link>`, specs/035) is that call as this Alfred reads it: `<id>@<link>`.
+ */
 export function callOf(ref: MentionRef): { direction: 'in' | 'out'; id: string; cycleId: string | null } | null {
   if (ref.type.toLowerCase() !== 'call') return null;
-  const m = /^(in|out):([^@]+)(?:@(.+))?$/.exec(ref.ref);
-  return m ? { direction: m[1] as 'in' | 'out', id: m[2], cycleId: m[3] ?? null } : null;
+  const m = /^(in|out):([^@]+)(?:@([^@]+)((?:@[^@]+)*))?$/.exec(ref.ref);
+  if (!m) return null;
+  const links = m[4] ?? '';
+  // `in:<call>@<link>`: a live call of another Alfred (its board's own `in:<call>`, tagged when read through the link)
+  if (m[3] && !links && isKnownSlug(m[3])) return { direction: m[1] as 'in' | 'out', id: `${m[2]}@${m[3]}`, cycleId: null };
+  return { direction: m[1] as 'in' | 'out', id: m[2] + links, cycleId: m[3] ? m[3] + links : null };
 }
 
 function tryParse(text: string, start: number): { ref: MentionRef; end: number } | null {

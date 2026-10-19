@@ -20,7 +20,9 @@ public record MentionRef(MentionType type, String ref, String label) {
         return colon < 0 ? null : ref.substring(colon + 1);
     }
 
-    /** The call id of a {@code call} mention, live or captured; null otherwise. */
+    /** The call id of a {@code call} mention, live or captured; null otherwise. A call of another Alfred's cycle
+     *  ({@code in:<call>@<cycle>@<link>}, specs/035) gives the owner's own call id - the id that cycle's calls carry when
+     *  this Alfred's board judges them - with the link on its {@link #cycleId()}. */
     public String callId() {
         if (type != MentionType.CALL) {
             return null;

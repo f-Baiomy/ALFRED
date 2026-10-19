@@ -56,8 +56,47 @@ public class BoardCallFactsAdapter implements CallFactsPort {
         this.signer = signer;
     }
 
+    /** specs/035: a call of a cycle another Alfred streams is judged from its owner's facts. */
+    private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRemote(org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote) {
+        this.remote = remote;
+    }
+
+    private com.fathy.alfred.backend.linksbridge.RemoteBoardData remote() {
+        return remote == null ? null : remote.getIfAvailable();
+    }
+
+    /** The remote cycles a task key stands for (none when no link is there). */
+    private List<String> remoteCycles(String taskKey) {
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote();
+        if (r == null || signer == null) {
+            return List.of();
+        }
+        return signer.cyclesOf(taskKey).stream().filter(r::isRemote).toList();
+    }
+
     @Override
     public Optional<CallFacts> facts(String callId, String cycleId, Set<String> jsonPaths) {
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote();
+        if (r != null && cycleId != null && r.isRemote(cycleId)) {
+            return r.facts(callId, cycleId, jsonPaths);
+        }
+        Optional<CallFacts> local = localFacts(callId, cycleId, jsonPaths);
+        if (local.isPresent() || cycleId == null || r == null) {
+            return local;
+        }
+        for (String c : remoteCycles(cycleId)) {
+            Optional<CallFacts> f = r.facts(callId, c, jsonPaths);
+            if (f.isPresent()) {
+                return f;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<CallFacts> localFacts(String callId, String cycleId, Set<String> jsonPaths) {
         try {
             Integer status;
             Double duration = null;
@@ -106,7 +145,11 @@ public class BoardCallFactsAdapter implements CallFactsPort {
 
     /** A call one of the task's cycles captured (specs/027: a board's key stands for all its related cycles). */
     private Optional<CallDetail> capturedDetail(String taskKey, String callId) {
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote();
         for (String cycleId : signer == null ? List.of(taskKey) : signer.cyclesOf(taskKey)) {
+            if (r != null && r.isRemote(cycleId)) {
+                continue;
+            }
             Optional<CallDetail> d = cycleCalls.getDetail(cycleId, callId);
             if (d.isPresent()) {
                 return d;
@@ -117,6 +160,24 @@ public class BoardCallFactsAdapter implements CallFactsPort {
 
     @Override
     public Optional<CallBodies> bodies(String callId, String cycleId) {
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote();
+        if (r != null && cycleId != null && r.isRemote(cycleId)) {
+            return r.bodies(callId, cycleId);
+        }
+        Optional<CallBodies> local = localBodies(callId, cycleId);
+        if (local.isPresent() || cycleId == null || r == null) {
+            return local;
+        }
+        for (String c : remoteCycles(cycleId)) {
+            Optional<CallBodies> b = r.bodies(callId, c);
+            if (b.isPresent()) {
+                return b;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<CallBodies> localBodies(String callId, String cycleId) {
         try {
             Optional<CallDetail> detail = cycleId == null ? liveCalls.getDetail(callId) : capturedDetail(cycleId, callId);
             if (detail.isEmpty() || detail.get().response() == null) {

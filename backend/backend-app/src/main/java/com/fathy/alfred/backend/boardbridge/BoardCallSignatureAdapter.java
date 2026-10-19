@@ -29,6 +29,12 @@ public class BoardCallSignatureAdapter implements CallSignaturePort {
         if (callId == null || direction == null) {
             return Optional.empty();
         }
+        com.fathy.alfred.backend.linksbridge.RemoteBoardData r = remote == null ? null : remote.getIfAvailable();
+        if (r != null && cycleId != null && r.isRemote(cycleId)) {
+            // specs/035: signed by the cycle's owner, the same way
+            return r.cycleCalls(cycleId, 20_000).stream().filter(c -> c.callId().equals(callId) && direction.equals(c.direction()))
+                    .map(com.fathy.alfred.backend.board.domain.model.CycleCall::signature).filter(java.util.Objects::nonNull).findFirst();
+        }
         String resolverDirection = "out".equals(direction) ? "outbound" : "inbound";
         try {
             // The summary has everything a signature needs; the headers and bodies of a big call are never loaded for it.
@@ -42,6 +48,13 @@ public class BoardCallSignatureAdapter implements CallSignaturePort {
         } catch (RuntimeException e) {
             return Optional.empty(); // a call that cannot be read gives no signature, never a failed save
         }
+    }
+
+    private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRemote(org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.linksbridge.RemoteBoardData> remote) {
+        this.remote = remote;
     }
 
     private String signatureFor(String method, String url, Integer status) {

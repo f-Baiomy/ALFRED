@@ -20,6 +20,11 @@ import {
 import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-verdicts-dialog.component';
 import { recordForBoard } from '../record-line/record-line.component';
 import { CycleRowAction, CycleRowComponent } from './cycle-row.component';
+import { LinksStateService } from '../../../core/links/links-state.service';
+import { LinksApiService } from '../../../core/links/links-api.service';
+import { LinksSocketService } from '../../../core/links/links-socket.service';
+import { splitRef } from '../../../core/links/remote-ref';
+import { OriginPillComponent } from '../../links/origin-pill/origin-pill.component';
 
 type Chip = 'all' | 'recording' | 'retests' | 'failures';
 type Sort = 'newest' | 'oldest' | 'failures' | 'calls';
@@ -50,7 +55,7 @@ function writeSet(key: string, set: ReadonlySet<string>): void {
 @Component({
   selector: 'app-board-cycles',
   standalone: true,
-  imports: [CycleRowComponent, CycleVerdictsDialogComponent, CloseOnOutsideDirective],
+  imports: [CycleRowComponent, CycleVerdictsDialogComponent, CloseOnOutsideDirective, OriginPillComponent],
   template: `
     <div class="cyx-tab">
       <div class="cyx-head">
@@ -125,7 +130,7 @@ function writeSet(key: string, set: ReadonlySet<string>): void {
         @for (v of shown(); track v.row.cycleId) {
           <app-cycle-row [cycle]="v.cycle" [row]="v.row" [summary]="summaries()[v.row.cycleId] ?? null" [marks]="marks()[v.row.cycleId] ?? null"
                          [found]="found()[v.row.cycleId] ?? []" [boardId]="boardId()" [editable]="editable()" [selected]="selected().has(v.row.cycleId)"
-                         [env]="envOf(v.row.cycleId)" [versus]="versusOf(v.row.cycleId)" [hasBaseline]="!!baseline()" [claudeSummaries]="claudeSummaries()"
+                         [env]="envOf(v.row.cycleId)" [offline]="offline().has(v.row.cycleId)" [versus]="versusOf(v.row.cycleId)" [hasBaseline]="!!baseline()" [claudeSummaries]="claudeSummaries()"
                          [pauseHint]="pauseHintOf(v.row, v.cycle)"
                          (selectedChange)="select(v.row.cycleId, $event)" (action)="onAction(v.cycle, v.row, $event)"
                          (cardTimeline)="showTimeline($event.card, $event.event)" (dismissPause)="hidePauseHint(v.row.cycleId)" (changed)="cycleChanged($event)" />
@@ -242,7 +247,14 @@ function writeSet(key: string, set: ReadonlySet<string>): void {
             @for (c of addable(); track c.id) {
               <label><input type="checkbox" [checked]="addPicked().has(c.id)" (change)="toggleAdd(c.id)" /> {{ c.name }}
                 <small>{{ c.createdAt.slice(0, 10) }}@if (c.status === 'RECORDING') { · ● recording }</small></label>
-            } @empty { <div class="cyx-empty">No other cycle.</div> }
+            } @empty { @if (!addableRemote().length) { <div class="cyx-empty">No other cycle.</div> } }
+            @if (addableRemote().length) {
+              <div class="cyx-dim lk-small">⇇ Streamed to this Alfred - read live from their owner, nothing of them kept here</div>
+              @for (c of addableRemote(); track c.ref) {
+                <label><input type="checkbox" [checked]="addPicked().has(c.ref)" (change)="toggleAdd(c.ref)" /> {{ c.name }}
+                  <app-origin-pill [ref]="c.ref" kind="CYCLE" />@if (c.env) { <span class="lk-chip amber">🧪 {{ c.env }}</span> }</label>
+              }
+            }
           </div>
           <div class="dialog-actions">
             <button type="button" class="dialog-btn secondary" (click)="adding.set(false)">Cancel</button>
@@ -278,6 +290,8 @@ export class BoardCyclesComponent {
   private readonly router = inject(Router);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly chat = inject(ChatStateService);
+  private readonly links = inject(LinksStateService);
+  private readonly linksApi = inject(LinksApiService);
 
   readonly boardId = input.required<string>();
   readonly editable = input(true);
@@ -319,7 +333,13 @@ export class BoardCyclesComponent {
   private readonly hiddenPause = signal<ReadonlySet<string>>(new Set());
 
   readonly project = computed(() => this.board()?.board.project ?? '');
-  private readonly cycleById = computed(() => new Map(this.cycleState.cycles().map((c) => [c.id, c] as const)));
+  /** Cycles of other Alfreds on this board (specs/035 D25), read from their owners; a placeholder while one is offline. */
+  private readonly remoteCycles = signal<Record<string, SessionCycle>>({});
+  readonly offline = signal<ReadonlySet<string>>(new Set());
+  /** The environment each test cycle belongs to (D41): `cycleRef -> STG`, kept by this host. */
+  private readonly envTags = signal<Record<string, string>>({});
+  private readonly cycleById = computed(() => new Map([...this.cycleState.cycles().map((c) => [c.id, c] as const),
+    ...Object.entries(this.remoteCycles())]));
   private readonly joined = computed(() => this.rows().flatMap((row) => {
     const cycle = this.cycleById().get(row.cycleId);
     return cycle ? [{ row, cycle }] : [];
@@ -373,6 +393,17 @@ export class BoardCyclesComponent {
     const picked = rt.cards.map((n) => this.cards().find((c) => c.number === n)).filter((c): c is CardSummary => !!c);
     return retestName(picked, this.board()?.board.name ?? 'Board');
   });
+  /** Cycles streamed to this Alfred and not on this board yet - the host works them like its own (D25). */
+  readonly addableRemote = computed(() => {
+    const on = new Set(this.rows().map((r) => r.cycleId));
+    const q = this.addQ().trim().toLowerCase();
+    return this.links.given().filter((s) => s.kind === 'CYCLE' && !s.endedAt).flatMap((s) => {
+      const slug = this.links.linkById().get(s.linkId)?.slug;
+      const ref = slug ? `${s.target}@${slug}` : null;
+      const name = s.targetName || s.target;
+      return ref && !on.has(ref) && (!q || name.toLowerCase().includes(q)) ? [{ ref, name, env: s.env }] : [];
+    });
+  });
   readonly addable = computed(() => {
     const on = new Set(this.rows().map((r) => r.cycleId));
     const q = this.addQ().trim().toLowerCase();
@@ -395,7 +426,24 @@ export class BoardCyclesComponent {
     // live counters: a cycle of this board caught a call - its summary (and its cards' verdicts) again, never on a timer
     const live = this.cycleState.contentChanged$.pipe(filter((id) => this.rows().some((r) => r.cycleId === id)), auditTime(1500))
       .subscribe((id) => { this.loadSummary(id); this.loadRows(this.boardId()); });
-    destroy.onDestroy(() => { sub.unsubscribe(); live.unsubscribe(); });
+    // a remote cycle of this board caught a call, changed or came back online: its summary and record again (no timer)
+    this.links.start();
+    const remote = inject(LinksSocketService).events$
+      .pipe(filter((e) => (e.type === 'signal' && (e.channel === 'session-cycles' || e.channel === 'resync' || e.channel === 'env'))
+        || e.type === 'links-changed'), auditTime(1500))
+      .subscribe((e) => {
+        const slug = e.type === 'signal' ? e.slug : null;
+        const ids = this.rows().map((r) => r.cycleId).filter((id) => {
+          const sp = splitRef(id);
+          return !!sp && (!slug || sp.slug === slug);
+        });
+        for (const id of ids) {
+          this.loadRemoteCycle(id);
+          this.loadSummary(id);
+        }
+        if (e.type === 'signal' && e.channel === 'env') this.loadEnvTags(this.boardId());
+      });
+    destroy.onDestroy(() => { sub.unsubscribe(); live.unsubscribe(); remote.unsubscribe(); });
   }
 
   private load(id: string): void {
@@ -408,7 +456,39 @@ export class BoardCyclesComponent {
       error: () => this.board.set(null),
     });
     this.api.cyclePrefs(id).subscribe({ next: (p) => this.claudeSummaries.set(p.claudeSummaries), error: () => undefined });
+    this.loadEnvTags(id);
     this.loadRows(id);
+  }
+
+  private loadEnvTags(id: string): void {
+    this.linksApi.envCycles(id).subscribe({
+      next: (list) => {
+        if (this.boardId() === id) this.envTags.set(Object.fromEntries(list.map((c) => [c.cycleRef, c.env])));
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Another Alfred's cycle, read from it; while it cannot be reached, its name from the stream and "offline" (D21). */
+  private loadRemoteCycle(ref: string): void {
+    const placeholder = (): SessionCycle => {
+      const split = splitRef(ref)!;
+      const link = this.links.linkBySlug().get(split.slug);
+      const stream = link ? this.links.givenStream(link.id, 'CYCLE', split.inner) : undefined;
+      const row = this.rows().find((r) => r.cycleId === ref);
+      return { id: ref, name: stream?.targetName || `a cycle of ${this.links.nameOf(split.slug)}`, createdAt: row?.relatedAt ?? '',
+        assignedTo: stream?.project ?? null, status: 'PAUSED' };
+    };
+    this.cyclesApi.get(ref).subscribe({
+      next: (c) => {
+        this.remoteCycles.update((m) => ({ ...m, [ref]: { ...c, id: ref } }));
+        this.offline.update((o) => new Set([...o].filter((x) => x !== ref)));
+      },
+      error: () => {
+        this.remoteCycles.update((m) => (m[ref] ? m : { ...m, [ref]: placeholder() }));
+        this.offline.update((o) => new Set([...o, ref]));
+      },
+    });
   }
 
   private loadRows(id: string): void {
@@ -417,6 +497,7 @@ export class BoardCyclesComponent {
         if (this.boardId() !== id) return;
         const known = this.summaries();
         this.rows.set(rows);
+        for (const r of rows) if (splitRef(r.cycleId) && !this.remoteCycles()[r.cycleId]) this.loadRemoteCycle(r.cycleId);
         const missing = rows.filter((r) => !known[r.cycleId]).map((r) => r.cycleId);
         if (!missing.length) return;
         forkJoin(missing.map((c) => this.cyclesApi.summary(c).pipe(catchError(() => of(null)))))
@@ -447,7 +528,7 @@ export class BoardCyclesComponent {
   }
 
   envOf(cycleId: string): string | null {
-    return environmentOf(this.summaries()[cycleId] ?? null);
+    return this.envTags()[cycleId] ?? environmentOf(this.summaries()[cycleId] ?? null);
   }
 
   /** "vs baseline" (else "vs previous") on a row - only when something changed. */
@@ -467,7 +548,7 @@ export class BoardCyclesComponent {
   }
 
   pauseHintOf(row: BoardCycleRow, cycle: SessionCycle): boolean {
-    return this.editable() && !this.hiddenPause().has(row.cycleId) && pauseSuggested(row, cycle.status === 'RECORDING');
+    return this.editable() && !splitRef(row.cycleId) && !this.hiddenPause().has(row.cycleId) && pauseSuggested(row, cycle.status === 'RECORDING');
   }
 
   tone(v: CardCycleVerdict): string {
@@ -707,7 +788,8 @@ export class BoardCyclesComponent {
   /** Deletes the selected cycles after one confirm that says which mentioned calls are kept; a recording one is skipped. */
   async deleteSelected(): Promise<void> {
     const chosen = this.selectedCycles();
-    const deletable = chosen.filter((c) => c.status !== 'RECORDING');
+    // another Alfred's cycles are never deleted from here - only removed from the board
+    const deletable = chosen.filter((c) => c.status !== 'RECORDING' && !splitRef(c.id));
     const skipped = chosen.length - deletable.length;
     if (!deletable.length) { this.say('Pause the recording cycle first - a cycle that records cannot be deleted.', true); return; }
     const what = deletable.length === 1 ? `“${deletable[0].name}”` : `${deletable.length} cycles`;
@@ -727,10 +809,29 @@ export class BoardCyclesComponent {
     if (cycles.length) this.pack.set({ cycles, format: 'markdown' });
   }
 
-  savePack(): void {
+  /**
+   * One file per cycle, never a call cut (D23): a cycle whose Alfred is offline cannot be exported now - the pack names
+   * them and, on "Export without them", writes the others.
+   */
+  async savePack(): Promise<void> {
     const p = this.pack();
     if (!p) return;
-    for (const c of p.cycles) this.exporter.exportCycle(c, p.format);
+    const away = p.cycles.filter((c) => this.offline().has(c.id));
+    let cycles = p.cycles;
+    if (away.length) {
+      const names = away.map((c) => `“${c.name}”`).join(', ');
+      const others = p.cycles.length - away.length;
+      if (!others) {
+        this.say(`${names}: their Alfred is offline - an export never cuts calls, so try again when it is back.`, true);
+        return;
+      }
+      const go = await this.confirmDialog.confirm(`${names} ${away.length === 1 ? 'is' : 'are'} on an Alfred that is offline - an export never `
+        + `cuts calls, so ${away.length === 1 ? 'it' : 'they'} cannot be written now. Export the other ${others} without ${away.length === 1 ? 'it' : 'them'}?`,
+        'Export without them');
+      if (!go) return;
+      cycles = p.cycles.filter((c) => !this.offline().has(c.id));
+    }
+    for (const c of cycles) this.exporter.exportCycle(c, p.format);
     this.pack.set(null);
   }
 

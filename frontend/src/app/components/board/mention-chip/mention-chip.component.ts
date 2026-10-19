@@ -1,6 +1,8 @@
 import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { MENTION_ICONS, MentionRef, mentionTypeOf } from '../../../core/models/board.models';
 import { BoardMentionsService, MentionPreview } from '../../../core/services/board-mentions.service';
+import { LinksStateService } from '../../../core/links/links-state.service';
+import { originOf } from '../../../core/links/remote-ref';
 
 /**
  * A mention as a chip (FR-023): coloured by type, a preview fetched on first hover, the item opened on click. A mention
@@ -16,12 +18,16 @@ import { BoardMentionsService, MentionPreview } from '../../../core/services/boa
   template: `<span class="board-mention" [class]="'board-mention board-mention-' + type()" [class.removed]="preview()?.removed"
       role="button" tabindex="0" [title]="title()"  (mouseenter)="load(); place()" (focus)="load(); place()" (click)="open($event)" (keydown.enter)="open($event)">
     <span class="board-mention-icon">{{ icon() }}</span>{{ label() }}
+    @if (originName(); as o) { <span class="board-mention-origin" [class.off]="!originOnline()">⇇ {{ o }}</span> }
     @if (live()?.tone; as tone) { <span class="board-mention-dot" [class]="'board-mention-dot dot-' + tone" [title]="live()?.state ?? ''"></span> }
     @if (showPreview() && preview(); as p) {
       <span class="board-mention-tip">
         @for (line of p.lines; track $index) { <span class="board-mention-tip-line">{{ line }}</span> }
         @if (live()?.state; as st) { <span class="board-mention-tip-line dim">{{ st }}</span> }
-        @if (p.removed) { <span class="board-mention-tip-line dim">Removed - this is the label it was saved with.</span> }
+        @if (p.removed) {
+          <span class="board-mention-tip-line dim">{{ originName() ? (originOnline() ? 'Gone on ' + originName() + ' - deleted there' : originName() + ' is offline')
+            : 'Removed' }} - this is the label it was saved with.</span>
+        }
       </span>
     }
   </span>`,
@@ -37,7 +43,13 @@ export class MentionChipComponent {
   readonly icon = computed(() => MENTION_ICONS[this.type()] ?? '@');
   readonly live = computed(() => this.mentions.live(this.mention())());
   readonly label = computed(() => this.live()?.label ?? this.mention().label);
-  readonly title = computed(() => `${this.label()}${this.live()?.state ? ` · ${this.live()!.state}` : ''}
+  /** Another Alfred's card, cycle or call (specs/035 D19): which one, and whether it can be read now. */
+  private readonly links = inject(LinksStateService);
+  private readonly originSlug = computed(() => originOf(this.mention().ref, this.links.slugs()));
+  readonly originName = computed(() => (this.originSlug() ? this.links.nameOf(this.originSlug()) : null));
+  readonly originOnline = computed(() => !!this.links.linkOf(this.originSlug())?.online);
+  readonly title = computed(() => `${this.label()}${this.live()?.state ? ` · ${this.live()!.state}` : ''}${this.originName()
+    ? ` · from ${this.originName()}${this.originOnline() ? '' : ' (offline)'}` : ''}
 ${this.type()}: ${this.mention().ref}`);
   private loading = false;
   private readonly host = inject(ElementRef<HTMLElement>);
