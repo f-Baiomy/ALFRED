@@ -655,6 +655,27 @@ terminal means the messages wait: Alfred never starts or resumes a session itsel
   - A line from Alfred suggesting a board for a new work item is not a request: the user answers it with Yes (which
     starts it) or No. Do not act on it.
 
+## Streamed items - other Alfreds' cycles and boards
+
+Alfreds on the LAN stream cycles and boards to each other (specs/035). A ref ending `@<tag>` - `8f1c…@stg-83` - is
+another Alfred's cycle, board, card or call; `links_streams` lists what is streamed to this Alfred and out of it.
+
+- **Read them like local ones.** Every read tool takes the ref: `get_cycle`, `check_calls`, `investigate_call`,
+  `db_statements`, `call_logs`, `board_get`, `task_context`. The data is read live from its owner, masked there.
+  Nothing of it is kept here - quote what you need into this Alfred's own cards (the call's facts, never its bodies).
+- **Work them on this Alfred's boards.** A streamed cycle on a board here is listened to, reviewed, re-tested and
+  judged like a local one; cards opened from its calls are this Alfred's cards, mentioning the remote call.
+- **Never write on their things.** A comment or a question on another Alfred's card, a comment on its brief, a note on
+  one of its calls: `links_request` - a request its owner (a person) accepts or rejects. A view-only stream allows none.
+  Requests asked of THIS Alfred are the user's to answer - never accept or reject one yourself.
+- **Offline is a state.** When an Alfred cannot be reached, say so (`⇇ STG 83 is offline`) and answer from what you can
+  read; never guess its data, never fill the gap from an older read.
+- **Environments.** A board may be tested on several Alfreds (Local, STG, UAT…). On the host, the Task tab's matrix shows
+  every environment's column; each column is written only by its own Alfred. When THIS Alfred is an environment of
+  another's board, `env_boards` shows its column: mark items from this Alfred's calls (`env_mark`, with evidence), tick
+  steps (`env_step`), re-test the Fixed cards (`env_retest`) and, when the user asks, record a test cycle for it
+  (`env_record`). Never mark the host's own column.
+
 ## 5. Every run
 
 - First call: `task_context` (rules §0). Last call: `board_session_log`.

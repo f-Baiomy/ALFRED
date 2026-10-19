@@ -19,6 +19,10 @@ Verify on the board the card lives on (its home); the re-test is a cycle of that
   the arguments (`list_cycles` by name) → only that cycle's calls. An argument in angle brackets (`<re-test cycle>`) is a
   placeholder: ignore it.
 - `--wait`: re-test what is left together with the user (3b). `--tests`: also run each fix's tests (2. step 4).
+- **Environments** (rules "Streamed items"): on a board tested on several Alfreds, the Task tab's matrix says each one's
+  verdict; this run re-tests on this Alfred's calls. When this Alfred is an environment of another's board, re-test
+  its Fixed cards with `env_retest` instead - the host judges them on this Alfred's calls and the verdicts land in
+  this environment's column.
 - Catch up first: `board_changes` cursor `claude` (state comments for what the user did - and keep its spec entries
   for 2e). `board_status` step "verifying #18 #19" - unless `/alfred-listen` runs (1b).
 

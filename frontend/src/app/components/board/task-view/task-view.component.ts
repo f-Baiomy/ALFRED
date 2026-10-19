@@ -1,3 +1,4 @@
+import { EnvMatrixComponent } from '../../links/env-matrix/env-matrix.component';
 import { WorkItemStripComponent } from '../work-item-strip/work-item-strip.component';
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -55,7 +56,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
 @Component({
   selector: 'app-task-view',
   standalone: true,
-  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent, BoardCyclesComponent, TeamRelatedItemsComponent],
+  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent, BoardCyclesComponent, TeamRelatedItemsComponent, EnvMatrixComponent],
   template: `
     <div class="tv">
       <!-- the board page's tabs (Cards, Calls, Task, …): the header above stays, one part shows below -->
@@ -129,6 +130,8 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
             <app-task-requirements [cycleId]="cycleId()" [project]="project()" [editable]="editable()" [reqs]="reqs()" [files]="files()"
                                    [view]="view()" [notes]="notes().notes" [notInTask]="notes().notInTask" [(filter)]="reqFilter"
                                    (changed)="reload()" (cardOpened)="open($event.project, $event.number)" />
+            <!-- specs/035: the same task tested on every environment - one column per Alfred -->
+            <app-env-matrix [boardId]="cycleId()" [boardName]="cycleName()" [project]="project()" [editable]="editable()" />
           }
           @case ('test') {
             <div class="tv-two">

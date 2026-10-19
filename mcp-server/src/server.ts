@@ -28,7 +28,9 @@ import * as ruleProposals from './tools/rule-proposals.ts';
 import * as chat from './tools/chat.ts';
 import * as boards from './tools/boards.ts';
 import * as team from './tools/team.ts';
+import * as links from './tools/links.ts';
 import { withBoardParam } from './board-scope.ts';
+import { withOrigins } from './origin.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -59,12 +61,18 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'snippet (board_page_put) only when they cannot say it - it runs locked, with no network, reading data through alfred.data. '
       + 'Check it with board_snippet_view before saying it is ready. Questions asked from the board arrive as /alfred-ask <id>. '
       + 'Interception rules: you only PROPOSE them (create_rule, saved off, narrow, never pausing) to reproduce a bug or check a fix - '
-      + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
+      + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did. '
+      + 'Other Alfreds: a ref ending @<tag> (8f1c…@stg-83) is another Alfred\'s cycle, board, card or call, streamed to this one - every read '
+      + 'tool takes it like a local id and reads it live from its owner (masked there, nothing kept here); links_streams lists them. Work '
+      + 'its cycles on this Alfred\'s boards like local ones; never write on its things - ask its owner with links_request. When this '
+      + 'Alfred is an environment (STG…) of another\'s board, env_boards shows its column and env_mark / env_step / env_retest fill it.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, ruleProposals, boards, team]) module.register(server, client);
+  // specs/035: a reply about another Alfred's thing says where it came from
+  const labelled = withOrigins(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, ruleProposals, boards, team, links]) module.register(labelled, client);
   // specs/027: the task tools also take `board` - a board is a task, its id the task key they always took
-  const boarded = withBoardParam(server, client);
+  const boarded = withBoardParam(labelled, client);
   for (const module of [task, board, boardVisuals, requirements, live, chat]) module.register(boarded, client);
   return server;
 }

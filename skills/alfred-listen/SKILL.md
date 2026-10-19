@@ -47,6 +47,8 @@ Boards (specs/027): a board's cycle is what you listen to - given a board, liste
      - if not, tell the user to press Record (listening still works; it waits for calls).
    Listen re-tests **Fixed** cards from the new calls; it never asks "Record as fixed?" on To do cards - that is
    `/alfred-verify`'s.
+   A cycle streamed from another Alfred (its ref ends `@<tag>`, rules "Streamed items") is listened to the same way -
+   `check_calls` reads it live from its owner; when that Alfred is offline, say so and wait for it to come back.
 3. **Nothing to set up by hand.** Steps are ticked from the calls of the Acceptance items they name (`→ AC6`) and,
    for the rest, from the actions `check_calls` cuts the calls into (pause and area, learned from the cycle) - no
    spacers. Items with no evidence get it drafted by the runner before the first batch, and from then on Alfred judges
