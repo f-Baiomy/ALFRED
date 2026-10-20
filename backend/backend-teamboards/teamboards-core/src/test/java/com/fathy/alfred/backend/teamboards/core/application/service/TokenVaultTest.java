@@ -12,11 +12,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** specs/028 T005: in memory, 8 hours, one per connection, last entered wins, never printed. */
+/** specs/028 T005: in memory, no time limit (2026-10-20), one per connection, last entered wins, never printed. */
 class TokenVaultTest {
 
     @Test
-    void expiresAfterEightHoursAndTheLastOneWins() {
+    void keepsTheTokenUntilForgottenOrRefusedAndTheLastOneWins() {
         AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-10-17T08:00:00Z"));
         Clock clock = new Clock() {
             @Override
@@ -41,13 +41,16 @@ class TokenVaultTest {
         assertThat(v.put("c", new Token("two"), omar)).get().isEqualTo(sara);
         assertThat(v.token("c")).get().extracting(Token::value).isEqualTo("two");
         assertThat(v.entry("c").orElseThrow().toString()).doesNotContain("two");
-        now.set(now.get().plus(Duration.ofHours(8)));
-        assertThat(v.token("c")).isEmpty();
+        now.set(now.get().plus(Duration.ofDays(30)));
+        assertThat(v.token("c")).get().extracting(Token::value).isEqualTo("two"); // a month later: still held
         v.put("c", new Token("three"), sara);
         v.rejected("c", new Token("other"));
         assertThat(v.token("c")).isPresent();
         v.rejected("c", new Token("three"));
         assertThat(v.token("c")).isEmpty();
         assertThat(v.forget("c")).isFalse();
+        v.put("c", new Token("four"), sara);
+        assertThat(v.forget("c")).isTrue(); // Me settings ▸ Remove
+        assertThat(v.token("c")).isEmpty();
     }
 }

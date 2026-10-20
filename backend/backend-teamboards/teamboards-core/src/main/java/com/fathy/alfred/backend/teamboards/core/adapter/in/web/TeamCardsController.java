@@ -100,7 +100,7 @@ public class TeamCardsController {
     public ResponseEntity<?> create(@PathVariable String card, @Valid @RequestBody CreateDto body,
                                     @RequestHeader(value = ACTOR, required = false) String actor) {
         return ResponseEntity.ok(cards.create(Who.of(actor), card, body.conn(), new NewItem(body.project(), body.type(), body.title(), body.description(),
-                body.area(), body.iteration(), body.assignee()), body.markers() == null ? Markers.ALL : body.markers().markers(Markers.ALL)));
+                body.area(), body.iteration(), body.assignee()), body.markers() == null ? Markers.NONE : body.markers().markers(Markers.NONE)));
     }
 
     @DeleteMapping("/teamboards/cards/{card}/items/{conn}/{item}")
@@ -194,13 +194,18 @@ public class TeamCardsController {
         return ResponseEntity.ok(writes.check(id));
     }
 
-    public record RedraftDto(@jakarta.validation.constraints.Min(0) int step, String text, String instruction) {
+    /** {@code changes}/{@code drop} (specs/038 FR-13): Claude changes any key of a step, or drops it. */
+    public record RedraftDto(@jakarta.validation.constraints.Min(0) int step, String text, String instruction, java.util.Map<String, String> changes,
+                             Boolean drop) {
     }
 
     /** As Claude: the new text of a comment step. As the user: how to change it - a waiting message in the board's chat. */
     @PostMapping("/teamboards/writes/{id}/redraft")
     public ResponseEntity<?> redraft(@PathVariable long id, @Valid @RequestBody RedraftDto body,
                                      @RequestHeader(value = ACTOR, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE && (body.changes() != null || Boolean.TRUE.equals(body.drop()))) {
+            return ResponseEntity.ok(writes.redraftStep(Who.CLAUDE, id, body.step(), body.changes(), Boolean.TRUE.equals(body.drop())));
+        }
         if (Who.of(actor) == Who.CLAUDE) {
             return ResponseEntity.ok(writes.redraft(Who.CLAUDE, id, body.step(), body.text()));
         }

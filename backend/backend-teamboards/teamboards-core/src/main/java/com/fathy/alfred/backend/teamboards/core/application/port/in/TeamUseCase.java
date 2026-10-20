@@ -43,14 +43,14 @@ public interface TeamUseCase {
 
     // ---------------------------------------------------------------------------------------------------------- token
 
-    /** Checks the token with the tracker (who owns it), keeps it 8 hours in memory, reads the lists in the background. */
+    /** Checks the token with the tracker (who owns it), keeps it in memory until the user forgets it, reads the lists in the background. */
     TokenStatus putToken(String conn, Token token);
 
     TokenStatus tokenStatus(String conn);
 
-    /** Until when the caller's own token of a connection lives in Alfred (a paired user's; empty for anyone else). */
-    default Optional<java.time.Instant> myTokenUntil(String conn) {
-        return Optional.empty();
+    /** Whether Alfred holds the caller's own token of a connection (a paired user's; false for anyone else). */
+    default boolean holdsMyToken(String conn) {
+        return false;
     }
 
     boolean forgetToken(String conn);

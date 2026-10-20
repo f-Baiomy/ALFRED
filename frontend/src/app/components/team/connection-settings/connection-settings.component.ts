@@ -27,9 +27,13 @@ interface Draft {
     <section class="panel settings-panel">
       <h3>Team trackers</h3>
       <p class="sub">The team's tracker (Azure DevOps; Jira and ClickUp later), read into a cache every Alfred user shares on the Team tab.
-        Search reads it live. The personal access token is entered on the Team tab and kept 8 hours in Alfred's memory only - never on disk,
+        Search reads it live. The personal access token is entered on the Team tab and kept in Alfred's memory only until you remove it - never on disk,
         in a log or in a browser; everyone here searches with the last token entered.</p>
       @if (message()) { <div class="tc-msg" [class.err]="isError()">{{ message() }}</div> }
+      <label class="tc-switch" title="Off: Claude cannot even draft a change for the tracker - you still can">
+        <input type="checkbox" [checked]="claudeDrafts()" [disabled]="claudeDrafts() === null" (change)="setClaudeDrafts($any($event.target).checked)" />
+        Claude may prepare Azure changes <span class="tc-dim">- every change still waits for your Approve; Alfred never deletes a work item</span>
+      </label>
       <table class="tc-table">
         <thead><tr><th>Name</th><th>Tracker</th><th>Scope</th><th>Token (in Alfred's memory)</th><th></th></tr></thead>
         <tbody>
@@ -82,6 +86,7 @@ interface Draft {
     .tc-table { width: 100%; border-collapse: collapse; font-size: .84rem; margin: .5rem 0; }
     .tc-table th, .tc-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     .tc-dim { color: var(--text-dim); font-size: .78rem; }
+    .tc-switch { display: flex; align-items: center; gap: .5rem; margin: .4rem 0 .8rem; }
     .tc-ok { color: var(--green); }
     .tc-token { display: flex; gap: .3rem; }
     .tc-token input, .tc-form input, .tc-form select { padding: .25rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px;
@@ -103,6 +108,16 @@ export class ConnectionSettingsComponent {
   readonly message = signal<string | null>(null);
   readonly isError = signal(false);
   readonly hookOf = signal<string | null>(null);
+  /** specs/038 G-8: the switch that lets Claude prepare changes; null until read. */
+  readonly claudeDrafts = signal<boolean | null>(null);
+
+  setClaudeDrafts(on: boolean): void {
+    this.api.setClaudeDrafts(on).subscribe({
+      next: (r) => this.claudeDrafts.set(r.on),
+      error: (e) => { this.isError.set(true); this.message.set(e?.error?.message || 'Could not change it'); },
+    });
+  }
+
   /** Whether each connection has a live token. */
   readonly live = signal<Record<string, boolean>>({});
 
@@ -113,6 +128,7 @@ export class ConnectionSettingsComponent {
 
   constructor() {
     this.state.load();
+    this.api.claudeDrafts().subscribe({ next: (r) => this.claudeDrafts.set(r.on), error: () => undefined });
     effect(() => {
       const all = this.state.connections();
       this.state.token();

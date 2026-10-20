@@ -33,11 +33,18 @@ import java.util.List;
 import java.util.Map;
 
 /** An in-memory tracker for the core tests: items, a tree by Parent links, comments, and every write it was asked for. */
-class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, IdentityReader, StateCatalog, ItemWriter, AttachmentWriter, HookReader {
+class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, IdentityReader, StateCatalog, ItemWriter, AttachmentWriter, HookReader,
+        com.fathy.alfred.backend.teamboards.spi.FieldCatalog {
 
     final Map<String, Item> items = new LinkedHashMap<>();
     final Map<String, List<Comment>> comments = new LinkedHashMap<>();
     final List<String> writes = new ArrayList<>();
+    /** specs/038: what was checked with validateOnly, and a field the "project" requires on every new Task. */
+    final List<String> checks = new ArrayList<>();
+    String requiredOnTask = null;
+    int fieldReads = 0;
+    final List<NewItem> created = new ArrayList<>();
+    final List<com.fathy.alfred.backend.teamboards.spi.model.ItemUpdate> updates = new ArrayList<>();
     final List<ItemQuery> searches = new ArrayList<>();
     Person owner = new Person("p-1", "Sara Ali", "sara@example.com");
     String goodToken = "pat-1";
@@ -227,9 +234,53 @@ class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, Id
         writes.add("field " + id + " " + field + "=" + value);
     }
 
+    private void rules(NewItem item) throws ProviderException {
+        if (requiredOnTask != null && "Task".equals(item.type()) && !item.fields().containsKey(requiredOnTask)) {
+            throw new ProviderException(ProviderException.Kind.BAD_RESPONSE, "TF401320: Rule Error for field " + requiredOnTask
+                    + ". Error code: Required, InvalidEmpty.");
+        }
+    }
+
+    @Override
+    public boolean validateCreate(Connection c, Token t, NewItem item) throws ProviderException {
+        check(t);
+        rules(item);
+        checks.add("create " + item.type() + " " + item.title());
+        return true;
+    }
+
+    @Override
+    public void update(Connection c, Token t, String id, com.fathy.alfred.backend.teamboards.spi.model.ItemUpdate change) throws ProviderException {
+        check(t);
+        updates.add(change);
+        writes.add("update " + id + " " + new java.util.TreeMap<>(change.fields()) + (change.parent() == null ? "" : " parent=" + change.parent())
+                + (change.addTags().isEmpty() ? "" : " +tags=" + change.addTags()) + (change.state() == null ? "" : " state=" + change.state()));
+    }
+
+    @Override
+    public boolean validateUpdate(Connection c, Token t, String id, com.fathy.alfred.backend.teamboards.spi.model.ItemUpdate change)
+            throws ProviderException {
+        check(t);
+        if (!items.containsKey(id)) {
+            throw new ProviderException(ProviderException.Kind.NOT_FOUND, "TF401232: Work item " + id + " does not exist");
+        }
+        checks.add("update " + id);
+        return true;
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.teamboards.spi.model.FieldInfo> fields(Connection c, Token t, String project, String type) throws ProviderException {
+        check(t);
+        fieldReads++; // a read; counted to show the 24 h copy
+        return List.of(new com.fathy.alfred.backend.teamboards.spi.model.FieldInfo("Microsoft.VSTS.Common.Activity", "Activity", "string", true, false,
+                List.of("Development", "Testing"), null));
+    }
+
     @Override
     public String create(Connection c, Token t, NewItem item) throws ProviderException {
         check(t);
+        rules(item);
+        created.add(item);
         String id = String.valueOf(nextId++);
         writes.add("create " + id + " " + item.type() + " " + item.title());
         put(item(id, item.type(), item.title(), "New", null, 1));

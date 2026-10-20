@@ -208,7 +208,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                     }
                     <button type="button" class="action-btn" (click)="clearToken(null)">Stop using it now</button></span>
                   <span>Where it is kept</span><span class="muted">On the PC you choose, encrypted for your Windows user; that PC's helper hands it to Alfred
-                    whenever Alfred does not hold it (after 8 hours, or a restart) - you enter it once. Alfred holds it in memory only, for <b>your</b> searches and writes - another user never reads with it - and
+                    whenever Alfred does not hold it (after a restart) - you enter it once. Alfred holds it in memory only, for <b>your</b> searches and writes - another user never reads with it - and
                     never puts it on its disk, in a log or in an answer to a browser.</span>
                 </div>
               </div>
@@ -533,7 +533,11 @@ export class MePageComponent {
   /** From one PC (it stops handing it over), or - with null - out of Alfred's memory now. */
   clearToken(helperKeyId: string | null): void {
     if (helperKeyId) {
-      this.api.pcToken(helperKeyId, '').subscribe({ error: () => this.error.set('Could not reach that PC') });
+      // removed from the PC: Alfred stops using it too - it no longer runs out by itself (2026-10-20)
+      this.api.pcToken(helperKeyId, '').subscribe({
+        next: () => this.api.forgetMyToken().subscribe({ next: () => this.tokenSet.set(false), error: () => this.error.set('Could not forget the token') }),
+        error: () => this.error.set('Could not reach that PC'),
+      });
       return;
     }
     this.api.forgetMyToken().subscribe({ next: () => this.tokenSet.set(false), error: () => this.error.set('Could not forget the token') });

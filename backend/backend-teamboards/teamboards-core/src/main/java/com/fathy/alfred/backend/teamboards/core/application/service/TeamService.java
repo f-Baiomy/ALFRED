@@ -272,12 +272,12 @@ public class TeamService implements TeamUseCase {
     @Override
     public TokenStatus tokenStatus(String conn) {
         live.stored(conn);
-        return live.vault().entry(conn).map(e -> new TokenStatus(true, e.owner(), e.expiresAt())).orElse(new TokenStatus(false, null, null));
+        return live.vault().entry(conn).map(e -> new TokenStatus(true, e.owner(), null)).orElse(new TokenStatus(false, null, null));
     }
 
     @Override
-    public Optional<java.time.Instant> myTokenUntil(String conn) {
-        return live.vault().ownUntil(conn);
+    public boolean holdsMyToken(String conn) {
+        return live.vault().holdsOwn(conn);
     }
 
     @Override

@@ -85,7 +85,7 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   Alfred's `/lib/` shelf (`snippet-libs.ts` + `angular.json` + `scripts/lib_index.py`; Pyodide via
   `frontend/scripts/fetch-pyodide.mjs`, checksummed) - never a CDN. `snippet-security.spec.ts` fails if any of it loosens.
 
-- **The task board's text is the source of truth for its mentions** (specs/014-task-board, docs/board.md): `@[type:ref|label]` in descriptions, comments, briefs and checklist evidence is re-indexed on every save, and a live call any card mentions is kept out of the storage limits like a commented call (`CommentedCallsKept.BoardMentions`). Claude's limits are enforced in `backend-board`'s services for `X-Alfred-Actor: claude` - Inbox only for new cards, moves only to To do/In progress/Fixed, edits only its own Inbox cards, never scope/close/reopen/delete/mark (it proposes Verified/Done/close and suggests checklist marks; the user accepts), Did/Found/Next comments (or a reply / a question), and a card repeating one the user closed as Fine or Not in this flow is refused. `board_wait` is a `DeferredResult` woken by `BoardChangeFeed` (the /ws/board signal), never a poll. Board writes follow the settings edit rule except that Docker allows them; the tunnel never does.
+- **The task board's text is the source of truth for its mentions** (specs/014-task-board, docs/board.md): `@[type:ref|label]` in descriptions, comments, briefs and checklist evidence is re-indexed on every save, and a live call any card mentions is kept out of the storage limits like a commented call (`CommentedCallsKept.BoardMentions`). Claude's limits are enforced in `backend-board`'s services for `X-Alfred-Actor: claude` - Inbox only for new cards, moves only to To do/In progress/Fixed, edits only its own Inbox cards, closes (with a reason) or deletes only Inbox cards (2026-10-20), never scope/reopen/mark or a close past the Inbox (it proposes Verified/Done/close and suggests checklist marks; the user accepts), Did/Found/Next comments (or a reply / a question), and a card repeating one the user closed as Fine or Not in this flow is refused. `board_wait` is a `DeferredResult` woken by `BoardChangeFeed` (the /ws/board signal), never a poll. Board writes follow the settings edit rule except that Docker allows them; the tunnel never does.
 
 - **Native install = supervisor + `backend-server` slice** (specs/012-server-program, docs/server.md): `alfred run` (packaging/launcher/supervisor.py) starts backend, proxies, MCP (127.0.0.1, relayed at `/mcp` by `backend-app/mcpbridge`) and restarts them; its control API is on 127.0.0.1 with a token in `data/run/control.json`. Settings writes are allowed by `ALFRED_SETTINGS_EDIT_FROM` from the TCP peer, never X-Forwarded-For; the Cloudflare tunnel is always read-only. `alfred config` runs `ServerConfigCli` (fat jar: through `PropertiesLauncher`, see `Layout.config_cli`). `alfred attach` = `attach-cli/` (JDK 21) + `alfred-agent.jar`: features re-sent on every load, secret and CA in the environment, never a cross-user attach (spike S2), the CA trusted in-JVM by advice on `X509TrustManagerImpl` (spike S3).
 
@@ -132,7 +132,7 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 - **Team trackers: search live, the token only in Alfred's memory, nothing to the tracker without the user** (specs/027,
   028, docs/team.md): the Team tab and the `team_*` tools read the tracker live - nothing a search finds is stored; a
   board keeps its main item and its cards' items as full copies (diffed on sync), the rest as references. The token is
-  entered once (`PUT .../token`, in the body) and kept 8 hours in `TokenVault`'s memory - never on disk, in a log, a
+  entered once (`PUT .../token`, in the body) and kept in `TokenVault`'s memory until the user removes it (Me settings / Forget; no time limit since 2026-10-20) - never on disk, in a log, a
   response or a browser; a paired user's token is theirs alone (kept on their PC by the helper, handed to memory per user -
   specs/031), an unpaired browser reads with the shared last-entered one, Claude never holds one (`TOKEN_MISSING` tells it to
   ask the user), and `TeamTunnelGuard` refuses live reads through the tunnel. Every write to the tracker except the
@@ -218,6 +218,15 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   2 MB, a .zip holding exactly one answers file. A stored html/zip is only ever an answers file and always an
   attachment. Dry run first; applying as Claude needs `askedIn`. New question data stays new JSON keys in the
   ```` ```questions ```` / ```` ```answers ```` blocks (`details`, `via`, `sure`) - no enum, actor or column.
+
+- **Claude may draft any Azure write except a delete, and nothing goes without the user's Approve** (specs/038,
+  docs/team.md "Full writes"): new payload keys only on the existing step kinds (`fields`, `links`, `tags`, `parent`,
+  `copyOf`, `template`, `category`, `footer`, `from*`) - no `StepKind`/column. Every CREATE/FIELD step is dry-run in
+  Azure (`validateOnly`) at draft and again at Approve. `AzureClient.allowed` is the write allow-list (no DELETE, ever) -
+  a new Azure write endpoint goes there or it is refused. Approve/reject/edit/retry/direct go through
+  `TeamCallerPort.refuseDecision` (Claude actor, `X-Alfred-Via`, helper key refused). Alfred's own marks on Azure
+  (comment, tag, hyperlink, footer) are opt-in. At most 5 of Claude's bundles wait per board; a kill switch
+  (`setting.claude-drafts`) stops all of Claude's drafts.
 
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination

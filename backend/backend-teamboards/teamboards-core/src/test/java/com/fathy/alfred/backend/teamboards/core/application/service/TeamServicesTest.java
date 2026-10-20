@@ -341,18 +341,20 @@ class TeamServicesTest {
     }
 
     @Test
-    void anAttachStepNeedsItsFileAndCommentsEndWithTheFooter() {
+    void anAttachStepNeedsItsFileAndCommentsEndWithTheFooterOnlyWhenAsked() {
         f.withToken();
         f.hook.putPublicAddress(CONN, "https://alfred.example.com/");
         WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "Evidence", List.of(
-                new WriteStep(StepKind.COMMENT, Map.of("text", "Found it"), true, false, null),
-                new WriteStep(StepKind.ATTACH, Map.of("name", "calls.html"), true, true, null)), null, null));
+                new WriteStep(StepKind.COMMENT, Map.of("text", "Found it", "footer", "1"), true, false, null),
+                new WriteStep(StepKind.ATTACH, Map.of("name", "calls.html"), true, true, null),
+                new WriteStep(StepKind.COMMENT, Map.of("text", "Plain"), true, false, null)), null, null));
         assertThat(b.steps().get(1).unmasked()).isFalse(); // Claude never sends a file unmasked
         assertThatThrownBy(() -> f.writes.approve(Who.USER, b.id())).isInstanceOf(TeamException.class);
         f.writes.putFile(Who.USER, b.id(), 1, "calls.html", "<html>".getBytes());
         f.writes.approve(Who.USER, b.id());
         assertThat(f.tracker.writes.get(0)).contains("Found it").contains("via Alfred: board Board b1").contains("https://alfred.example.com/board?board=b1");
         assertThat(f.tracker.writes.get(1)).isEqualTo("attach 102 calls.html 6");
+        assertThat(f.tracker.writes.get(2)).contains("Plain").doesNotContain("Alfred"); // specs/038 FR-12: no mark unless asked
         assertThat(f.cache.bundleFile(b.id(), 1)).isEmpty();
     }
 

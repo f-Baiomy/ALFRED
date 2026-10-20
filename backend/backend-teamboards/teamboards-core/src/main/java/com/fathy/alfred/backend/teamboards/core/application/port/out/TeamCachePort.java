@@ -19,6 +19,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SyncRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TypeKindRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SavedSearchRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TemplateRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WatchRuleRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
 import com.fathy.alfred.backend.teamboards.spi.model.Scope;
@@ -57,6 +58,20 @@ public interface TeamCachePort {
     boolean upgradeNotice();
 
     void dismissUpgradeNotice();
+
+    /** A Team setting kept with the cache (specs/038 G-8: "claude-drafts" on / off). */
+    Optional<String> setting(String key);
+
+    void putSetting(String key, String value);
+
+    /** Named field sets for new items (specs/038 FR-11), per connection, by name (case does not matter). */
+    List<TemplateRow> templates(String conn);
+
+    Optional<TemplateRow> template(String conn, String name);
+
+    void putTemplate(TemplateRow row);
+
+    boolean deleteTemplate(String conn, String name);
 
     // --------------------------------------------------------------------------------------------------- filter lists
 

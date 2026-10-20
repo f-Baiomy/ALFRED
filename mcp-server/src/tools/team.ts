@@ -719,17 +719,206 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok({ unlinked: `${c.id}/${ref.id}` });
   }));
 
+  // ------------------------------------------------------------------------------- specs/038: full writes, all approved by the user
+
+  const FieldRef = z.string().min(3).max(200).regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/, 'a reference name such as Microsoft.VSTS.Common.Activity');
+  const Fields = z.record(FieldRef, z.union([z.string().max(64_000), z.number(), z.boolean(), z.null()]))
+    .describe('Any fields by reference name, e.g. {"Microsoft.VSTS.Common.Activity":"Development","Microsoft.VSTS.Scheduling.OriginalEstimate":16,'
+      + '"Microsoft.VSTS.Scheduling.RemainingWork":16,"Microsoft.VSTS.Common.Priority":2}. team_item_type_fields lists what a type requires and allows. '
+      + 'An empty value clears a field on an edit.');
+  const LinkKind = z.enum(['Parent', 'Child', 'Related', 'Predecessor', 'Successor', 'Duplicate', 'Duplicate of', 'Tested by', 'Tests']);
+  const Links = z.array(z.object({ kind: LinkKind, id: z.string().min(1).max(100) })).max(20);
+  const Tags = z.array(z.string().min(1).max(100)).max(30);
+  const Where = {
+    board: z.string().min(1).max(200).optional().describe('The board where the bundle waits for the user (AB#123, its name or id) - or name a card'),
+    project: Card.project.optional(), number: Card.number.optional().describe('A card: the new items are linked to it in Alfred, and the bundle waits on it'),
+    askedIn: AskedIn, extend: Extend,
+  };
+  const NewItemShape = z.object({
+    type: z.string().min(1).max(200).optional().describe('Task, Bug, User Story... (from a copy or a template when left out)'),
+    title: z.string().min(1).max(255).optional(),
+    description: z.string().max(64_000).optional().describe('HTML or Markdown; @[person:<id>|Name] mentions a person (team_people)'),
+    parent: z.string().max(100).nullable().optional().describe('The parent item id; left out: the board\'s main item; null or "": no parent'),
+    azureProject: z.string().max(200).optional().describe('The Azure project to create it in (left out: the parent\'s, else the first)'),
+    area: z.string().max(300).optional(), iteration: z.string().max(300).optional(),
+    assignee: z.string().max(200).optional().describe('An email / unique name'),
+    fields: Fields.optional(), links: Links.optional(), tags: Tags.optional(),
+    copyOf: z.string().max(100).optional().describe('Copy this item\'s writable fields (shown in full in the bundle); what you give wins'),
+    template: z.string().max(80).optional().describe('Start from a saved template (team_templates); what you give wins'),
+    inheritFromParent: z.boolean().optional().describe('Take area and iteration from the parent'),
+  });
+
+  /** One bundle on the board or card the user approves on - never sent by Claude. */
+  async function draft(input: { conn?: string; board?: string; project?: string; number?: number; askedIn?: string; extend?: number },
+                       item: string | null, title: string, steps: { kind: string; payload: Record<string, string> }[], extra: Record<string, unknown> = {}) {
+    const c = await pickConnection(client, input.conn);
+    const card = input.number ? await cardByNumber(client, input.project ?? '', input.number) : null;
+    if (!card && !input.board && !input.extend) {
+      throw invalid('Name the card (project + number) or the board this change is for: the user approves it there');
+    }
+    const board = input.board ? await boardIdOf(client, input.board) : null;
+    const b = await live(() => client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item, card: card?.id ?? null,
+      board, title, askedIn: input.askedIn, extend: input.extend,
+      steps: steps.map((s) => ({ kind: s.kind, payload: s.payload, ticked: true, unmasked: false })) }, ...AS_CLAUDE }));
+    return ok({ ...bundleReply(b), checks: b.steps.map((s, i) => `step ${i + 1}: ${s.payload?.['azureCheck'] ?? '-'}`), ...extra });
+  }
+
+  function jsonFields(f: Record<string, string | number | boolean | null> | undefined): string | undefined {
+    if (!f || !Object.keys(f).length) return undefined;
+    return JSON.stringify(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v === null ? '' : v])));
+  }
+
+  function createPayload(i: z.infer<typeof NewItemShape>, cardDescription?: string | null): Record<string, string> {
+    const p: Record<string, string> = {};
+    const put = (k: string, v: string | undefined | null) => { if (v !== undefined && v !== null && v !== '') p[k] = v; };
+    put('type', i.type); put('title', i.title); put('description', i.description ?? cardDescription ?? undefined); put('project', i.azureProject);
+    put('area', i.area); put('iteration', i.iteration); put('assignee', i.assignee); put('copyOf', i.copyOf ? itemRef(i.copyOf).id : undefined);
+    put('template', i.template); put('fields', jsonFields(i.fields));
+    if (i.links?.length) p['links'] = JSON.stringify(i.links.map((l) => ({ kind: l.kind, id: itemRef(l.id).id })));
+    if (i.tags?.length) p['tags'] = i.tags.join(';');
+    if (i.parent === null || i.parent === '') p['parent'] = '';
+    else if (i.parent !== undefined) p['parent'] = itemRef(i.parent).id;
+    if (i.inheritFromParent) p['inherit'] = '1';
+    if (!p['copyOf'] && !p['template'] && (!p['type'] || !p['title'])) throw invalid('Each new item needs a type and a title (or copyOf / a template)');
+    return p;
+  }
+
   server.registerTool('team_create_item', {
-    description: 'Prepare a new work item from a card (type, title, description defaults to the card\'s): a bundle the user approves; '
-      + 'it is linked to the card once created. Epics and Features are the team\'s to create.',
-    inputSchema: { ...Card, conn: Conn, type: z.string().min(1).max(200), title: z.string().min(1).max(255), description: z.string().max(64_000).optional(),
-      area: z.string().max(300).optional(), iteration: z.string().max(300).optional(), assignee: z.string().max(200).optional() },
+    description: 'Prepare new work items - one or up to 20 in ONE bundle the user approves (never sent by you): any type the project allows, '
+      + 'any fields (Activity, estimates, priority, custom ones), any parent (left out: the board\'s main item), links, tags, a copy of an item '
+      + '(copyOf) or a template. Azure checks the draft at once: a missing required field or a value it does not allow comes back to you now '
+      + 'with its words - fix it (team_item_type_fields) and draft again. No Alfred comment, tag or link is added unless the user asked '
+      + '(markers). With a card the items are linked to it in Alfred. Epics and Features are the team\'s to create.',
+    inputSchema: {
+      conn: Conn, ...Where,
+      items: z.array(NewItemShape).min(1).max(20).optional().describe('The new items; or give one item\'s keys directly below'),
+      type: z.string().min(1).max(200).optional(), title: z.string().min(1).max(255).optional(), description: z.string().max(64_000).optional(),
+      parent: z.string().max(100).nullable().optional(), area: z.string().max(300).optional(), iteration: z.string().max(300).optional(),
+      assignee: z.string().max(200).optional(), fields: Fields.optional(), links: Links.optional(), tags: Tags.optional(),
+      markers: z.object({ comment: z.boolean().default(false), tag: z.boolean().default(false) }).optional()
+        .describe('Only when the user asked for them: a "Followed in Alfred" comment and the alfred tag on the new item (one item only)'),
+    },
+  }, (input) => run(async () => {
+    const one = { type: input.type, title: input.title, description: input.description, parent: input.parent, area: input.area,
+      iteration: input.iteration, assignee: input.assignee, fields: input.fields, links: input.links, tags: input.tags };
+    const items: z.infer<typeof NewItemShape>[] = input.items ?? [one];
+    const card = input.number ? await cardByNumber(client, input.project ?? '', input.number) : null;
+    const cardDescription = card && items.length === 1 ? (card as { description?: string | null }).description ?? null : null;
+    const steps = items.map((i) => ({ kind: 'CREATE', payload: createPayload(i, cardDescription) }));
+    if (input.markers?.comment || input.markers?.tag) {
+      if (items.length !== 1 || !card) throw invalid('Markers go on one new item made from a card');
+      if (input.markers.comment) steps.push({ kind: 'COMMENT', payload: { text: `Followed in Alfred as card #${card.number}: ${card.title}`, marker: 'comment' } });
+      if (input.markers.tag) steps.push({ kind: 'TAG', payload: { tag: 'alfred' } });
+    }
+    const title = items.length === 1 ? `Create ${items[0].type ?? 'an item'} "${items[0].title ?? items[0].copyOf ?? ''}" in Azure`
+      : `Create ${items.length} items in Azure`;
+    return draft(input, null, title, steps);
+  }));
+
+  server.registerTool('team_update_item', {
+    description: 'Prepare an edit of one or several existing work items (up to 20, one bundle the user approves - never sent by you): any fields '
+      + 'at once, the state, a new parent (null removes it), links and tags to add or remove. ids or a WIQL query pick the items (a bulk edit: '
+      + 'the same change on each). The bundle shows each field before -> after, and Azure checks it as you draft it.',
+    inputSchema: {
+      conn: Conn, ...Where,
+      id: Id.optional(), ids: z.array(Id).min(1).max(20).optional(),
+      query: z.string().min(10).max(32000).optional().describe('A WIQL SELECT picking the items (at most 20)'),
+      fields: Fields.optional(), state: z.string().min(1).max(200).optional(),
+      parent: z.string().max(100).nullable().optional().describe('Move under this item; null or "": no parent'),
+      addLinks: Links.optional(), removeLinks: Links.optional(), addTags: Tags.optional(), removeTags: Tags.optional(),
+    },
   }, (input) => run(async () => {
     const c = await pickConnection(client, input.conn);
-    const card = await cardByNumber(client, input.project, input.number);
-    const b = await client.post<BundleRow>(`/teamboards/cards/${seg(card.id)}/create`, { body: { conn: c.id, type: input.type, title: input.title,
-      description: input.description, area: input.area, iteration: input.iteration, assignee: input.assignee }, ...AS_CLAUDE });
-    return ok(bundleReply(b));
+    let ids = [...(input.ids ?? []), ...(input.id ? [input.id] : [])].map((x) => itemRef(x).id);
+    if (input.query) {
+      const r = await live(() => client.post<SearchPage>(`/teamboards/connections/${seg(c.id)}/query`, { body: { wiql: input.query, max: 21 }, ...AS_CLAUDE }));
+      ids = [...ids, ...r.items.map((x) => x.id)];
+    }
+    ids = [...new Set(ids)];
+    if (!ids.length) throw invalid('Name the items: id, ids or a query');
+    if (ids.length > 20) throw invalid(`${ids.length} items - a bundle holds at most 20; narrow the query or split it`);
+    const p: Record<string, string> = {};
+    const f = jsonFields(input.fields);
+    if (f) p['fields'] = f;
+    if (input.state) p['state'] = input.state;
+    if (input.parent !== undefined) p['parent'] = input.parent === null ? '' : itemRef(input.parent).id;
+    if (input.addLinks?.length) p['addLinks'] = JSON.stringify(input.addLinks.map((l) => ({ kind: l.kind, id: itemRef(l.id).id })));
+    if (input.removeLinks?.length) p['removeLinks'] = JSON.stringify(input.removeLinks.map((l) => ({ kind: l.kind, id: itemRef(l.id).id })));
+    if (input.addTags?.length) p['addTags'] = input.addTags.join(';');
+    if (input.removeTags?.length) p['removeTags'] = input.removeTags.join(';');
+    if (!Object.keys(p).length) throw invalid('Say what to change: fields, state, parent, links or tags');
+    const steps = ids.map((id) => ({ kind: 'FIELD', payload: ids.length === 1 ? p : { ...p, item: id } }));
+    return draft({ ...input, conn: c.id }, ids.length === 1 ? ids[0] : null, ids.length === 1 ? `Edit ${ids[0]} in Azure` : `Edit ${ids.length} items in Azure`, steps);
+  }));
+
+  server.registerTool('team_split_item', {
+    description: 'Prepare child items under one item in ONE bundle the user approves (e.g. Backend / Frontend / QA tasks of a story): each '
+      + 'takes the parent\'s area and iteration unless given, and any fields you give.',
+    inputSchema: {
+      conn: Conn, ...Where, id: Id.describe('The parent item'),
+      children: z.array(NewItemShape.omit({ parent: true, copyOf: true })).min(1).max(20),
+    },
+  }, (input) => run(async () => {
+    const parent = itemRef(input.id).id;
+    const steps = input.children.map((ch) => ({ kind: 'CREATE', payload: createPayload({ ...ch, parent, inheritFromParent: ch.inheritFromParent ?? true }) }));
+    return draft(input, null, `Split ${parent} into ${steps.length} items in Azure`, steps);
+  }));
+
+  server.registerTool('team_log_time', {
+    description: 'Prepare logging work on an item: Completed Work + hours and Remaining Work - hours (never below 0; or the remaining you give), '
+      + 'from its values now. A bundle the user approves - never sent by you.',
+    inputSchema: { conn: Conn, ...Where, id: Id, hours: z.number().positive().max(1000), remaining: z.number().min(0).max(10_000).optional() },
+  }, (input) => run(async () => {
+    const ref = itemRef(input.id);
+    const c = await pickConnection(client, input.conn ?? ref.conn);
+    const v = await live(() => client.get<ItemView>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`, { query: { include: '' }, ...AS_CLAUDE }));
+    const num = (k: string) => Number(v.item.fields[k] ?? 0) || 0;
+    const done = num('Microsoft.VSTS.Scheduling.CompletedWork') + input.hours;
+    const left = input.remaining ?? Math.max(0, num('Microsoft.VSTS.Scheduling.RemainingWork') - input.hours);
+    const fields = { 'Microsoft.VSTS.Scheduling.CompletedWork': Math.round(done * 100) / 100, 'Microsoft.VSTS.Scheduling.RemainingWork': Math.round(left * 100) / 100 };
+    return draft({ ...input, conn: c.id }, ref.id, `Log ${input.hours} h on ${ref.id}`, [{ kind: 'FIELD', payload: { fields: JSON.stringify(fields) } }],
+      { completed: fields['Microsoft.VSTS.Scheduling.CompletedWork'], remaining: fields['Microsoft.VSTS.Scheduling.RemainingWork'] });
+  }));
+
+  server.registerTool('team_close_item', {
+    description: 'Prepare closing an item instead of deleting it (Alfred never deletes work items): its type\'s Removed or Completed state, with a '
+      + 'comment saying why. A bundle the user approves - never sent by you.',
+    inputSchema: { conn: Conn, ...Where, id: Id, as: z.enum(['Removed', 'Completed']).default('Removed'), reason: z.string().min(1).max(8000) },
+  }, (input) => run(async () => {
+    const ref = itemRef(input.id);
+    return draft({ ...input, conn: input.conn ?? ref.conn }, ref.id, `Close ${ref.id} as ${input.as}`, [
+      { kind: 'STATE', payload: { category: input.as } }, { kind: 'COMMENT', payload: { text: input.reason } }]);
+  }));
+
+  server.registerTool('team_item_type_fields', {
+    description: 'The fields of a work item type in an Azure project: reference name, name, type, whether it is required, read-only, the values '
+      + 'it allows and its default. Read before drafting a create, so required fields (e.g. Activity on a Task) are filled. Kept 24 h; fresh: ask again.',
+    inputSchema: { conn: Conn, azureProject: z.string().min(1).max(200), type: z.string().min(1).max(200), fresh: z.boolean().default(false),
+      requiredOnly: z.boolean().default(false) },
+  }, (input) => run(async () => {
+    const c = await pickConnection(client, input.conn);
+    const rows = await live(() => client.get<{ ref: string; name: string; type: string; required: boolean; readOnly: boolean; allowed: string[]; defaultValue: string | null }[]>(
+      `/teamboards/connections/${seg(c.id)}/fields`, { query: { project: input.azureProject, type: input.type, fresh: String(input.fresh) }, ...AS_CLAUDE }));
+    const shown = rows.filter((r) => !input.requiredOnly || r.required);
+    return ok({ type: input.type, required: rows.filter((r) => r.required).map((r) => r.ref),
+      fields: shown.map((r) => `${r.ref} (${r.name}${r.type ? ', ' + r.type : ''})${r.required ? ' REQUIRED' : ''}${r.readOnly ? ' read-only' : ''}`
+        + `${r.allowed.length ? ' · allowed: ' + r.allowed.slice(0, 40).join(' | ') : ''}${r.defaultValue ? ' · default ' + r.defaultValue : ''}`) });
+  }));
+
+  server.registerTool('team_templates', {
+    description: 'Templates for new items: list them, or save one (a name, a type and its fields) when the user asked you to - then '
+      + 'team_create_item takes template: "<name>". Only the user deletes a template.',
+    inputSchema: { conn: Conn, save: z.object({ name: z.string().min(1).max(80), type: z.string().min(1).max(200), fields: Fields }).optional(),
+      askedIn: z.string().min(1).max(40).optional().describe('Required to save: the chat message id (or "terminal") where the user asked') },
+  }, (input) => run(async () => {
+    const c = await pickConnection(client, input.conn);
+    if (input.save) {
+      if (!input.askedIn) throw invalid('Save a template only when the user asked: pass askedIn');
+      const fields = Object.fromEntries(Object.entries(input.save.fields).map(([k, v]) => [k, v === null ? '' : String(v)]));
+      await client.put(`/teamboards/connections/${seg(c.id)}/templates/${seg(input.save.name)}`, { body: { type: input.save.type, fields }, ...AS_CLAUDE });
+    }
+    const list = await client.get<{ name: string; type: string; fieldsJson: string }[]>(`/teamboards/connections/${seg(c.id)}/templates`, AS_CLAUDE);
+    return ok({ templates: list.map((t) => `"${t.name}" · ${t.type} · ${t.fieldsJson}`), ...(input.save ? { saved: input.save.name } : {}) });
   }));
 
   async function step(input: { conn?: string; id: string; board?: string; project?: string; number?: number; askedIn?: string; extend?: number },
@@ -753,11 +942,14 @@ export function register(server: McpServer, client: AlfredClient): void {
   }
 
   server.registerTool('team_comment', {
-    description: 'Prepare a comment on a work item (Alfred adds the "via Alfred" footer). Name the card (project + number) or the board: the user approves '
+    description: 'Prepare a comment on a work item (no "via Alfred" footer unless the user asked: footer). @[person:<id>|Name] mentions someone (team_people). Name the card (project + number) or the board: the user approves '
       + 'the bundle there - never sent by you. No secrets, tokens or raw request bodies in the text; evidence files are built (masked) by the user\'s browser on the card.',
     inputSchema: { conn: Conn, id: Id, text: z.string().min(1).max(64_000), board: z.string().min(1).max(200).optional(), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
-      extend: Extend },
-  }, (input) => run(() => step(input, 'COMMENT', { text: input.text })));
+      extend: Extend, footer: z.boolean().default(false).describe('Only when the user asked: "via Alfred: board …" under the comment') },
+  }, (input) => run(() => input.footer
+    ? draft({ ...input, conn: input.conn ?? itemRef(input.id).conn }, itemRef(input.id).id, `Comment on ${itemRef(input.id).id}`,
+      [{ kind: 'COMMENT', payload: { text: input.text, footer: '1' } }])
+    : step(input, 'COMMENT', { text: input.text })));
 
   server.registerTool('team_move_state', {
     description: 'Prepare a state change of a work item (e.g. Resolved). Name the card (project + number) or the board: the user approves the bundle there - never sent by you.',
@@ -797,12 +989,17 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('team_redraft', {
-    description: 'Rewrite the text of a comment step in a waiting bundle, when the user asked for a change ("/alfred-team redraft bundle N step S: ..."). '
-      + 'Only the text changes; the user still reviews and approves - never say it was sent. Steps count from 1.',
-    inputSchema: { bundle: z.number().int().min(1), step: z.number().int().min(1).max(20), text: z.string().min(1).max(64_000) },
+    description: 'Change a step of your own waiting bundle when the user asked ("/alfred-team redraft bundle N step S: ...") or Azure refused it: '
+      + 'text (the new text of a comment), or changes (any step keys: title, parent, type, fields as a JSON string, tags, state, links...; null '
+      + 'removes a key), or drop the step. Azure checks it again at once. The user still reviews and approves - never say it was sent. Steps count from 1.',
+    inputSchema: { bundle: z.number().int().min(1), step: z.number().int().min(1).max(20), text: z.string().min(1).max(64_000).optional(),
+      changes: z.record(z.string().min(1).max(60), z.string().max(64_000).nullable()).optional(), drop: z.boolean().default(false) },
   }, (input) => run(async () => {
-    const b = await client.post<BundleRow>(`/teamboards/writes/${input.bundle}/redraft`, { body: { step: input.step - 1, text: input.text }, ...AS_CLAUDE });
-    return ok({ ...bundleReply(b), redrafted: input.step });
+    if (!input.text && !input.changes && !input.drop) throw invalid('Give text, changes or drop');
+    const body = input.text && !input.changes && !input.drop ? { step: input.step - 1, text: input.text }
+      : { step: input.step - 1, changes: input.changes ?? (input.text ? { text: input.text } : undefined), drop: input.drop };
+    const b = await live(() => client.post<BundleRow>(`/teamboards/writes/${input.bundle}/redraft`, { body, ...AS_CLAUDE }));
+    return ok({ ...bundleReply(b), ...(input.drop ? { dropped: input.step } : { redrafted: input.step }) });
   }));
 
   // --------------------------------------------------------------------------------------- proposals and runs

@@ -169,15 +169,18 @@ public class TeamboardsController {
      * Whether Alfred still holds the caller's own token (the connection named, else the first one): the helper asks on
      * its heartbeat and hands the token it keeps over again when it is gone, so the user enters it once per PC.
      */
+    private static final String FOREVER = "9999-12-31T23:59:59Z";
+
     @GetMapping("/teamboards/me/token")
     public ResponseEntity<?> myToken(@RequestParam(required = false) String connectionId) {
         String conn = connectionId != null && !connectionId.isBlank() ? connectionId
                 : team.connections().stream().findFirst().map(c -> c.id()).orElse(null);
         java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("connection", conn);
-        java.time.Instant until = conn == null ? null : team.myTokenUntil(conn).orElse(null);
-        out.put("live", until != null);
-        out.put("until", until);
+        boolean live = conn != null && team.holdsMyToken(conn);
+        out.put("live", live);
+        // a held token no longer expires (2026-10-20); helpers before 1.8.4 hand it over again when "until" is near
+        out.put("until", live ? FOREVER : null);
         return ResponseEntity.ok(out);
     }
 

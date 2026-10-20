@@ -13,7 +13,7 @@ const e = encodeURIComponent;
 
 /**
  * HTTP for /teamboards (specs/028 contracts/teamboards-rest.md). The token goes to the backend once, in a PUT body, and
- * lives there in memory for 8 hours; no request carries it again and this browser never keeps it.
+ * lives there in memory until the user removes it; no request carries it again and this browser never keeps it.
  */
 @Injectable({ providedIn: 'root' })
 export class TeamApiService {
@@ -307,6 +307,15 @@ export class TeamApiService {
   }
 
   /** What the bundle meets in the tracker now (specs/034) - a live read with the viewer's token. */
+  /** specs/038 G-8: whether Claude may prepare Azure changes (on unless the user turned it off). */
+  claudeDrafts(): Observable<{ on: boolean }> {
+    return this.http.get<{ on: boolean }>(`${this.base}/settings/claude-drafts`);
+  }
+
+  setClaudeDrafts(on: boolean): Observable<{ on: boolean }> {
+    return this.http.put<{ on: boolean }>(`${this.base}/settings/claude-drafts`, { on });
+  }
+
   checkBundle(id: number): Observable<BundleCheck> {
     return this.http.get<BundleCheck>(`${this.base}/writes/${id}/check`);
   }

@@ -26,6 +26,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SyncRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TypeKindRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SavedSearchRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TemplateRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WatchRuleRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteState;
@@ -226,7 +227,10 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 "CREATE TABLE IF NOT EXISTS hook_waiting (conn TEXT NOT NULL, item TEXT NOT NULL, event TEXT, at INTEGER NOT NULL, PRIMARY KEY (conn, item))",
                 "CREATE TABLE IF NOT EXISTS me_override (conn TEXT PRIMARY KEY, person TEXT NOT NULL, token_owner TEXT, at INTEGER NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS board_items_removed (board_id TEXT NOT NULL, conn TEXT NOT NULL, item TEXT NOT NULL, at INTEGER NOT NULL, "
-                        + "PRIMARY KEY (board_id, conn, item))")) {
+                        + "PRIMARY KEY (board_id, conn, item))",
+                // specs/038 FR-11: named field sets for new items
+                "CREATE TABLE IF NOT EXISTS item_templates (conn TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, fields_json TEXT NOT NULL, "
+                        + "updated_at INTEGER NOT NULL, PRIMARY KEY (conn, name))")) {
             jdbc.execute(ddl);
         }
         if (!columnExists("connections", "lists_at")) {
@@ -338,6 +342,44 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     @Override
     public void dismissUpgradeNotice() {
         jdbc.update("DELETE FROM meta WHERE key = 'upgrade-notice-028'");
+    }
+
+    @Override
+    public Optional<String> setting(String key) {
+        return jdbc.queryForList("SELECT value FROM meta WHERE key = ?", String.class, "setting." + key).stream().findFirst();
+    }
+
+    @Override
+    public void putSetting(String key, String value) {
+        jdbc.update("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", "setting." + key, value);
+    }
+
+    // ------------------------------------------------------------------------------------------- templates (038)
+
+    @Override
+    public List<TemplateRow> templates(String conn) {
+        return jdbc.query("SELECT conn, name, type, fields_json, updated_at FROM item_templates WHERE conn = ? ORDER BY name COLLATE NOCASE",
+                (rs, i) -> new TemplateRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                        Instant.ofEpochMilli(rs.getLong(5))), conn);
+    }
+
+    @Override
+    public Optional<TemplateRow> template(String conn, String name) {
+        return jdbc.query("SELECT conn, name, type, fields_json, updated_at FROM item_templates WHERE conn = ? AND name = ? COLLATE NOCASE",
+                (rs, i) -> new TemplateRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                        Instant.ofEpochMilli(rs.getLong(5))), conn, name).stream().findFirst();
+    }
+
+    @Override
+    public void putTemplate(TemplateRow row) {
+        jdbc.update("DELETE FROM item_templates WHERE conn = ? AND name = ? COLLATE NOCASE", row.conn(), row.name());
+        jdbc.update("INSERT INTO item_templates(conn, name, type, fields_json, updated_at) VALUES (?, ?, ?, ?, ?)", row.conn(), row.name(),
+                row.type(), row.fieldsJson(), row.updatedAt().toEpochMilli());
+    }
+
+    @Override
+    public boolean deleteTemplate(String conn, String name) {
+        return jdbc.update("DELETE FROM item_templates WHERE conn = ? AND name = ? COLLATE NOCASE", conn, name) > 0;
     }
 
     // --------------------------------------------------------------------------------------------------- filter lists

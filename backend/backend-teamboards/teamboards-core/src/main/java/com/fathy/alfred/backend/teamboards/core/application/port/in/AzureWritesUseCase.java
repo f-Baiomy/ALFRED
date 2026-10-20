@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteSte
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -59,6 +60,13 @@ public interface AzureWritesUseCase {
      * it is kept as {@code previous}, Claude's first draft as {@code draft}.
      */
     WriteBundle redraft(Who who, long id, int step, String text);
+
+    /**
+     * Claude changes any step of its own waiting bundle (specs/038 FR-13): payload keys set ({@code changes}; a null value
+     * removes the key) or the step dropped. The step is drafted again - before values, Azure's check - so a refusal comes
+     * back at once and nothing is saved. The user still approves the final version.
+     */
+    WriteBundle redraftStep(Who who, long id, int step, Map<String, String> changes, boolean drop);
 
     /** The user asks Claude to change a waiting bundle's comment: a waiting message in the board's chat. Its id, or empty. */
     Optional<Long> askRedraft(long id, int step, String instruction);

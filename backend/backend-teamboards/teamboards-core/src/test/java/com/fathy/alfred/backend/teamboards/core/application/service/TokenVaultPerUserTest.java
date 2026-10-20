@@ -30,15 +30,15 @@ class TokenVaultPerUserTest {
     }
 
     @Test
-    void ownUntilSaysOnlyWhetherTheCallersOwnTokenLives() {
+    void holdsOwnSaysOnlyWhetherTheCallersOwnTokenIsHeld() {
         user.set(null);
         vault.put("c1", new Token("shared"), null);
         user.set("me@x.ae");
-        assertThat(vault.ownUntil("c1")).isEmpty(); // the shared one is not theirs: the helper hands its own over
+        assertThat(vault.holdsOwn("c1")).isFalse(); // the shared one is not theirs: the helper hands its own over
         vault.put("c1", new Token("mine"), null);
-        assertThat(vault.ownUntil("c1")).isPresent();
+        assertThat(vault.holdsOwn("c1")).isTrue();
         user.set(null);
-        assertThat(vault.ownUntil("c1")).isEmpty();
+        assertThat(vault.holdsOwn("c1")).isFalse();
     }
 
     @Test

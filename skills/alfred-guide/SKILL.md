@@ -103,7 +103,7 @@ stops for the user, and one example command. Take it from the tables above and `
   `/alfred-connect list` to see what is connected and why one fails). Start a new Claude Code session after.
 - **Several Alfreds** - the skills use the one the repo's `CLAUDE.md` names (`Alfred: <name>`), or ask.
 - **"No board has AB#1234 as its main"** - make the board first (Team tab → New board), then run the command again.
-- **"Enter your token in the Team tab first"** - Claude never holds the token; enter it there (kept 8 hours in memory).
+- **"Enter your token in the Team tab first"** - Claude never holds the token; enter it there (kept in Alfred's memory until removed in Me settings).
 - **No log lines / no SQL on calls** - ▤ log catching or ◆ database capture is off for the project, or the agent is not
   attached (Settings → Database capture; `alfred attach` on a native install).
 - **listen sees nothing** - the board's cycle is not recording (Cycles tab → Record), the wrong project, or inbound

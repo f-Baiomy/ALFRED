@@ -34,7 +34,7 @@ describe('TeamConsentBundleComponent (specs/034)', () => {
         provideRouter([]),
         { provide: TeamApiService, useValue: api },
         { provide: AzureEvidenceService, useValue: {} },
-        { provide: TeamStateService, useValue: { hasToken: signal(true), connections: signal([{ id: 'c1', kind: 'azure', baseUrl: 'https://dev.azure.com/org' }]) } },
+        { provide: TeamStateService, useValue: { hasToken: signal(true), me: signal(null), connections: signal([{ id: 'c1', kind: 'azure', baseUrl: 'https://dev.azure.com/org' }]) } },
       ],
     });
     const f = TestBed.createComponent(TeamConsentBundleComponent);

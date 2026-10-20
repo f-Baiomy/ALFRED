@@ -107,6 +107,14 @@ public interface TeamBoardsPort {
         return false;
     }
 
+    /**
+     * The same line, written as Claude when Claude linked the item: the live runner then never hands the card back to
+     * Claude as "You edited the description" (2026-10-20). Falls back to the user where Claude may not edit the card.
+     */
+    default boolean appendToDescription(String cardId, String text, boolean asClaude) {
+        return appendToDescription(cardId, text);
+    }
+
     /** Claude proposes a status step on a card (Verified, Done, CLOSED with resolution) through the board's proposals. */
     default boolean propose(String cardId, String status, String resolution, String reason) {
         return false;

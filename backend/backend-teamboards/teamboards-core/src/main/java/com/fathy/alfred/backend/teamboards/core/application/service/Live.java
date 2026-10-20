@@ -126,7 +126,7 @@ public class Live {
         StoredConnection s = stored(conn);
         Connector k = connectorOf(s);
         Token t = vault.token(conn).orElseThrow(() -> new TeamException(Code.TOKEN_MISSING,
-                "No live token for " + s.name() + ": enter your personal access token in the Team tab (it stays 8 hours, in memory only)"));
+                "No live token for " + s.name() + ": enter your personal access token in the Team tab (Alfred keeps it in memory until you remove it in Me settings)"));
         return new Ctx(s, connection(s), k, t);
     }
 

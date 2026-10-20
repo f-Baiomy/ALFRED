@@ -279,14 +279,23 @@ public class TeamBoardsAdapter implements TeamBoardsPort {
 
     @Override
     public boolean appendToDescription(String cardId, String text) {
+        return appendToDescription(cardId, text, false);
+    }
+
+    @Override
+    public boolean appendToDescription(String cardId, String text, boolean asClaude) {
         Optional<Card> c = getCard.get(cardId).map(d -> d.card());
         if (c.isEmpty()) {
             return false;
         }
         String now = c.get().description() == null ? "" : c.get().description();
         String next = now.isBlank() ? text : now.stripTrailing() + "\n\n" + text;
-        return update.update(Actor.USER, cardId, new UpdateCardUseCase.CardEdit(null, next, null, null, null, null, null)).outcome()
-                == CardChange.Outcome.OK;
+        UpdateCardUseCase.CardEdit edit = new UpdateCardUseCase.CardEdit(null, next, null, null, null, null, null);
+        // Claude's own link is Claude's change; where Claude may not edit the card it is written as the user, as before
+        if (asClaude && update.update(Actor.CLAUDE, cardId, edit).outcome() == CardChange.Outcome.OK) {
+            return true;
+        }
+        return update.update(Actor.USER, cardId, edit).outcome() == CardChange.Outcome.OK;
     }
 
     @Override

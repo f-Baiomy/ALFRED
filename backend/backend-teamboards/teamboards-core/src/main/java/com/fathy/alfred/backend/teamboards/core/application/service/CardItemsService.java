@@ -173,7 +173,7 @@ public class CardItemsService implements CardItemsUseCase {
         if (added) {
             String pill = "@[workitem:" + conn + "/" + i.extId() + "|" + i.type() + " " + i.extId() + " " + flat(i.title()) + "]";
             if (card.description() == null || !card.description().contains("@[workitem:" + conn + "/" + i.extId() + "|")) {
-                port().appendToDescription(cardId, "Linked in Azure: " + pill);
+                port().appendToDescription(cardId, "Linked in Azure: " + pill, "claude".equals(by));
             }
         }
         BoardItemsUseCase bi = boardItems.getIfAvailable();
@@ -212,7 +212,7 @@ public class CardItemsService implements CardItemsUseCase {
         put(p, "parent", parent);
         List<WriteStep> steps = new ArrayList<>();
         steps.add(new WriteStep(StepKind.CREATE, p, true, false, null));
-        steps.addAll(markerSteps(card, markers == null ? Markers.ALL : markers));
+        steps.addAll(markerSteps(card, markers == null ? Markers.NONE : markers)); // specs/038 FR-12: only when asked
         return writes().create(who, new NewBundle(card.boardId(), cardId, conn, null, "Create a " + item.type().strip() + " in Azure from card #"
                 + card.number(), steps, null, null));
     }

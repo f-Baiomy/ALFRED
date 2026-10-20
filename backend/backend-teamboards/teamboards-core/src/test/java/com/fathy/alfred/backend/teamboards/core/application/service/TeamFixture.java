@@ -52,6 +52,9 @@ final class TeamFixture {
     final TeamTransferService transfer;
     final SavedSearchesService saved;
     final MatchService matches;
+    final ItemFieldsService fields;
+    /** specs/038 G-4: why the current request may not decide (empty: it may) - the browser check the app makes. */
+    String refuseDecision = null;
 
     TeamFixture(Path dir) {
         cache = new SqliteTeamCacheRepository(dir.resolve("teamboards.db"));
@@ -76,6 +79,21 @@ final class TeamFixture {
                 provider(BoardItemsUseCase.class));
         Executor now = Runnable::run;
         writes.runner = now;
+        com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCallerPort caller = new com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCallerPort() {
+            @Override
+            public Optional<String> user() {
+                return Optional.of("sara@example.com");
+            }
+
+            @Override
+            public Optional<String> refuseDecision() {
+                return Optional.ofNullable(refuseDecision);
+            }
+        };
+        beans.addBean("caller", caller);
+        writes.setCallers(provider(com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCallerPort.class));
+        fields = new ItemFieldsService(live, cache);
+        fields.setCallers(provider(com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCallerPort.class));
         boardItems = new BoardItemsService(live, cache, sig, provider(TeamBoardsPort.class), provider(AzureWritesUseCase.class),
                 provider(IncomingUseCase.class), provider(TeamUseCase.class),
                 provider(com.fathy.alfred.backend.teamboards.core.application.port.in.MatchesUseCase.class));

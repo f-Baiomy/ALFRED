@@ -41,15 +41,15 @@ main and of each card's item, references for the rest).
 ## The token
 
 The user enters a personal access token once on the Team tab (`PUT /teamboards/connections/{id}/token`, in the body).
-Alfred checks it (`whoAmI` names its owner - "me") and keeps it **8 hours in memory only** (`TokenVault`): never on
-disk, in a log, in a response or in a browser; a restart or **Forget** drops it, and a token the tracker refuses is
-dropped at once. **Since specs/031 a token is one per user**: a user paired with their Alfred helper keeps their token
+Alfred checks it (`whoAmI` names its owner - "me") and keeps it **in memory only, with no time limit** (`TokenVault`, since 2026-10-20 - it was 8 hours): never on
+disk, in a log, in a response or in a browser; it stays until the user removes it (**Forget**, or **👤 Me ▸ Azure DevOps ▸
+Stop using it now / Remove from <PC>**), a restart drops it, and a token the tracker refuses is dropped at once. **Since specs/031 a token is one per user**: a user paired with their Alfred helper keeps their token
 on a PC of theirs, encrypted with Windows DPAPI for their user - entered in **👤 Me ▸ Azure DevOps** (Save token, Keep it
 on: <PC>; `POST /board/me/pc-token` passes it to that PC's helper once, in memory, on its next heartbeat - `PcTokenService`)
 or on the PC with `alfred helper token set` - and the helper hands it to
 Alfred's memory (`PUT /teamboards/me/token`) while it runs: at its start, and on every heartbeat where `GET
-/teamboards/me/token` says Alfred no longer holds that user's own token or holds it under an hour more (8 hours passed,
-Alfred restarted) - so the user enters it once per PC (`Helper.handToken`, a refused hand-over retried after 10 min) - used for that user's requests only (their X-Alfred-Key,
+/teamboards/me/token` says Alfred no longer holds that user's own token (Alfred restarted, or the tracker refused it; `until`
+is a fixed far date now, so helpers that still renew an hour before it never do) - so the user enters it once per PC (`Helper.handToken`, a refused hand-over retried after 10 min) - used for that user's requests only (their X-Alfred-Key,
 `TeamCallerPort`), never read by another user. A request from an unpaired browser reads with the shared token as before
 (the last one entered without a user); work outside a request (lists, hooks, watch rules) uses the connection's newest
 live token. Tests: `TokenVaultPerUserTest`. Claude never holds a token:
@@ -184,8 +184,8 @@ Every other write - Claude's comments and state moves, card markers, created ite
 ATTACH step's file built in the user's browser from Alfred's own HTML export with the user's redactions and the
 always-masked credential headers (`ALWAYS_MASKED_HEADERS`) unless that file is ticked "send unmasked". Approve sends the
 ticked steps with the vault's token (waits with none) and records each step's result (DONE or PARTIAL); only the user
-approves. Comments end with "via Alfred: board …" and a link when the public address is set. Files are deleted when a
-bundle ends.
+approves. A comment ends with "via Alfred: board …" only when its step asks for it (`footer=1`, specs/038). Files are
+deleted when a bundle ends.
 
 ### Reviewing a bundle where you are (specs/034)
 
@@ -214,6 +214,44 @@ rewrites only that comment with `team_redraft` (Claude only, its or Alfred's wai
 PARTIAL keeps **Retry this step** per failed step (`POST …/writes/{id}/steps/{step}/retry`, the user only). A bundle
 made for a card gets that card's board (older ones get it once at start, `fillBoards`), so the board counts it.
 Payload keys are free, so older Alfreds still read every bundle.
+
+### Full writes (specs/038)
+
+Claude may draft anything a person can do to a work item except delete it; every step still waits for the user's
+Approve. All of it is new payload keys on the existing step kinds - no new `StepKind`, column or enum.
+
+- **Create** (`CREATE`): any fields by reference name (`fields`, JSON), `parent` ("" for none), `links`
+  (`[{kind,id}]`: Parent, Child, Related, Successor, Predecessor, Duplicate, Duplicate of, Tested by, Tests), `tags`,
+  `copyOf` (the source's writable fields, copied at draft time and shown in full), `template`, `inherit` (area and
+  iteration from the parent). A create needs no card: it names a card (linked in Alfred) or only the board. Up to 20
+  steps for different items in one bundle (`item` per step) - split, bulk edit (`team_update_item` by ids or query),
+  log time (Completed + h, Remaining - h, never below 0).
+- **Edit** (`FIELD` with `fields` / `parent` / `addLinks` / `removeLinks` / `addTags` / `removeTags` / `state`): one
+  JSON-Patch with `test /rev`; relation removes go highest index first. The value when drafted is kept
+  (`fromFields`, `fromParent`, `fromState`, `fromTags`) so the review shows old → new.
+- **Close, never delete**: a `STATE` step may name a category (`Removed`, `Completed`); the type's own state in that
+  category is picked when drafted.
+- **No Alfred marks unless asked**: the "Followed in Alfred" comment, the `alfred` tag, the hyperlink back and the
+  comment footer are off by default (`markers`, `footer=1`).
+- **Field catalog**: `GET /teamboards/connections/{conn}/fields?project&type&fresh` (`team_item_type_fields`) - every
+  field with reference name, type, required, allowed values; cached 24 h, forgotten when Azure refuses a field.
+- **Templates**: named field sets per connection and type (`item_templates`, `GET/PUT/DELETE
+  /teamboards/connections/{conn}/templates`); Claude saves one only with `askedIn`.
+
+Guards:
+
+- **Azure dry run** (`validateOnly=true`) for every CREATE / FIELD step when drafted (`azureCheck` in the payload, shown
+  on the step) and again at Approve: if Azure refuses then, nothing is sent and the bundle stays WAITING with the reason.
+- **No delete, ever**: `AzureClient.allowed` lets through only GET, POST search/wiql/batch/create/comments/attachments
+  and PATCH `workitems/{id}`; everything else is refused before it leaves Alfred.
+- **Only the user decides**: approve, reject, edit, retry and direct writes refuse `X-Alfred-Actor: claude`,
+  `X-Alfred-Via`, and a helper's key (`TeamCallerPort.refuseDecision`); a paired browser, or a same-origin browser with
+  no key, passes. What is approved is what is sent; `decidedBy` is the user's email.
+- **Limits**: at most 5 of Claude's bundles wait per board (it extends one with `team_redraft` `changes`/`drop`);
+  Settings ▸ Team ▸ "Claude may prepare Azure changes" off refuses every draft from Claude
+  (`/teamboards/settings/claude-drafts`, meta key `setting.claude-drafts`).
+- **One popup for a wide change** (`wideReasons`, `core/team/bundle-review.ts`): more than 5 items, a close, a
+  re-parent, or work assigned to someone else asks once before the 5-second Undo starts.
 
 ## People and "me"
 

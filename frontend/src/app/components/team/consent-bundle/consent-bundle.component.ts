@@ -7,6 +7,8 @@ import { TeamStateService } from '../../../core/team/team-state.service';
 import { BundleCheck, StepCheck, StepKind, WriteBundle, WriteStep } from '../../../core/team/team.models';
 import { DiffPart, changedText, textDiff } from '../../../shared/utils/text-diff';
 import { MarkdownViewComponent } from '../../board/markdown-view/markdown-view.component';
+import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
+import { ReviewRow, azureCheck, createRows, editRows, isEdit, wideReasons } from '../../../core/team/bundle-review';
 
 const WORDS: Record<StepKind, string> = {
   STATE: 'State', COMMENT: 'Comment', ATTACH: 'Attach', HYPERLINK: 'Link back to Alfred', UNHYPERLINK: 'Remove the link to Alfred',
@@ -60,7 +62,7 @@ const OLD_MS = 12 * 3600_000;
             } @else {
               <span class="tcb-res-icon" [class.err]="s.result && !s.result.ok">{{ !s.ticked ? '·' : !s.result ? '…' : s.result.ok ? '✓' : '✗' }}</span>
             }
-            <span class="tcb-k">{{ word(s.kind) }}
+            <span class="tcb-k">{{ word(s.kind) }}@if (s.payload['item'] && s.payload['item'] !== w.item) { <span class="tcb-dim">AB#{{ s.payload['item'] }}</span> }
               @if (s.kind === 'COMMENT' && userEdited(s)) { <span class="tcb-edited">edited by you</span> }
               @if (s.kind === 'COMMENT' && redrafted(s)) { <span class="tcb-edited claude">✦ redrafted</span> }
             </span>
@@ -90,6 +92,17 @@ const OLD_MS = 12 * 3600_000;
                   }
                 }
                 @case ('FIELD') {
+                  @if (isEdit(s)) {
+                    <!-- specs/038 FR-4: every change of the edit, before -> after -->
+                    <table class="tcb-rows">
+                      @for (r of editRows(s, i); track r.label) {
+                        <tr><th>{{ r.label }}</th><td class="tcb-chg">
+                          @if (r.before !== null) { <span class="tcb-old">{{ r.before }}</span><span class="tcb-arrow">→</span> }
+                          <span class="tcb-new">{{ r.after }}</span></td></tr>
+                      }
+                    </table>
+                    @if (checkOf(i)?.changed) { <div class="tcb-warn">⟳ Something here changed in Azure since this was drafted - the "before" values are Azure's now</div> }
+                  } @else {
                   <span class="tcb-chg">{{ s.payload['field'] }}
                     @if (oldOf(s, i) !== null) { <span class="tcb-old">{{ oldOf(s, i) || '(empty)' }}</span><span class="tcb-arrow">→</span> }
                     @if (editing() === i) { <input [ngModel]="s.payload['value']" (ngModelChange)="edit(i, 'value', $event)" [name]="'f' + i" /> }
@@ -99,6 +112,7 @@ const OLD_MS = 12 * 3600_000;
                     }
                   </span>
                   @if (checkOf(i)?.changed) { <div class="tcb-warn">⟳ Azure says <b>{{ checkOf(i)!.now || '(empty)' }}</b> now - it changed since this was drafted</div> }
+                  }
                 }
                 @case ('COMMENT') {
                   @if (editing() === i) {
@@ -141,11 +155,20 @@ const OLD_MS = 12 * 3600_000;
                     @if (built()[i]) { <span class="tcb-dim">{{ built()[i] }}</span> }
                   }
                 }
-                @case ('CREATE') { <span class="tcb-new">+ {{ s.payload['type'] }}: {{ s.payload['title'] }}</span> }
+                @case ('CREATE') {
+                  <span class="tcb-new">+ {{ s.payload['type'] }}: {{ s.payload['title'] }}</span>
+                  <table class="tcb-rows">
+                    @for (r of createRows(s); track r.label + r.after) { <tr><th>{{ r.label }}</th><td>{{ r.after }}</td></tr> }
+                  </table>
+                  @if (s.payload['description']) {
+                    <details class="tcb-desc"><summary>Description</summary><app-markdown-view [text]="s.payload['description']" [previews]="false" /></details>
+                  }
+                }
                 @case ('TAG') { <span class="tcb-new">+ {{ s.payload['tag'] }}</span> }
                 @case ('UNTAG') { <span class="tcb-old">{{ s.payload['tag'] }}</span> }
                 @default { <span class="tcb-dim">{{ payloadText(s) }}</span> }
               }
+              @if (open() && azureCheck(s); as ac) { <div class="tcb-check" [class]="'tcb-check tcb-check-' + ac.tone">{{ ac.text }}</div> }
               @if (s.result; as r) {
                 <div class="tcb-res" [class.err]="!r.ok">{{ r.ok ? '✓ ' + (r.message || 'sent') : '✗ ' + (r.message || 'failed') }}
                   @if (!r.ok && w.state === 'PARTIAL' && editable()) { <button type="button" class="action-btn" [disabled]="busy()" (click)="retry(i)">Retry this step</button> }
@@ -183,6 +206,7 @@ export class TeamConsentBundleComponent {
   readonly state = inject(TeamStateService);
   private readonly api = inject(TeamApiService);
   private readonly evidence = inject(AzureEvidenceService);
+  private readonly confirm = inject(ConfirmDialogService);
 
   readonly bundle = input.required<WriteBundle>();
   readonly editable = input(true);
@@ -235,7 +259,7 @@ export class TeamConsentBundleComponent {
     effect(() => {
       const w = this.bundle();
       const live = this.state.hasToken();
-      if (w.state !== 'WAITING' || !live || !w.item || this.checkedFor === w.id) return;
+      if (w.state !== 'WAITING' || !live || (!w.item && !w.steps.some((s) => s.payload['item'])) || this.checkedFor === w.id) return;
       if (!w.steps.some((s) => s.kind === 'STATE' || s.kind === 'FIELD' || s.kind === 'COMMENT')) return;
       this.checkedFor = w.id;
       untracked(() => this.runCheck(w.id));
@@ -266,7 +290,17 @@ export class TeamConsentBundleComponent {
   }
 
   payloadText(s: WriteStep): string {
-    return Object.entries(s.payload).filter(([k]) => !['from', 'draft', 'previous', 'redraftedAt'].includes(k)).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    return Object.entries(s.payload).filter(([k]) => !['from', 'draft', 'previous', 'redraftedAt', 'azureCheck', 'checkedAt', 'item'].includes(k))
+      .map(([k, v]) => `${k}: ${v}`).join(' · ');
+  }
+
+  readonly isEdit = isEdit;
+  readonly createRows = createRows;
+  readonly azureCheck = azureCheck;
+
+  /** An edit's rows, its "before" values Azure's now when the review read them (specs/038). */
+  editRows(s: WriteStep, i: number): ReviewRow[] {
+    return editRows(s, this.checkOf(i)?.now ?? null);
   }
 
   kb(size: string): number {
@@ -390,10 +424,15 @@ export class TeamConsentBundleComponent {
     }
   }
 
-  /** Approve: the edits are saved, then {@link UNDO_SECONDS} with Undo before anything leaves Alfred. */
-  approve(): void {
+  /**
+   * Approve: the edits are saved, then {@link UNDO_SECONDS} with Undo before anything leaves Alfred. A wide change (more
+   * than 5 items, a close, a re-parent, work for someone else) asks once more first (specs/038 G-9).
+   */
+  async approve(): Promise<void> {
     if (this.counting() !== null || this.busy() || !this.ticked() || !this.open()) return;
     this.message.set(null);
+    const why = wideReasons(this.bundle(), this.steps(), this.state.me()?.person.email ?? this.state.me()?.person.name);
+    if (why.length && !(await this.confirm.confirm(`Send this to Azure? ${why.join('; ')}.`, 'Approve'))) return;
     this.save(() => {
       this.counting.set(UNDO_SECONDS);
       this.timer = setInterval(() => {

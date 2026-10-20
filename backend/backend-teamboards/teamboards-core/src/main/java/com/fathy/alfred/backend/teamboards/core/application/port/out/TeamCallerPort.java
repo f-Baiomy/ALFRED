@@ -10,4 +10,13 @@ import java.util.Optional;
 public interface TeamCallerPort {
 
     Optional<String> user();
+
+    /**
+     * Why the current request may not approve, reject or retry a bundle (specs/038 G-4), or empty when it may: only the
+     * user's own browser decides - never a helper's key (the MCP server and the runners carry it), never a request through
+     * a Claude session ({@code X-Alfred-Via}), never a script with no browser behind it.
+     */
+    default Optional<String> refuseDecision() {
+        return Optional.empty();
+    }
 }

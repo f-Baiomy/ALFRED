@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.teamboards.spi.AttachmentWriter;
 import com.fathy.alfred.backend.teamboards.spi.AttachmentsReader;
 import com.fathy.alfred.backend.teamboards.spi.BoardsReader;
 import com.fathy.alfred.backend.teamboards.spi.Connector;
+import com.fathy.alfred.backend.teamboards.spi.FieldCatalog;
 import com.fathy.alfred.backend.teamboards.spi.HookReader;
 import com.fathy.alfred.backend.teamboards.spi.IdentityReader;
 import com.fathy.alfred.backend.teamboards.spi.ItemReader;
@@ -24,7 +25,9 @@ import com.fathy.alfred.backend.teamboards.spi.TreeReader;
 import com.fathy.alfred.backend.teamboards.spi.model.Attachment;
 import com.fathy.alfred.backend.teamboards.spi.model.Comment;
 import com.fathy.alfred.backend.teamboards.spi.model.Connection;
+import com.fathy.alfred.backend.teamboards.spi.model.FieldInfo;
 import com.fathy.alfred.backend.teamboards.spi.model.Item;
+import com.fathy.alfred.backend.teamboards.spi.model.ItemUpdate;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemPage;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemQuery;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemTypeInfo;
@@ -69,7 +72,8 @@ import static com.fathy.alfred.backend.teamboards.azure.AzureMapper.encode;
  */
 @Component
 public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsReader, SquadsReader, RevisionsReader, AttachmentsReader,
-        SeedContributor, ItemSearcher, QueryRunner, ItemReader, TreeReader, IdentityReader, StateCatalog, ItemWriter, AttachmentWriter, HookReader {
+        SeedContributor, ItemSearcher, QueryRunner, ItemReader, TreeReader, IdentityReader, StateCatalog, ItemWriter, AttachmentWriter, HookReader,
+        FieldCatalog {
 
     static final int BATCH = 200;
     static final long MEMORY_MS = 10 * 60_000L;
@@ -863,8 +867,29 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
 
     @Override
     public String create(Connection c, Token t, NewItem item) throws ProviderException {
+        JsonNode r = client.postPatch(createUri(c, t, item, false), t, createOps(c, item));
+        String id = r.path("id").asText(null);
+        if (id == null) {
+            throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps created no work item");
+        }
+        return id;
+    }
+
+    /** Azure's validateOnly (specs/038 G-1): the same request, checked by the project's own rules, nothing saved. */
+    @Override
+    public boolean validateCreate(Connection c, Token t, NewItem item) throws ProviderException {
+        client.postPatch(createUri(c, t, item, true), t, createOps(c, item));
+        return true;
+    }
+
+    private URI createUri(Connection c, Token t, NewItem item, boolean validateOnly) throws ProviderException {
         String project = item.project() != null && !item.project().isBlank() ? item.project()
                 : projects(c, t).stream().findFirst().orElseThrow(() -> new ProviderException(Kind.BAD_RESPONSE, "No project to create the item in"));
+        return at(c, "/" + encode(project) + "/_apis/wit/workitems/$" + encode(item.type()) + (validateOnly ? "?validateOnly=true" : ""));
+    }
+
+    /** Every field, the parent, the links and the tags of a new item - one JSON-Patch (specs/038 FR-1). */
+    List<Map<String, Object>> createOps(Connection c, NewItem item) {
         List<Map<String, Object>> ops = new ArrayList<>();
         ops.add(op("add", "/fields/System.Title", item.title()));
         if (item.description() != null && !item.description().isBlank()) {
@@ -879,18 +904,165 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         if (item.assignee() != null && !item.assignee().isBlank()) {
             ops.add(op("add", "/fields/System.AssignedTo", item.assignee()));
         }
+        Set<String> tags = new LinkedHashSet<>(item.tags());
+        for (Map.Entry<String, String> f : item.fields().entrySet()) {
+            if (f.getKey().equalsIgnoreCase("System.Tags")) {
+                for (String x : f.getValue().split(";")) {
+                    if (!x.isBlank()) {
+                        tags.add(x.strip());
+                    }
+                }
+                continue;
+            }
+            ops.add(op("add", "/fields/" + f.getKey(), fieldValue(f.getKey(), f.getValue())));
+        }
+        if (!tags.isEmpty()) {
+            ops.add(op("add", "/fields/System.Tags", String.join("; ", tags)));
+        }
         if (item.parent() != null && !item.parent().isBlank()) {
-            Map<String, Object> rel = new LinkedHashMap<>();
-            rel.put("rel", "System.LinkTypes.Hierarchy-Reverse");
-            rel.put("url", org(c) + "/_apis/wit/workItems/" + encode(item.parent().strip()));
-            ops.add(op("add", "/relations/-", rel));
+            ops.add(op("add", "/relations/-", relation(c, "Parent", item.parent().strip())));
         }
-        JsonNode r = client.postPatch(at(c, "/" + encode(project) + "/_apis/wit/workitems/$" + encode(item.type())), t, ops);
-        String id = r.path("id").asText(null);
-        if (id == null) {
-            throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps created no work item");
+        for (Link l : item.links()) {
+            ops.add(op("add", "/relations/-", relation(c, l.kind(), l.toId())));
         }
-        return id;
+        return ops;
+    }
+
+    @Override
+    public void update(Connection c, Token t, String id, ItemUpdate change) throws ProviderException {
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, updateOps(c, t, id, change));
+    }
+
+    @Override
+    public boolean validateUpdate(Connection c, Token t, String id, ItemUpdate change) throws ProviderException {
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id) + "?validateOnly=true"), t, updateOps(c, t, id, change));
+        return true;
+    }
+
+    /**
+     * One edit as a JSON-Patch against the item's current revision ({@code test /rev}: an item changed meanwhile is
+     * refused, never overwritten): fields, state, tags merged with the item's own, relations removed from the highest
+     * index down (each remove shifts the ones after it), then added.
+     */
+    List<Map<String, Object>> updateOps(Connection c, Token t, String id, ItemUpdate change) throws ProviderException {
+        JsonNode w = client.get(at(c, "/_apis/wit/workitems/" + encode(id) + "?$expand=relations"), t);
+        List<Map<String, Object>> ops = new ArrayList<>();
+        ops.add(op("test", "/rev", w.path("rev").asInt()));
+        for (Map.Entry<String, String> f : change.fields().entrySet()) {
+            if (f.getKey().equalsIgnoreCase("System.Tags")) {
+                continue; // tags go through addTags / removeTags, merged below
+            }
+            String v = f.getValue();
+            if (v == null || v.isEmpty()) {
+                if (w.path("fields").has(f.getKey())) {
+                    ops.add(op("remove", "/fields/" + f.getKey(), null));
+                }
+            } else {
+                ops.add(op("add", "/fields/" + f.getKey(), fieldValue(f.getKey(), v)));
+            }
+        }
+        if (change.state() != null && !change.state().isBlank()) {
+            ops.add(op("add", "/fields/System.State", change.state().strip()));
+        }
+        if (!change.addTags().isEmpty() || !change.removeTags().isEmpty()) {
+            Set<String> tags = new LinkedHashSet<>();
+            for (String x : w.path("fields").path("System.Tags").asText("").split(";")) {
+                if (!x.isBlank()) {
+                    tags.add(x.strip());
+                }
+            }
+            for (String x : change.removeTags()) {
+                tags.removeIf(y -> y.equalsIgnoreCase(x.strip()));
+            }
+            for (String x : change.addTags()) {
+                if (tags.stream().noneMatch(y -> y.equalsIgnoreCase(x.strip()))) {
+                    tags.add(x.strip());
+                }
+            }
+            ops.add(op("add", "/fields/System.Tags", String.join("; ", tags)));
+        }
+        List<JsonNode> rels = new ArrayList<>();
+        w.path("relations").forEach(rels::add);
+        TreeSet<Integer> removes = new TreeSet<>(java.util.Comparator.reverseOrder());
+        for (int i = 0; i < rels.size(); i++) {
+            String rel = rels.get(i).path("rel").asText();
+            String target = rels.get(i).path("url").asText();
+            String other = target.substring(target.lastIndexOf('/') + 1);
+            if (change.parent() != null && rel.equals("System.LinkTypes.Hierarchy-Reverse")) {
+                removes.add(i);
+            }
+            for (Link l : change.removeLinks()) {
+                if (rel.equals(relName(l.kind())) && other.equals(l.toId().strip())) {
+                    removes.add(i);
+                }
+            }
+        }
+        for (int i : removes) {
+            ops.add(op("remove", "/relations/" + i, null));
+        }
+        if (change.parent() != null && !change.parent().isBlank()) {
+            ops.add(op("add", "/relations/-", relation(c, "Parent", change.parent().strip())));
+        }
+        for (Link l : change.addLinks()) {
+            ops.add(op("add", "/relations/-", relation(c, l.kind(), l.toId())));
+        }
+        return ops;
+    }
+
+    /** A relation to another work item, by its Alfred kind ("Parent", "Related", "Predecessor"...). */
+    private static Map<String, Object> relation(Connection c, String kind, String toId) {
+        Map<String, Object> rel = new LinkedHashMap<>();
+        rel.put("rel", relName(kind));
+        rel.put("url", org(c) + "/_apis/wit/workItems/" + encode(toId.strip()));
+        return rel;
+    }
+
+    /** The Azure link type of an Alfred link kind; an unknown one is refused, never guessed. */
+    static String relName(String kind) {
+        String k = kind == null ? "" : kind.strip().toLowerCase(Locale.ROOT).replace("-", " ").replace("_", " ");
+        return switch (k) {
+            case "parent" -> "System.LinkTypes.Hierarchy-Reverse";
+            case "child" -> "System.LinkTypes.Hierarchy-Forward";
+            case "related" -> "System.LinkTypes.Related";
+            case "successor" -> "System.LinkTypes.Dependency-Forward";
+            case "predecessor" -> "System.LinkTypes.Dependency-Reverse";
+            case "duplicate" -> "System.LinkTypes.Duplicate-Forward";
+            case "duplicate of" -> "System.LinkTypes.Duplicate-Reverse";
+            case "tested by" -> "Microsoft.VSTS.Common.TestedBy-Forward";
+            case "tests" -> "Microsoft.VSTS.Common.TestedBy-Reverse";
+            default -> throw new IllegalArgumentException("Unknown link kind " + kind
+                    + " - use Parent, Child, Related, Predecessor, Successor, Duplicate, Duplicate of, Tested by or Tests");
+        };
+    }
+
+    /** HTML fields keep Alfred's mentions as Azure's. */
+    private static Object fieldValue(String field, String value) {
+        if (field.equalsIgnoreCase("System.Description") || field.equalsIgnoreCase("Microsoft.VSTS.TCM.ReproSteps")
+                || field.equalsIgnoreCase("Microsoft.VSTS.Common.AcceptanceCriteria")) {
+            return html(value);
+        }
+        return value;
+    }
+
+    /** A type's fields with what is required and allowed (specs/038 FR-14): one read of the type, one of the project's fields. */
+    @Override
+    public List<FieldInfo> fields(Connection c, Token t, String project, String type) throws ProviderException {
+        JsonNode typeFields = client.get(at(c, "/" + encode(project) + "/_apis/wit/workitemtypes/" + encode(type) + "/fields?$expand=all"), t);
+        Map<String, JsonNode> meta = new HashMap<>();
+        for (JsonNode f : client.get(at(c, "/" + encode(project) + "/_apis/wit/fields"), t).path("value")) {
+            meta.put(f.path("referenceName").asText(), f);
+        }
+        List<FieldInfo> out = new ArrayList<>();
+        for (JsonNode f : typeFields.path("value")) {
+            String ref = f.path("referenceName").asText();
+            JsonNode m = meta.get(ref);
+            List<String> allowed = new ArrayList<>();
+            f.path("allowedValues").forEach(v -> allowed.add(v.isObject() ? v.path("displayName").asText(v.toString()) : v.asText()));
+            JsonNode def = f.path("defaultValue");
+            out.add(new FieldInfo(ref, f.path("name").asText(ref), m == null ? "" : m.path("type").asText(""), f.path("alwaysRequired").asBoolean(false),
+                    m != null && m.path("readOnly").asBoolean(false), allowed, def.isMissingNode() || def.isNull() ? null : def.asText()));
+        }
+        return out;
     }
 
     /** Description is an HTML field: text that is not HTML already is escaped, its lines kept; Alfred mentions become Azure's. */
@@ -1008,7 +1180,6 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         Map<String, Object> rel = new LinkedHashMap<>();
         rel.put("rel", "AttachedFile");
         rel.put("url", url);
-        rel.put("attributes", Map.of("comment", "via Alfred"));
         client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/relations/-", rel)));
     }
 

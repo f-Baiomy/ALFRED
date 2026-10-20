@@ -37,7 +37,7 @@ const PICKER: Record<Exclude<RowAction, 'START' | 'NEW_BOARD'>, { title: string;
 
 /**
  * The Team tab (specs/028 US1, US6): search the tracker live - nothing found is stored - then put what matters on a
- * board. The token is entered once and kept 8 hours in Alfred's memory; everything here reads with it.
+ * board. The token is entered once and kept in Alfred's memory until removed; everything here reads with it.
  */
 @Component({
   selector: 'app-team-page',

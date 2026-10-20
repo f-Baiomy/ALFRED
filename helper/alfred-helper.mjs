@@ -38,7 +38,7 @@ const execFileSync = (cmd, args, o) => childProcess.execFileSync(cmd, args, hidd
 const WINDOWS = platform() === 'win32';
 const MAC = platform() === 'darwin';
 const HEARTBEAT_MS = 30_000;
-/** Hand the kept Azure token over again when Alfred holds it for less than this (it keeps one 8 hours). */
+/** Hand the kept Azure token over again when Alfred holds it for less than this (Alfreds before 2026-10-20 kept one 8 hours). */
 const TOKEN_RENEW_MS = 60 * 60_000;
 /** After a refused hand-over (Azure said no, Alfred was down), try again after this. */
 const TOKEN_RETRY_MS = 10 * 60_000;
@@ -898,7 +898,7 @@ export class Helper {
   }
 
   /**
-   * Alfred keeps the token in memory for 8 hours and loses it on every restart; this PC keeps it for good. So on each
+   * Alfred keeps the token in memory until the user removes it, and loses it on every restart (older Alfreds after 8 hours); this PC keeps it for good. So on each
    * heartbeat: when Alfred no longer holds this user's own token (or holds it for less than an hour more), hand the kept
    * one over again - the user enters it once per PC, never again (2026-10-19). A refused hand-over waits 10 minutes.
    */

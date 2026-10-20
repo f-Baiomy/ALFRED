@@ -188,6 +188,10 @@ public final class TeamModels {
 
     /** A board's watch rule: a saved search body, run on board open, Refresh, hook ping and the MCP. */
     /** A saved search of one connection (specs/029); {@code position}: its place among the pills. */
+    /** A named field set for new items of a type (specs/038 FR-11): {@code fieldsJson} a JSON object of reference name -> value. */
+    public record TemplateRow(String conn, String name, String type, String fieldsJson, Instant updatedAt) {
+    }
+
     public record SavedSearchRow(long id, String conn, String name, String queryJson, int position, Integer lastCount, Instant updatedAt) {
     }
 

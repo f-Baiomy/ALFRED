@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
@@ -17,8 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * The tracker tokens (specs/028 FR-001..004, R1): in memory only, one per connection, 8 hours from entry. Never written to
- * disk, a log, a response or the MCP; a restart or Forget drops it. Its owner is who "me" is.
+ * The tracker tokens (specs/028 FR-001..004, R1): in memory only, one per connection, kept until the user forgets it (Me
+ * settings, the Team tab) or the tracker refuses it - no time limit since 2026-10-20. Never written to disk, a log, a
+ * response or the MCP; a restart drops it (a paired user's helper hands it over again). Its owner is who "me" is.
  *
  * <p>Since specs/031 a token is also one per USER: a paired user's token (entered from their PC by the helper, or from
  * their paired browser) is used for that user's own requests only - another user never reads with it. A request from an
@@ -28,14 +28,13 @@ import java.util.function.Supplier;
 @Component
 public class TokenVault {
 
-    public static final Duration LIFETIME = Duration.ofHours(8);
     private static final String SHARED = "";
 
     /** A live token and whose it is. {@code toString} never prints the token. */
-    public record Entry(Token token, PersonRow owner, Instant enteredAt, Instant expiresAt) {
+    public record Entry(Token token, PersonRow owner, Instant enteredAt) {
         @Override
         public String toString() {
-            return "Entry[" + (owner == null ? "?" : owner.name()) + ", until " + expiresAt + "]";
+            return "Entry[" + (owner == null ? "?" : owner.name()) + ", since " + enteredAt + "]";
         }
     }
 
@@ -77,8 +76,7 @@ public class TokenVault {
 
     /** Puts the token for a connection (replacing any other of the same user); the previous owner, if it was someone else. */
     public Optional<PersonRow> put(String conn, Token token, PersonRow owner) {
-        Instant now = clock.instant();
-        Entry old = tokens.put(new Key(conn, user()), new Entry(token, owner, now, now.plus(LIFETIME)));
+        Entry old = tokens.put(new Key(conn, user()), new Entry(token, owner, clock.instant()));
         if (old == null || old.owner() == null || owner == null || old.owner().extId().equals(owner.extId())) {
             return Optional.empty();
         }
@@ -86,8 +84,8 @@ public class TokenVault {
     }
 
     /**
-     * The live entry for this caller, or empty once it expired (an expired one is dropped on the way): a paired user's own
-     * token, else the shared one; outside a request, the connection's newest live token.
+     * The entry for this caller: a paired user's own token, else the shared one; outside a request, the connection's newest
+     * token.
      */
     public Optional<Entry> entry(String conn) {
         if (conn == null) {
@@ -105,15 +103,7 @@ public class TokenVault {
     }
 
     private Optional<Entry> live(Key key) {
-        Entry e = tokens.get(key);
-        if (e == null) {
-            return Optional.empty();
-        }
-        if (!clock.instant().isBefore(e.expiresAt())) {
-            tokens.remove(key, e);
-            return Optional.empty();
-        }
-        return Optional.of(e);
+        return Optional.ofNullable(tokens.get(key));
     }
 
     /** Whether the current thread serves a request (a browser, a helper, the MCP) rather than background work. */
@@ -126,12 +116,13 @@ public class TokenVault {
     }
 
     /**
-     * Until when the caller's OWN token of a connection lives - never the shared one: a helper asks this on its heartbeat
-     * and hands its kept token over again when it is gone (8 hours passed, or Alfred restarted) - specs/031.
+     * Whether Alfred holds the caller's OWN token of a connection - never the shared one: a helper asks this on its
+     * heartbeat and hands its kept token over again when it is gone (Alfred restarted, or the tracker refused it) -
+     * specs/031.
      */
-    public Optional<Instant> ownUntil(String conn) {
+    public boolean holdsOwn(String conn) {
         String user = user();
-        return conn == null || SHARED.equals(user) ? Optional.empty() : live(new Key(conn, user)).map(Entry::expiresAt);
+        return conn != null && !SHARED.equals(user) && tokens.containsKey(new Key(conn, user));
     }
 
     public Optional<Token> token(String conn) {

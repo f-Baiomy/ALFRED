@@ -161,7 +161,33 @@ class AzureClient {
         }
     }
 
+    /**
+     * What Alfred may send besides reads (specs/038 G-3): work-item reads that are POSTs (search, WIQL, batch), creating
+     * and editing work items, their comments and attachments. Never a DELETE or PUT, never a process, project, area,
+     * iteration, team, permission or service-hook write - refused here before anything leaves Alfred.
+     */
+    private static final java.util.List<java.util.regex.Pattern> WRITES = java.util.stream.Stream.of(
+            "POST .*/_apis/search/workitemsearch(results)?",
+            "POST .*/_apis/wit/wiql",
+            "POST .*/_apis/wit/workitemsbatch",
+            "POST .*/_apis/wit/workitems/\\$[^/]+",
+            "POST .*/_apis/wit/workitems/\\d+/comments",
+            "POST .*/_apis/wit/attachments",
+            "PATCH .*/_apis/wit/workitems/\\d+").map(p -> java.util.regex.Pattern.compile(p, java.util.regex.Pattern.CASE_INSENSITIVE)).toList();
+
+    static void allowed(String method, URI uri) throws ProviderException {
+        if ("GET".equalsIgnoreCase(method)) {
+            return;
+        }
+        String line = method.toUpperCase(java.util.Locale.ROOT) + " " + (uri.getRawPath() == null ? "" : uri.getRawPath().replace("%24", "$"));
+        if (WRITES.stream().noneMatch(p -> p.matcher(line).matches())) {
+            throw new ProviderException(Kind.BAD_RESPONSE, "Alfred never sends " + method.toUpperCase(java.util.Locale.ROOT) + " " + call(uri)
+                    + " to Azure DevOps - it only creates and edits work items, their comments and attachments");
+        }
+    }
+
     private HttpResponse<InputStream> exchange(HttpRequest request) throws ProviderException {
+        allowed(request.method(), request.uri());
         try {
             return http.send(request, HttpResponse.BodyHandlers.ofInputStream());
         } catch (IOException e) {

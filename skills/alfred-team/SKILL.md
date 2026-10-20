@@ -54,8 +54,13 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
 ## 3. Telling the tracker
 
 `team_comment`, `team_move_state`, `team_set_field` (one field by its reference name, e.g.
-`Microsoft.VSTS.Common.Priority`), `team_create_item` prepare a **bundle** - on the card when there is one (pass
-project + number), else on the board (pass `board`); `extend` to add a step to a waiting one. Text only in your words: no secrets, tokens, cookies or raw
+`Microsoft.VSTS.Common.Priority`), `team_create_item` (one or many items: any type, fields, parent, links, tags, a copy
+or a template), `team_update_item` (many fields, state, parent, links, tags - on one item, several ids or a WIQL query),
+`team_split_item` (children under one item), `team_log_time`, `team_close_item` (instead of deleting) prepare a
+**bundle** - on the card when there is one (pass project + number), else on the board (pass `board`); `extend` to add
+a step to a waiting one. Read `team_item_type_fields` before a create and fill what the type requires; Azure checks
+the draft at once and a refusal comes back to you to fix. `team_templates` lists templates (saves one only when the
+user asked, with `askedIn`). Text only in your words: no secrets, tokens, cookies or raw
 request bodies; evidence files are built masked by the user's browser when they open the bundle. Say "it waits for your
 approval on card #n" - never that it was sent, never approve it yourself.
 
@@ -63,9 +68,9 @@ approval on card #n" - never that it was sent, never approve it yourself.
   (`extend` the first one). A move you think Azure may refuse still goes in - say so in your reply; the user sees,
   before Approve, whether Azure allows it from the item's current state, and unticks it if not. Never drop a step and
   only mention it in prose.
-- **"/alfred-team redraft bundle N step S: <how>"** (the user's ✦ Redraft on the bundle): `team_bundle` N, rewrite that
-  comment step as asked with `team_redraft` (same facts, the user's wording wishes), reply in one line. Nothing else
-  changes; the user approves.
+- **"/alfred-team redraft bundle N step S: <how>"** (the user's ✦ Redraft on the bundle): `team_bundle` N, change that
+  step as asked with `team_redraft` - `text` for a comment, `changes` for any other key (title, parent, fields...),
+  `drop` to take a step out - and reply in one line. The user approves.
 - **A rejected bundle**: `team_bundle` shows the user's reason in `note`. Do not draft again unless they ask; when they
   do, follow the reason.
 

@@ -6,8 +6,8 @@ import { TeamStateService } from '../../../core/team/team-state.service';
 import { PersonPillComponent } from '../person-pill/person-pill.component';
 
 /**
- * The Team tab's head (specs/028 FR-001..004): which connection, the token - entered once, kept 8 hours in Alfred's
- * memory, never on disk or in this browser - whose it is and how long it lasts, Forget, and the one-time notice that the
+ * The Team tab's head (specs/028 FR-001..004): which connection, the token - entered once, kept in Alfred's memory
+ * until removed, never on disk or in this browser - whose it is, Forget, and the one-time notice that the
  * old cache was deleted by the upgrade.
  */
 @Component({
@@ -35,7 +35,6 @@ import { PersonPillComponent } from '../person-pill/person-pill.component';
         @if (state.token()?.live) {
           <span class="team-live" title="Kept in Alfred's memory only - a restart or Forget drops it">● token live ·</span>
           <app-person-pill [person]="state.token()?.owner ?? null" [conn]="c.id" />
-          <span class="team-dim">· {{ left() }} left</span>
           <button type="button" class="action-btn" (click)="forget(c.id)">Forget</button>
         }
       }
@@ -44,7 +43,7 @@ import { PersonPillComponent } from '../person-pill/person-pill.component';
       @if (!state.token()?.live) {
         <div class="team-banner" role="alert">
           <b>Enter your personal access token to search {{ state.ui().label }}.</b>
-          Alfred keeps it 8 hours in memory only - never on disk, in a log or in this browser - and drops it on a restart or Forget.
+          Alfred keeps it in memory only - never on disk, in a log or in this browser - until you Forget it or remove it in Me settings (a restart drops it too).
           Everyone using this Alfred searches with the last token entered; its owner is "me".
           <form class="team-token" (submit)="$event.preventDefault(); save(c.id)">
             <input type="password" [(ngModel)]="token" name="token" autocomplete="off" placeholder="Personal access token" aria-label="Personal access token" />
@@ -83,13 +82,6 @@ export class ConnectionSwitcherComponent {
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
   token = '';
-
-  readonly left = computed(() => {
-    const at = this.state.token()?.expiresAt;
-    if (!at) return '';
-    const min = Math.max(0, Math.round((Date.parse(at) - Date.now()) / 60000));
-    return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`;
-  });
 
   save(conn: string): void {
     if (!this.token.trim()) return;
