@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { MarkdownViewComponent } from './markdown-view.component';
 import { SnippetRunSetting } from '../visuals/snippet-host.component';
 import { BoardActionsService } from '../../../core/services/board-actions.service';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 describe('MarkdownViewComponent', () => {
   function render(text: string): HTMLElement {
@@ -170,6 +172,69 @@ describe('MarkdownViewComponent', () => {
       TestBed.resetTestingModule();
       const preview = live('[choose: a | b]', { cardId: 'c1' }, false);
       expect(preview.querySelector<HTMLButtonElement>('.board-choice')!.disabled).toBeTrue();
+    });
+  });
+
+  describe('a table with mentions in a narrow chat bubble', () => {
+    const table = [
+      '| Cards | What | Azure |',
+      '|---|---|---|',
+      '| #111 to #120 | Portal: Homepage section, New tag, Edited tag, viewer, open viewer vs Admin changes | odd numbers AB#60916 FE implementation · even numbers AB#62683 EPs integration |',
+    ].join('\n');
+
+    // The chat's own boxes around the view, at a phone-ish width, so the page's styles.scss rules for both apply.
+    function inChat(wrap: boolean): { bubble: HTMLElement; el: HTMLElement } {
+      const msg = document.createElement('div');
+      msg.className = 'chat-msg claude';
+      msg.style.width = '260px';
+      const bubble = document.createElement('div');
+      bubble.className = 'board-ev-body';
+      msg.appendChild(bubble);
+      document.body.appendChild(msg);
+      const fixture = TestBed.createComponent(MarkdownViewComponent);
+      fixture.componentRef.setInput('text', table);
+      fixture.componentRef.setInput('previews', false);
+      fixture.componentRef.setInput('wrap', wrap);
+      fixture.componentRef.setInput('snippetContext', { project: 'p' });
+      fixture.detectChanges();
+      bubble.appendChild(fixture.nativeElement);
+      return { bubble, el: fixture.nativeElement as HTMLElement };
+    }
+    beforeEach(() => TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] }));
+    afterEach(() => document.querySelectorAll('.chat-msg').forEach((n) => n.remove()));
+
+    for (const wrap of [false, true]) {
+      it(`${wrap ? 'wrap' : 'scroll'} mode: the table sits in a sideways-scroll wrapper inside the bubble, every chip whole on one line`, () => {
+        const { bubble, el } = inChat(wrap);
+        const box = el.querySelector('.board-md-table-wrap') as HTMLElement;
+        expect(box).withContext('wrapper').not.toBeNull();
+        expect(box.querySelector('table.board-md-table')).not.toBeNull();
+        expect(getComputedStyle(box).overflowX).toBe('auto');
+        expect(box.getBoundingClientRect().width).toBeLessThanOrEqual(bubble.getBoundingClientRect().width + 0.5);
+        expect(box.scrollWidth).withContext('wider than the bubble, so it scrolls').toBeGreaterThan(box.clientWidth);
+
+        const chips = Array.from(box.querySelectorAll<HTMLElement>('td .board-mention'));
+        expect(chips.length).withContext('#111, #120 and two AB# chips').toBe(4);
+        for (const chip of chips) {
+          expect(getComputedStyle(chip).whiteSpace).toBe('nowrap');
+          expect(chip.getClientRects().length).withContext(chip.textContent ?? '').toBe(1);
+        }
+        const firstCol = box.querySelector('td') as HTMLElement;
+        expect(firstCol.getBoundingClientRect().width).toBeGreaterThanOrEqual(chips[0].getBoundingClientRect().width);
+      });
+    }
+
+    it('a chip in a plain paragraph keeps the paragraph rule (it may wrap with the sentence)', () => {
+      const { bubble } = inChat(false);
+      const fixture = TestBed.createComponent(MarkdownViewComponent);
+      fixture.componentRef.setInput('text', 'See AB#60916 for the homepage.');
+      fixture.componentRef.setInput('previews', false);
+      fixture.detectChanges();
+      bubble.appendChild(fixture.nativeElement);
+      const chip = (fixture.nativeElement as HTMLElement).querySelector('.board-mention') as HTMLElement;
+      expect(chip.closest('table')).toBeNull();
+      expect(getComputedStyle(chip).display).toBe('inline');
+      expect(getComputedStyle(chip).whiteSpace).toBe('normal');
     });
   });
 });

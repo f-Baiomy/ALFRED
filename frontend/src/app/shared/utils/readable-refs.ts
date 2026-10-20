@@ -9,7 +9,7 @@ import { serializeMention } from './mention-syntax';
  * so the label is the meaning), and the board draws what is left in older text the same way, looked up on display.
  * Code, links and existing mentions are never touched.
  */
-export type BareKind = 'ac' | 'card' | 'cycleCall' | 'history' | 'uuid' | 'shortId';
+export type BareKind = 'ac' | 'card' | 'cycleCall' | 'history' | 'uuid' | 'shortId' | 'workitem';
 
 export interface BareRef {
   readonly kind: BareKind;
@@ -42,6 +42,10 @@ export function findBareRefs(text: string | null | undefined): BareRef[] {
         const start = from + m.index! + h.index!;
         add({ kind: 'cycleCall', start, end: start + h[0].length, raw: h[0], n: Number(h[1]) });
       }
+    }
+    // "AB#62565": an Azure DevOps work item (its own id space - never a card)
+    for (const m of part.matchAll(/\bAB#(\d{1,9})(?![\w-])/g)) {
+      add({ kind: 'workitem', start: from + m.index!, end: from + m.index! + m[0].length, raw: m[0], n: Number(m[1]) });
     }
     for (const m of part.matchAll(/\bAC(\d{1,3})\b/g)) {
       add({ kind: 'ac', start: from + m.index!, end: from + m.index! + m[0].length, raw: m[0], n: Number(m[1]) });
@@ -92,11 +96,15 @@ export interface RefContext {
  * Older text drawn readable (the board, on display): each bare code becomes a mention to be looked up - its chip fetches
  * the meaning. What cannot be placed (no cycle for an AC, no project for a card) stays as written.
  */
+/** A work item ref whose connection is the board's Azure one, found when it is read (`AB#n` names no connection). */
+export const ANY_CONN = '*';
+
 export function withBareRefs(text: string, ctx: RefContext): string {
   if (!text || !/(AC\d|#\d|\[\d)/.test(text)) return text;
   const refs = findBareRefs(text);
   if (!refs.length) return text;
   return replaceBareRefs(text, refs, (r) => {
+    if (r.kind === 'workitem') return { type: 'workitem', ref: `${ANY_CONN}/${r.n}`, label: `AB#${r.n}` };
     if (r.kind === 'ac' && ctx.cycleId) return { type: 'spec', ref: `${ctx.cycleId}/*#ac${r.n}`, label: `AC${r.n}` };
     if (r.kind === 'card' && ctx.project) return { type: 'card', ref: `${ctx.project}#${r.n}`, label: `#${r.n}` };
     if (r.kind === 'cycleCall' && ctx.cycleId) return { type: 'call', ref: `n:${r.n}@${ctx.cycleId}`, label: `call ${r.n}` };

@@ -530,6 +530,8 @@ export class BoardViewComponent {
     else if (action.kind === 'retest') this.retest.start([card.number]);
     else if (action.kind === 'merge') this.state.merge(card.id, action.into);
     else if (action.kind === 'mergeGroup') this.state.mergeGroup(action.group, card.number);
+    else if (action.kind === 'acceptProposal') this.state.run(this.api.acceptProposal(card.id));
+    else if (action.kind === 'dismissProposal') this.state.run(this.api.dismissProposal(card.id));
     else this.state.reopen(card.id);
   }
 
@@ -715,6 +717,7 @@ export class BoardViewComponent {
     if (inbox && sorts[key]) this.state.close(card, sorts[key]);
     else if (inbox && key === 't') this.state.move(card.id, 'TO_DO');
     else if (key === 'a' && (card.openQuestions ?? (card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION') ? 1 : 0)) > 0) this.answering.set(card.id);
+    else if (key === 'p' && card.proposal) this.state.run(this.api.acceptProposal(card.id));
     else if (key === 'x') this.state.toggleSelected(card.id);
     else if (key === 'u') {
       const flags = card.flags.includes('URGENT') ? card.flags.filter((f) => f !== 'URGENT') : [...card.flags, 'URGENT' as Flag];

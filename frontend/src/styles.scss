@@ -11090,7 +11090,15 @@ app-markdown-view { display: block; min-width: 0; max-width: 100%; }
   &.scroll { th, td { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
     .board-mention, code, .board-md-text { white-space: nowrap; overflow-wrap: normal; word-break: normal; } }
   // wrap: cells wrap, but a column never shrinks to a letter
-  &:not(.scroll) { th, td { min-width: 5rem; } }
+  &:not(.scroll) { th, td { min-width: 6rem; } }
+}
+// A chip in a table cell stays one piece on one line, in either mode, and ends in "…" past its cap (the full text is
+// its title) - never broken into fragments with a border each. Cell text around it still wraps (wrap mode). Inline-block,
+// not the chip's own inline-flex: text-overflow only cuts the text of a block box. Outranks `.chat-msg .board-md .board-mention`.
+.board-md-table-wrap .board-md-table td, .board-md-table-wrap .board-md-table th {
+  app-mention-chip { display: inline-block; max-width: 100%; vertical-align: bottom; }
+  .board-mention { display: inline-block; white-space: nowrap; overflow-wrap: normal; word-break: normal; max-width: min(100%, 22rem);
+    overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; -webkit-box-decoration-break: slice; box-decoration-break: slice; }
 }
 .board-md-callrow { margin: 0 0 0.45rem; }
 .board-callcard { display: inline-flex; gap: 0.5rem; align-items: flex-start; max-width: 100%; border: 1px solid var(--border-strong); border-radius: 8px;
@@ -11419,7 +11427,18 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-proposal-reason { color: var(--text-dim); margin-top: 0.2rem; }
 .board-proposal-evidence { display: block; margin-top: 0.25rem; }
 .board-proposal-actions { display: flex; gap: 0.35rem; margin-top: 0.4rem; }
-.board-card-proposal { margin-top: 0.3rem; font-size: 0.68rem; color: var(--purple-light); border: 1px dashed var(--purple); border-radius: 6px; padding: 0.1rem 0.4rem; display: inline-block; }
+// Claude's proposal on a card: what, why, and Accept / Dismiss right there (a click on it never opens the card)
+.board-prop { margin-top: 0.45rem; padding: 0.35rem 0.5rem; border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 7px;
+  background: color-mix(in srgb, var(--purple) 8%, transparent); cursor: default;
+  .board-prop-t { font-size: 0.74rem; color: var(--purple-light); }
+  .board-prop-why { margin-top: 0.15rem; font-size: 0.72rem; font-style: italic; color: var(--text-dim); line-height: 1.4; overflow-wrap: anywhere; }
+  .board-prop-acts { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem;
+    > button { height: 24px; padding: 0 0.55rem; font-size: 0.72rem; border-radius: 5px; border: 1px solid transparent; cursor: pointer;
+      background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-dim);
+      &:hover { border-color: var(--border-strong); color: var(--text); }
+      &.ok { border-color: color-mix(in srgb, var(--green) 55%, transparent); color: var(--green);
+        &:hover { background: color-mix(in srgb, var(--green) 10%, transparent); } } }
+    kbd { font: inherit; font-size: 0.6rem; color: var(--text-faint); margin-left: 0.1rem; } } }
 .board-check-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; width: 100%; margin: 0.2rem 0 0 1.6rem; padding: 0.15rem 0.45rem; border: 1px dashed var(--border-strong); border-radius: 6px; color: var(--text-faint); font-size: 0.74rem;
   .board-check-suggest-what { color: var(--purple-light); }
 }
@@ -13080,6 +13099,13 @@ app-board-cycles { display: block; position: relative; }
 .tcb-arrow { color: var(--text-dim); }
 .tcb-warn { color: var(--amber); font-size: .76rem; }
 .tcb-warn.bad { color: var(--red); }
+// specs/038: a new item's values and an edit's before -> after, one row each; Azure's own check of the draft
+.tcb-rows { margin-top: .3rem; border-collapse: collapse; font-size: .78rem;
+  th { text-align: left; font-weight: 500; color: var(--text-dim); padding: .1rem .7rem .1rem 0; white-space: nowrap; vertical-align: top; }
+  td { padding: .1rem 0; overflow-wrap: anywhere; } }
+.tcb-desc { margin-top: .3rem; font-size: .78rem; summary { cursor: pointer; color: var(--text-dim); } }
+.tcb-check { margin-top: .25rem; font-size: .74rem;
+  &.tcb-check-ok { color: var(--green); } &.tcb-check-bad { color: var(--red); } &.tcb-check-dim { color: var(--text-faint); } }
 .tcb-text { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: .4rem .55rem; }
 .tcb-compact .tcb-text { max-height: 7.5rem; overflow: auto; }
 .tcb-draft { border-style: dashed; }
@@ -13279,7 +13305,7 @@ app-board-card.cdk-drag-preview { display: block; opacity: 1; border-radius: 10p
 .bcc-state { display: flex; align-items: center; gap: 0.4rem; min-width: 0; max-width: 100%; margin-top: 0.4rem; font-size: 0.74rem; white-space: nowrap; overflow: hidden;
   > * { min-width: 0; margin: 0; }
   .bcc-cut { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  &.board-card-proposal, &.board-card-lock, &.board-sim { border: 0; padding: 0; display: flex; }
+  &.board-card-lock, &.board-sim { border: 0; padding: 0; display: flex; }
   &.board-vchecks { flex-direction: row; margin: 0.4rem 0 0; gap: 0.3rem; }
   .board-vcheck { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.05rem 0.45rem; font-size: 0.7rem; span { display: none; } }
   .board-res { flex: none; }

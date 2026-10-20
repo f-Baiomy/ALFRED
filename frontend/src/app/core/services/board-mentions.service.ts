@@ -1,8 +1,9 @@
 import { TeamApiService } from '../team/team-api.service';
+import { TeamItemPeekService } from '../team/item-peek.service';
 import { PAGE_SCROLLERS, POPUP_SCROLLERS, ReturnPointService, captureScrolls } from './return-point.service';
 import { Injectable, Signal, WritableSignal, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
-import { EMPTY, Observable, catchError, concatMap, expand, forkJoin, from, map, of, reduce, shareReplay, switchMap, toArray } from 'rxjs';
+import { EMPTY, Observable, catchError, concatMap, expand, forkJoin, from, map, of, reduce, shareReplay, switchMap, throwError, toArray } from 'rxjs';
 import { PickedCall } from '../models/call-ref.model';
 import { CardStatus, MentionRef, Requirement, RequirementsView, Resolution, STATUS_LABELS, VERDICT_LABELS, mentionTypeOf } from '../models/board.models';
 import { CallEndpointSource, CallRecord } from '../models/call.model';
@@ -111,6 +112,7 @@ export class BoardMentionsService {
   private readonly calls = inject(CallsApiService);
   private readonly cycles = inject(SessionCyclesApiService);
   private readonly team = inject(TeamApiService);
+  private readonly peek = inject(TeamItemPeekService);
   private readonly db = inject(DbCaptureApiService);
   private readonly logs = inject(CallLogsApiService);
   private readonly focus = inject(CallFocusService);
@@ -393,7 +395,7 @@ export class BoardMentionsService {
         // specs/028: `<conn>/<itemId>`, read live with the token in Alfred's memory (none: the saved label)
         const w = workItemOf(ref);
         if (!w) return gone();
-        return this.team.item(w.conn, w.extId, '').pipe(
+        return this.peek.connOf(w.conn).pipe(switchMap((conn) => (conn ? this.team.item(conn, w.extId, '') : throwError(() => ({ status: 401 })))),
           map((d) => ({ lines: [`${d.item.extId} ${d.item.title}`, [d.item.type, d.item.state, d.item.assignee].filter(Boolean).join(' · ')], removed: false })),
           catchError((e) => (e?.status === 404 ? gone() : of({ lines: [ref.label, 'Enter the token on the Team tab to read it live'], removed: false }))));
       }
@@ -482,7 +484,7 @@ export class BoardMentionsService {
     }
     if (type === 'workitem') {
       const w = workItemOf(ref);
-      if (w) void this.router.navigate(['/team'], { queryParams: { conn: w.conn, item: w.extId } });
+      if (w) this.peek.open(w.conn, w.extId); // the item's drawer over this page - the board stays where it is
       return;
     }
     if (type === 'person') {

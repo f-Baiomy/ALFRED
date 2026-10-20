@@ -6,10 +6,11 @@ import { ReturnPointHostComponent } from './components/board/return-point-host/r
 
 import { ConsentDialogComponent } from './components/consent-dialog/consent-dialog.component';
 import { AnswersImportComponent } from './components/board/answers-import/answers-import.component';
+import { TeamItemPeekHostComponent } from './components/team/item-peek-host/item-peek-host.component';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, DbWindowHostComponent, LowDiskBannerComponent, ReturnPointHostComponent, ConsentDialogComponent, AnswersImportComponent],
+  imports: [RouterOutlet, DbWindowHostComponent, LowDiskBannerComponent, ReturnPointHostComponent, ConsentDialogComponent, AnswersImportComponent, TeamItemPeekHostComponent],
   templateUrl: './app.component.html',
 })
 export class AppComponent {}

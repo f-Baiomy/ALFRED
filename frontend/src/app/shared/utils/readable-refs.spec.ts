@@ -31,6 +31,13 @@ describe('readable-refs (specs/021)', () => {
     expect(shown).toBe("returns only that branch's requests @[spec:c1/*#ac8|AC8]");
   });
 
+  it('an AB# id is the Azure work item, never a card - its connection found when it is read', () => {
+    expect(findBareRefs('Viewer - AB#60916 / AB#62683, same as #47').map((r) => `${r.kind}:${r.raw}`))
+      .toEqual(['workitem:AB#60916', 'workitem:AB#62683', 'card:#47']);
+    expect(withBareRefs('Viewer - AB#60916', {})).toBe('Viewer - @[workitem:*/60916|AB#60916]');
+    expect(findBareRefs('see `AB#1` and https://x/AB#2')).toEqual([]);
+  });
+
   it('makes a short name from a long title', () => {
     expect(shortOf("Not exercised: Searching with one branch returns only that branch's requests (AC8)")).toBe('searching with one branch');
     expect(shortOf('PNR filter ignores dates.')).toBe('PNR filter ignores dates');

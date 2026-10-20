@@ -12,12 +12,15 @@ import { callOf, slug } from '../../../shared/utils/mention-syntax';
 import { acLabel, callMeaning, cardLabel, cycleCallLabel, shortOf } from '../../../shared/utils/readable-refs';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
+import { TeamApiService } from '../../../core/team/team-api.service';
 
-type Tab = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'person' | 'other';
+type Tab = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'person' | 'workitem' | 'other';
 
 interface Option {
   readonly ref: MentionRef;
   readonly detail: string;
+  /** Found by the tracker's own search: kept whatever the words (it matched the description, not only the title). */
+  readonly live?: boolean;
 }
 
 const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
@@ -28,6 +31,7 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'spec', label: `${MENTION_ICONS.spec} Spec files` },
   { id: 'code', label: `${MENTION_ICONS.code} Code` },
   { id: 'person', label: `${MENTION_ICONS.person} People` },
+  { id: 'workitem', label: `${MENTION_ICONS.workitem} Azure items` },
   { id: 'other', label: `${MENTION_ICONS.cycle} Cards · cycle calls · cycles · spacers · rules` },
 ];
 
@@ -102,6 +106,7 @@ export class MentionPickerComponent {
   readonly closed = output<void>();
 
   private readonly team = inject(TeamStateService);
+  private readonly teamApi = inject(TeamApiService);
   readonly tabs = TABS;
   readonly tab = signal<Tab>('call');
   readonly query = signal('');
@@ -115,7 +120,7 @@ export class MentionPickerComponent {
   readonly shown = computed(() => {
     const q = this.query().trim().toLowerCase();
     const all = this.options();
-    return (q ? all.filter((o) => `${o.ref.label} ${o.detail}`.toLowerCase().includes(q)) : all).slice(0, 200);
+    return (q ? all.filter((o) => o.live || `${o.ref.label} ${o.detail}`.toLowerCase().includes(q)) : all).slice(0, 200);
   });
 
   constructor() {
@@ -123,6 +128,13 @@ export class MentionPickerComponent {
       const tab = this.tab();
       const callRef = this.callForTab();
       untracked(() => this.loadOptions(tab, callRef));
+    });
+    // Azure items: the tracker searched live as the user types (an id, or words), after the board's own items
+    effect((cleanup) => {
+      const q = this.query().trim();
+      if (this.tab() !== 'workitem') return;
+      const t = setTimeout(() => untracked(() => this.searchItems(q)), 300);
+      cleanup(() => clearTimeout(t));
     });
     effect(() => {
       const calls = this.calls();
@@ -187,9 +199,55 @@ export class MentionPickerComponent {
     this.pick({ type: 'code', ref: v, label: name });
   }
 
+  private boardItems: readonly Option[] = [];
+
+  /** `AB#62565 Portal: Knowledge Base…` - the id first, so the chip reads like Azure's own. */
+  private itemOption(conn: string, id: string, title: string | null, detail: string, live = false): Option {
+    const t = (title ?? '').trim();
+    const label = `AB#${id}${t ? ' ' + (t.length > 70 ? t.slice(0, 69) + '…' : t) : ''}`;
+    return { ref: { type: 'workitem' as MentionType, ref: `${conn}/${id}`, label }, detail, live };
+  }
+
+  private searchItems(q: string): void {
+    const conn = this.team.picked()?.id;
+    if (!conn) return;
+    const id = /^(?:AB)?#?(\d{1,9})$/i.exec(q)?.[1];
+    if (!q) {
+      this.options.set(this.boardItems);
+      return;
+    }
+    this.loading.set(true);
+    const found = id
+      ? this.teamApi.item(conn, id, '').pipe(map((v) => [this.itemOption(conn, v.item.extId, v.item.title, [v.item.type, v.item.state].filter(Boolean).join(' · '), true)]))
+      : this.teamApi.search(conn, { text: q, openOnly: false }).pipe(map((r) => r.items.slice(0, 30).map((i) =>
+        this.itemOption(conn, i.id, i.title, [i.type, i.state].filter(Boolean).join(' · '), true))));
+    found.pipe(catchError(() => of([] as Option[]))).subscribe((live) => {
+      if (this.tab() !== 'workitem' || this.query().trim() !== q) return;
+      const mine = this.boardItems.filter((o) => `${o.ref.label} ${o.detail}`.toLowerCase().includes(q.toLowerCase()));
+      const seen = new Set(mine.map((o) => o.ref.ref));
+      this.options.set([...mine, ...live.filter((o) => !seen.has(o.ref.ref))]);
+      this.loading.set(false);
+    });
+  }
+
   private loadOptions(tab: Tab, callRef: string | null): void {
     this.options.set([]);
     if (tab === 'call' || tab === 'code') return;
+    if (tab === 'workitem') {
+      // specs/028: this board's main item and its cards' items first; typing searches the tracker live
+      if (!this.team.loaded()) this.team.load();
+      const board = this.cycleId();
+      if (!board) return;
+      this.loading.set(true);
+      this.teamApi.boardItems(board).pipe(catchError(() => of(null))).subscribe((v) => {
+        const rows = v ? [...(v.main ? [v.main] : []), ...v.items.filter((i) => i.row.role !== 'REF' && i !== v.main)] : [];
+        this.boardItems = rows.map((i) => this.itemOption(i.row.conn, i.row.item, i.row.title,
+          `${i.row.role === 'MAIN' ? 'main · ' : ''}${[i.row.type, i.row.state].filter(Boolean).join(' · ')}`));
+        if (this.tab() === 'workitem' && !this.query().trim()) this.options.set(this.boardItems);
+        this.loading.set(false);
+      });
+      return;
+    }
     if (tab === 'person') {
       // specs/028 FR-086: the tracker's people, from the lists Alfred keeps - a person is named, never a raw id
       const conn = this.team.picked()?.id;

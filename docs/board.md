@@ -35,7 +35,12 @@ no task; it is never written until something writes to it (reads use `readDefaul
   "Fetch attachments" for the item's files the board does not hold. Deleting the board removes its link
   (`LinkedWorkItemPort.boardDeleted`). See [team.md](team.md).
 - **Work item mentions**: `@[workitem:<conn>/<id>|AB#<id> <title>]` - the chip previews the item live (or from Alfred's
-  copy without a token) and opens it on the Team tab. **Person mentions** (specs/028): `@[person:<conn>/<id>|Name]` - a
+  copy without a token) and, on click, opens the item's drawer over the page you are on (`TeamItemPeekService` +
+  `TeamItemPeekHostComponent` in the app shell - the Team tab's own drawer, nothing navigates). A plain `AB#62565`
+  anywhere in board text (titles, reasons, descriptions, comments) is drawn as the same chip (`readable-refs.ts`, kind
+  `workitem`, ref `*/<id>`: `*` is the picked Team connection, else the first) - the saved text is untouched. The @
+  picker's **Azure items** tab lists the board's main item and its cards' items, then searches the tracker live as you
+  type (an id or words). **Person mentions** (specs/028): `@[person:<conn>/<id>|Name]` - a
   pill with the person's card; the @ picker has a People tab.
 - **The tracker on a board** (specs/028, see [team.md](team.md)): the Task tab's **Related items** tab holds the board's
   main work item and its tree (full copies of the main and of every card's item, references for the rest, "● changed"
@@ -509,7 +514,11 @@ These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-
 
 - New cards always land in the Inbox.
 - Claude may move cards only to To do, In progress or Fixed, and never out of Verified, Done or Closed.
-- Claude may not set scope, close, reopen, delete, bulk-edit, undo, set a reason, mark the checklist, or write briefs and spec files.
+- Claude may close or delete a card only while it is in the **Inbox** (2026-10-20, `ClaudeRules.mayCloseOrDelete`): a
+  close needs a reason (`SAY_WHY`) and is Fine, Not in this flow or Won't fix - a duplicate is a proposed MERGE
+  (`MERGE_INSTEAD`); the user can Undo it as any close. MCP: `board_close`, `board_delete`. Past the Inbox both are refused
+  (`INBOX_ONLY`) and stay proposals.
+- Claude may not set scope, reopen, bulk-edit, undo, set a reason, mark the checklist, or write briefs and spec files.
 - A Claude comment must give Did, Found and Next; Impact is optional. The two other kinds are a **reply** (`**Reply** ...`, an answer to the user) and a **question** (`**Question** ...`). A question also flags the card Needs decision. Other free text is refused.
 - Claude may rewrite the title, description, kind, cycle or project only of **its own** cards, and only while they are in the Inbox. It may set flags on any card.
 - Verified, Done and closing stay the user's. Claude **proposes** them instead (`proposals` table, one open per card, `PUT /board/cards/{id}/proposal`). Allowed proposals: Verified for a Fixed card, Done for a Fixed or Verified card, and a close with its resolution for an open card. The card and the drawer show "✦ Claude proposes ..." with Accept and Dismiss. Accepting takes the step as the user's own move or close. If the card changed so the step no longer fits, accepting drops the proposal instead. The history records PROPOSED, PROPOSAL_ACCEPTED and PROPOSAL_DISMISSED.

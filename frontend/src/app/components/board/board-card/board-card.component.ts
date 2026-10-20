@@ -1,6 +1,7 @@
 import { BundleOutboxService } from '../../../core/team/bundle-outbox.service';
 import { userLabel } from '../../../core/links/remote-ref';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   CardStatus, CardSummary, FLAG_LABELS, Flag, MENTION_ICONS, Proposal, mentionTypeOf, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
   retestChip, workedChip, defaultBoardId,
@@ -27,7 +28,9 @@ export type CardAction =
   | { readonly kind: 'reopen' }
   | { readonly kind: 'retest' }
   | { readonly kind: 'merge'; readonly into: number }
-  | { readonly kind: 'mergeGroup'; readonly group: readonly number[] };
+  | { readonly kind: 'mergeGroup'; readonly group: readonly number[] }
+  | { readonly kind: 'acceptProposal' }
+  | { readonly kind: 'dismissProposal' };
 
 /**
  * One card on the board (mock-v2): kind, flags, title, the first mentions, number, author, cycle, comments, scope and
@@ -36,7 +39,7 @@ export type CardAction =
 @Component({
   selector: 'app-board-card',
   standalone: true,
-  imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent, AutoDirDirective],
+  imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent, AutoDirDirective, NgTemplateOutlet],
   template: `
     @if (compact()) {
     <!-- Compact (the default): head, title, the one state that matters most, a meta row and the actions; the rest is in the hover peek -->
@@ -91,9 +94,6 @@ export type CardAction =
         @case ('retest') {
           <div class="bcc-state"><span class="board-retest" [class]="'board-retest board-retest-' + chip()!.tone" [title]="'Re-test: ' + retest()!.summary">{{ chip()!.text }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
         }
-        @case ('proposal') {
-          <div class="bcc-state board-card-proposal" title="Open the card to accept or dismiss"><span class="bcc-cut">✦ Claude proposes {{ proposalText(card().proposal!) }}</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
-        }
         @case ('blocked') {
           <div class="bcc-state board-card-lock"><span class="bcc-cut">🔒 Blocked by @for (b of card().blockedBy; track b.number) { <b>#{{ b.number }}</b> {{ b.title }} }</span>@if (extra()) { <span class="bcc-more">+{{ extra() }}</span> }</div>
         }
@@ -113,6 +113,7 @@ export type CardAction =
           <div class="bcc-state"><span class="board-sev bcc-cut" [title]="card().adviceDetail?.note ?? 'Claude ranks the Inbox worst first'">▲ {{ card().adviceDetail?.rank }}{{ card().adviceDetail?.of ? ' of ' + card().adviceDetail?.of : '' }}{{ card().adviceDetail?.note ? ' · ' + card().adviceDetail?.note : '' }}</span></div>
         }
       }
+      @if (card().proposal; as p) { <ng-container *ngTemplateOutlet="proposalBox; context: { $implicit: p }" /> }
       <div class="bcc-meta">
         @if (card().teams?.length) { <app-team-chips class="bcc-teams" [teams]="card().teams" /> }
         @for (m of mentionCounts(); track m.icon) { <span class="bcc-count" [title]="m.title">{{ m.icon }}{{ m.n }}</span> }
@@ -241,7 +242,7 @@ export type CardAction =
         <div class="board-sim">⚠ Looks like #{{ s.number }}, closed as {{ resolutionLabel(s.resolution) }}{{ s.reason ? ': ' + s.reason : '' }}</div>
       }
       @if (card().proposal; as p) {
-        <div class="board-card-proposal" title="Open the card to accept or dismiss">✦ Claude proposes {{ proposalText(p) }}</div>
+        <ng-container *ngTemplateOutlet="proposalBox; context: { $implicit: p }" />
       }
       @if (editable() && card().status === 'INBOX') {
         <div class="board-card-acts">
@@ -270,7 +271,20 @@ export type CardAction =
         </span>
       }
     </div>
-    }`,
+    }
+    <!-- Claude's proposal, decided on the card itself; a click anywhere else on the card still opens it -->
+    <ng-template #proposalBox let-p>
+      <div class="board-prop" (click)="$event.stopPropagation()">
+        <div class="board-prop-t">✦ Claude proposes {{ proposalText(p) }}</div>
+        @if (p.reason) { <div class="board-prop-why" [appAutoDir]="p.reason">“{{ p.reason }}”</div> }
+        @if (editable()) {
+          <div class="board-prop-acts">
+            <button type="button" class="ok" title="Take Claude's step as yours (P)" (click)="act($event, { kind: 'acceptProposal' })">✓ {{ acceptText(p) }} <kbd>P</kbd></button>
+            <button type="button" title="Not now - the card goes back to Claude" (click)="act($event, { kind: 'dismissProposal' })">✕ Dismiss</button>
+          </div>
+        }
+      </div>
+    </ng-template>`,
 })
 export class BoardCardComponent {
   readonly card = input.required<CardSummary>();
@@ -393,7 +407,6 @@ export class BoardCardComponent {
     if (this.questionCount()) out.push('question');
     if (this.checks()) out.push('checks');
     else if (this.chip()) out.push('retest');
-    if (c.proposal) out.push('proposal');
     if (c.blockedBy?.length) out.push('blocked');
     if (c.status === 'INBOX' && c.similarClosed) out.push('similar');
     if (this.toAzure()) out.push('azure');
@@ -438,6 +451,12 @@ export class BoardCardComponent {
     return proposalText(p);
   }
 
+  /** The Accept button names the step: "Close as Won't fix", "Merge into #11", "Verified". */
+  acceptText(p: Proposal): string {
+    const t = proposalText(p);
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
   resolutionLabel(r: Resolution): string {
     return RESOLUTION_LABELS[r];
   }
@@ -456,7 +475,7 @@ export class BoardCardComponent {
   }
 }
 
-type CompactState = 'live' | 'question' | 'checks' | 'retest' | 'proposal' | 'blocked' | 'similar' | 'azure' | 'resolution' | 'rank';
+type CompactState = 'live' | 'question' | 'checks' | 'retest' | 'blocked' | 'similar' | 'azure' | 'resolution' | 'rank';
 
 /** A flag as an icon, for a compact card too narrow for its words (the word stays the tooltip). */
 const FLAG_ICONS: Record<Flag, string> = { URGENT: '⚡', RISK: '⚠', BLOCKER: '⛔', AFFECTS_PROJECT: '◎', NEEDS_DECISION: '⚖' };

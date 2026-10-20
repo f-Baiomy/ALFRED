@@ -50,7 +50,7 @@ export class MentionChipComponent {
   readonly originOnline = computed(() => !!this.links.linkOf(this.originSlug())?.online);
   readonly title = computed(() => `${this.label()}${this.live()?.state ? ` · ${this.live()!.state}` : ''}${this.originName()
     ? ` · from ${this.originName()}${this.originOnline() ? '' : ' (offline)'}` : ''}
-${this.type()}: ${this.mention().ref}`);
+${this.type() === 'workitem' ? 'Azure item ' + this.mention().ref.replace(/^[^/]*\//, '') + ' - click to open it here' : `${this.type()}: ${this.mention().ref}`}`);
   private loading = false;
   private readonly host = inject(ElementRef<HTMLElement>);
 
