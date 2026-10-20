@@ -1376,6 +1376,30 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok({ moved: line(moved) });
   }));
 
+  server.registerTool('board_close', {
+    description: 'Close an Inbox card yourself - Fine (not an issue), Not in this flow, or Won\'t fix - with the reason the user reads on '
+      + 'the card (they can Undo it). Only Inbox cards: any other card\'s close is the user\'s - propose it with board_propose. A '
+      + 'duplicate is merged, not closed - propose MERGE.',
+    inputSchema: { project: Project, number: CardNumber, resolution: z.enum(['FINE', 'NOT_IN_FLOW', 'WONT_FIX']),
+      reason: z.string().min(1).max(2000).describe('Why - shown on the card') },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const closed = await client.post<CardRow>(`/board/cards/${seg(card.id)}/close`, { ...AS_CLAUDE,
+      body: { resolution: input.resolution, reason: input.reason } });
+    return ok({ closed: line(closed) });
+  }));
+
+  server.registerTool('board_delete', {
+    description: 'Delete an Inbox card for good - a card that should never have been made (a test, an empty or garbled card, one you '
+      + 'added by mistake). It cannot be undone and leaves no history: to say a finding is not a problem, close it with board_close '
+      + 'instead. Only Inbox cards.',
+    inputSchema: { project: Project, number: CardNumber, why: z.string().min(1).max(500).describe('Why it should not exist - say it to the user too') },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    await client.del(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE });
+    return ok({ deleted: `#${card.number} ${card.title}`, why: input.why });
+  }));
+
   server.registerTool('board_fix', {
     description: 'Record a fix on a card and move it to Fixed: what you changed (files and lines become code mentions), the root cause, the '
       + 'commit, the tests you ran, how to verify it, and the impact on shared code.',

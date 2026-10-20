@@ -150,7 +150,7 @@ export const LISTEN_TOOLS = [...LIVE_TOOLS, 'board_add_many', 'board_link_spec',
   'board_requirements', 'board_evidence_put'];
 
 /** The tools whose call writes something on the board (a run that made none of these answered nothing). */
-export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix|evidence_put)$|^(mcp__.+__)?add_comments?$|(^|__)chat_(reply|summary)$/;
+export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|close|delete|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix|evidence_put)$|^(mcp__.+__)?add_comments?$|(^|__)chat_(reply|summary)$/;
 
 /** The reply text from a reply tool's partial JSON input - shown as it types in. */
 export function draftOf(partialJson) {
@@ -1369,7 +1369,8 @@ export class Runner {
         this.o.chat(cardLine(first, changes, head));
       };
       if (this.chatLane.deafSince) {
-        this.chatLane.hold(`c:${first.number}`, hand);
+        this.chatLane.hold(`c:${first.number}`, hand,
+          () => reporter.end({ steps: [], state: 'DONE', outcome: 'merged into a newer change on this card' }).catch(() => null));
         reporter.report({ steps: [], state: 'WORKING', head: 'waiting - your session is not listening (run /alfred-live in it)' });
         this.o.log(`  ⏸ ${label} waits - the session does not hear the chat log`);
         return;
@@ -1548,7 +1549,7 @@ export function claudeOf(args) {
 }
 
 /** The board tools whose call on a card means the terminal answered the change handed to it. */
-export const CARD_ANSWER_TOOLS = /(^|__)board_(reply|comment|move|ask|fix|propose|edit|flag|block|assign|suggest_mark|verify)$/;
+export const CARD_ANSWER_TOOLS = /(^|__)board_(reply|comment|move|close|delete|ask|fix|propose|edit|flag|block|assign|suggest_mark|verify)$/;
 
 export async function main(argv) {
   const args = parseArgs(argv);

@@ -150,10 +150,32 @@ class BoardServiceCardsTest {
     }
 
     @Test
+    void claudeClosesWithAReasonOrDeletesOnlyInboxCards() {
+        String inbox = f.add(Actor.USER, "p", CardKind.BUG, "t", "").card().id();
+        assertThat(f.board.close(Actor.CLAUDE, inbox, Resolution.FINE, null).message()).isEqualTo(ClaudeRules.SAY_WHY);
+        assertThat(f.board.close(Actor.CLAUDE, inbox, Resolution.DUPLICATE, "same as #1").message()).isEqualTo(ClaudeRules.MERGE_INSTEAD);
+        CardChange closed = f.board.close(Actor.CLAUDE, inbox, Resolution.WONT_FIX, "outside this board");
+        assertThat(closed.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(closed.card().card().status()).isEqualTo(CardStatus.CLOSED);
+        assertThat(closed.card().card().reason()).isEqualTo("outside this board");
+
+        String other = f.add(Actor.USER, "p", CardKind.BUG, "u", "").card().id();
+        assertThat(f.board.delete(Actor.CLAUDE, other).outcome()).isEqualTo(CardChange.Outcome.OK);
+
+        String todo = f.add(Actor.USER, "p", CardKind.BUG, "v", "").card().id();
+        f.board.move(Actor.USER, todo, CardStatus.TO_DO);
+        CardChange refused = f.board.close(Actor.CLAUDE, todo, Resolution.FINE, "x");
+        assertThat(refused.outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(refused.message()).isEqualTo(ClaudeRules.INBOX_ONLY);
+        assertThat(f.board.delete(Actor.CLAUDE, todo).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+    }
+
+    @Test
     void claudeCannotCloseReopenDeleteBulkOrUndo() {
         String id = f.add(Actor.USER, "p", CardKind.BUG, "t", "").card().id();
+        f.board.move(Actor.USER, id, CardStatus.TO_DO);
 
-        assertThat(f.board.close(Actor.CLAUDE, id, Resolution.FINE, null).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(f.board.close(Actor.CLAUDE, id, Resolution.FINE, "x").outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
         assertThat(f.board.delete(Actor.CLAUDE, id).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
         assertThat(f.board.bulk(Actor.CLAUDE, List.of(id), com.fathy.alfred.backend.board.application.port.in.BulkCardsUseCase.Action.FINE,
                 null).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);

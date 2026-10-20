@@ -212,6 +212,27 @@ test('a card change the terminal took up ends on any write to that card, or when
   assert.equal(lane.pending.size, 0);
 });
 
+test('two changes on one card handed close together leave one strip working - the older one ends, never stuck (2026-10-20)', () => {
+  const ends: any[] = [];
+  const mk = (n: number): any => ({ report: () => {}, end: async (b: any) => { ends.push({ n, ...b }); } });
+  const lane = new chatLane.ChatLane({ o: { chatId: null, log: () => {}, chat: () => {} } });
+  lane.track({ key: 'c:100', marker: '✉ #100 ', reporter: mk(1), done: () => false });
+  lane.track({ key: 'c:100', marker: '✉ #100 ', reporter: mk(2), done: (name: string) => /board_reply$/.test(name) });
+  assert.deepEqual(ends.map((e) => [e.n, e.outcome]), [[1, 'merged into a newer change on this card']]);
+  lane.onTerminal(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred__board_reply', input: { number: 100 } }] } }));
+  assert.deepEqual(ends.map((e) => e.n), [1, 2]);
+  assert.equal(lane.pending.size, 0);
+
+  // held while the session is deaf: the newer change replaces the older, whose strip ends at once
+  const dropped: string[] = [];
+  const handed: string[] = [];
+  lane.hold('c:101', () => handed.push('first'), () => dropped.push('first'));
+  lane.hold('c:101', () => handed.push('second'), () => dropped.push('second'));
+  lane.flushHeld();
+  assert.deepEqual(dropped, ['first']);
+  assert.deepEqual(handed, ['second']);
+});
+
 test('a message queued while the terminal was busy ends on its chat_reply even with no "received" event', () => {
   const sent: any[] = [];
   const reporter: any = { report: (b: any) => sent.push({ ...b }), end: async (b: any) => { sent.push({ ...b, ended: true }); } };

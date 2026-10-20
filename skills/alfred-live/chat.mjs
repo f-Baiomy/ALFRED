@@ -30,7 +30,7 @@ export function chatTools() {
 export const TEAM_TOOLS = ['team_search', 'team_saved', 'team_query', 'team_item', 'team_items_live', 'team_tree', 'team_attachment',
   'team_people', 'team_board_items', 'team_card_items', 'team_card_matches', 'team_incoming', 'team_watch_rules', 'team_watch_run',
   'team_board_link', 'team_board_unlink', 'team_link_card', 'team_unlink_card', 'team_create_item', 'team_comment', 'team_move_state',
-  'team_set_field', 'team_bundle', 'team_redraft', 'team_propose_card', 'team_refresh_item', 'team_link', 'team_new_board', 'team_start'];
+  'team_set_field', 'team_update_item', 'team_split_item', 'team_log_time', 'team_close_item', 'team_item_type_fields', 'team_templates', 'team_bundle', 'team_redraft', 'team_propose_card', 'team_refresh_item', 'team_link', 'team_new_board', 'team_start'];
 
 /** The tools whose call answers a chat message. */
 export const CHAT_WRITES = /(^|__)chat_(reply|summary)$/;
@@ -326,6 +326,12 @@ export class ChatLane {
    * Alfred's live progress only - never stored.
    */
   track({ key, marker, reporter, done }) {
+    // a second change on the same card replaces the first one's entry: its strip ends here, or it waited for ever
+    // (2026-10-20, AB#62565: one card linked five times left four "waiting for your terminal" strips)
+    const old = this.pending.get(key);
+    if (old && old.reporter !== reporter) {
+      old.reporter.end({ steps: old.steps, state: 'DONE', outcome: 'merged into a newer change on this card' }).catch(() => null);
+    }
     const steps = [];
     this.pending.set(key, { key, marker, reporter, done, steps, picked: false });
     reporter.report({ steps, state: 'WORKING', head: 'waiting for your terminal to be free' });
@@ -395,8 +401,11 @@ export class ChatLane {
   }
 
   /** A card change that waits while the session does not hear the chat log: handed to it when it watches again. */
-  hold(key, hand) {
-    (this.held ??= new Map()).set(key, hand);
+  hold(key, hand, drop = null) {
+    // a newer change on the same card replaces the held one: the older strip ends, never left "waiting" for good
+    const old = this.held?.get(key);
+    if (old?.drop) old.drop();
+    (this.held ??= new Map()).set(key, { hand, drop });
   }
 
   /** Hands the held card changes to the session, which hears the chat log again. */
@@ -404,7 +413,7 @@ export class ChatLane {
     if (this.deafSince || !this.held?.size) return;
     const held = [...this.held.values()];
     this.held.clear();
-    for (const hand of held) hand();
+    for (const h of held) h.hand();
   }
 
   untrack(key, end) {

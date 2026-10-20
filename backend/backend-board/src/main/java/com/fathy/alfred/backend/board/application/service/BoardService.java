@@ -470,12 +470,20 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     @Override
     public synchronized CardChange close(Actor actor, String id, Resolution resolution, String reason) {
-        if (actor == Actor.CLAUDE) {
-            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.USER_ONLY);
-        }
         Optional<Card> found = store.find(id);
         if (found.isEmpty()) {
             return CardChange.notFound();
+        }
+        if (actor == Actor.CLAUDE) {
+            if (!ClaudeRules.mayCloseOrDelete(found.get())) {
+                return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.INBOX_ONLY);
+            }
+            if (resolution == Resolution.DUPLICATE) {
+                return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.MERGE_INSTEAD);
+            }
+            if (reason == null || reason.isBlank()) {
+                return CardChange.refused(CardChange.Outcome.INVALID, ClaudeRules.SAY_WHY);
+            }
         }
         if (resolution == null || !Transitions.canClose(found.get().status())) {
             return CardChange.refused(resolution == null ? CardChange.Outcome.INVALID : CardChange.Outcome.ILLEGAL_TRANSITION,
@@ -701,12 +709,12 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     @Override
     public CardChange delete(Actor actor, String id) {
-        if (actor == Actor.CLAUDE) {
-            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.USER_ONLY);
-        }
         Optional<Card> found = store.find(id);
         if (found.isEmpty()) {
             return CardChange.notFound();
+        }
+        if (actor == Actor.CLAUDE && !ClaudeRules.mayCloseOrDelete(found.get())) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.INBOX_ONLY);
         }
         boolean hadLiveCalls = anyLiveCall(store.linksOf(id));
         store.delete(id);
